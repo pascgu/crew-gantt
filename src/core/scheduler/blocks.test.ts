@@ -1,0 +1,169 @@
+import { describe, expect, it } from 'vitest';
+import { createCalcContext } from './context';
+import { closedBlockCapacity, resolveBlocks, taskSpan } from './blocks';
+import { assign, block, person, task, team } from '../testkit';
+
+function ctxWith(resources = [person('alice')], holidays: string[] = []) {
+  const file = team({ resources });
+  file.team.calendar.holidays = holidays;
+  return createCalcContext(file);
+}
+
+describe('bloc ouvert en mode effort — la fin absorbe le reste à faire', () => {
+  it('plein temps : 5 j-h → lundi à vendredi', () => {
+    const t = task('t', {
+      remaining: 5,
+      effort: 5,
+      blocks: [block('b', '2026-06-01', null, [assign('alice')])],
+    });
+    const [r] = resolveBlocks(ctxWith(), t);
+    expect(r!.to).toBe('2026-06-05');
+    expect(r!.computed).toBe(true);
+    expect(r!.overflow).toBe(false);
+  });
+
+  it('enjambe le week-end : 6 j-h → fin lundi suivant', () => {
+    const t = task('t', {
+      remaining: 6,
+      effort: 6,
+      blocks: [block('b', '2026-06-01', null, [assign('alice')])],
+    });
+    expect(resolveBlocks(ctxWith(), t)[0]!.to).toBe('2026-06-08');
+  });
+
+  it('à 50 % (units) : 2 fois plus long', () => {
+    const t = task('t', {
+      remaining: 5,
+      blocks: [block('b', '2026-06-01', null, [assign('alice', 50)])],
+    });
+    expect(resolveBlocks(ctxWith(), t)[0]!.to).toBe('2026-06-12');
+  });
+
+  it('la part projet réduit la capacité', () => {
+    const alice = person('alice', {
+      projectShares: [{ projectId: 'pA', from: '2026-01-01', percent: 50 }],
+    });
+    const t = task('t', {
+      remaining: 2.5,
+      blocks: [block('b', '2026-06-01', null, [assign('alice')])],
+    });
+    expect(resolveBlocks(ctxWith([alice]), t)[0]!.to).toBe('2026-06-05');
+  });
+
+  it('un férié rallonge', () => {
+    const t = task('t', {
+      remaining: 5,
+      blocks: [block('b', '2026-06-01', null, [assign('alice')])],
+    });
+    expect(resolveBlocks(ctxWith([person('alice')], ['2026-06-03']), t)[0]!.to).toBe('2026-06-08');
+  });
+
+  it('une absence datée rallonge', () => {
+    const alice = person('alice', {
+      exceptions: [{ from: '2026-06-03', to: '2026-06-04', percent: 0 }],
+    });
+    const t = task('t', {
+      remaining: 5,
+      blocks: [block('b', '2026-06-01', null, [assign('alice')])],
+    });
+    expect(resolveBlocks(ctxWith([alice]), t)[0]!.to).toBe('2026-06-09');
+  });
+
+  it('une demi-journée compte pour 0,5', () => {
+    const alice = person('alice', { exceptions: [{ from: '2026-06-02', percent: 50 }] });
+    const t = task('t', {
+      remaining: 2,
+      blocks: [block('b', '2026-06-01', null, [assign('alice')])],
+    });
+    // lun 1, mar 0,5, mer 1 → cumul 2,5 ≥ 2 le mercredi
+    expect(resolveBlocks(ctxWith([alice]), t)[0]!.to).toBe('2026-06-03');
+  });
+
+  it('deux affectations cumulent leurs capacités', () => {
+    const t = task('t', {
+      remaining: 4,
+      blocks: [block('b', '2026-06-01', null, [assign('alice'), assign('bob')])],
+    });
+    expect(resolveBlocks(ctxWith([person('alice'), person('bob')]), t)[0]!.to).toBe('2026-06-02');
+  });
+
+  it('reste 0 : le bloc se réduit à son premier jour', () => {
+    const t = task('t', {
+      remaining: 0,
+      blocks: [block('b', '2026-06-01', null, [assign('alice')])],
+    });
+    const [r] = resolveBlocks(ctxWith(), t);
+    expect(r!.to).toBe('2026-06-01');
+    expect(r!.overflow).toBe(false);
+  });
+
+  it('sans affectation : effort non casé (overflow)', () => {
+    const t = task('t', { remaining: 5, blocks: [block('b', '2026-06-01', null)] });
+    const [r] = resolveBlocks(ctxWith(), t);
+    expect(r!.overflow).toBe(true);
+    expect(r!.to).toBe('2026-06-01');
+  });
+
+  it('affecté à quelqu’un qui n’a aucune capacité : overflow', () => {
+    const alice = person('alice', {
+      projectShares: [{ projectId: 'pA', from: '2026-01-01', percent: 0 }],
+    });
+    const t = task('t', {
+      remaining: 5,
+      blocks: [block('b', '2026-06-01', null, [assign('alice')])],
+    });
+    expect(resolveBlocks(ctxWith([alice]), t)[0]!.overflow).toBe(true);
+  });
+});
+
+describe('blocs fermés et mode fixed', () => {
+  it('les blocs fermés sont pris tels quels (historique)', () => {
+    const t = task('t', {
+      remaining: 7,
+      blocks: [
+        block('b1', '2026-06-01', '2026-06-02', [assign('alice')]),
+        block('b2', '2026-06-15', null, [assign('alice')]),
+      ],
+    });
+    const resolved = resolveBlocks(ctxWith(), t);
+    expect(resolved[0]).toMatchObject({ from: '2026-06-01', to: '2026-06-02', computed: false });
+    expect(resolved[1]).toMatchObject({ from: '2026-06-15', to: '2026-06-23', computed: true });
+  });
+
+  it('en mode fixed, un bloc ouvert se réduit à sa date de début', () => {
+    const t = task('t', {
+      scheduling: 'fixed',
+      remaining: 10,
+      blocks: [block('b', '2026-06-01', null, [assign('alice')])],
+    });
+    expect(resolveBlocks(ctxWith(), t)[0]!.to).toBe('2026-06-01');
+  });
+
+  it('closedBlockCapacity somme les capacités du bloc', () => {
+    const ctx = ctxWith();
+    const t = task('t', {
+      blocks: [block('b', '2026-06-01', '2026-06-08', [assign('alice', 50)])],
+    });
+    const [r] = resolveBlocks(ctx, t);
+    // 6 jours ouvrés (lun–ven + lun) × 0,5
+    expect(closedBlockCapacity(ctx, t, r!)).toBeCloseTo(3, 10);
+  });
+});
+
+describe('taskSpan', () => {
+  it('du début du premier bloc à la fin du dernier', () => {
+    const ctx = ctxWith();
+    const t = task('t', {
+      remaining: 2,
+      blocks: [
+        block('b2', '2026-06-15', null, [assign('alice')]),
+        block('b1', '2026-06-01', '2026-06-02', [assign('alice')]),
+      ],
+    });
+    expect(taskSpan(resolveBlocks(ctx, t))).toEqual({ start: '2026-06-01', end: '2026-06-16' });
+  });
+
+  it('sans bloc : null', () => {
+    expect(taskSpan([])).toBeNull();
+  });
+});
