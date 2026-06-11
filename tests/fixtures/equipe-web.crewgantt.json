@@ -1,0 +1,155 @@
+{
+  "formatVersion": 1,
+  "app": "CrewGantt",
+  "team": {
+    "name": "Équipe Web",
+    "calendar": { "workingDays": [1, 2, 3, 4, 5], "holidays": ["2026-11-11", "2026-12-25"] }
+  },
+  "projects": [
+    { "id": "p-portail", "name": "Portail client", "color": "#4f8ef7", "archived": false },
+    { "id": "p-interne", "name": "Outils internes", "color": "#7bc47f", "archived": false }
+  ],
+  "resources": [
+    {
+      "id": "r-alice",
+      "name": "Alice",
+      "kind": "person",
+      "workingDays": [1, 2, 4, 5],
+      "exceptions": [
+        { "from": "2026-10-12", "to": "2026-10-16", "reason": "Congés" },
+        { "from": "2026-11-06", "percent": 50, "reason": "Formation le matin" }
+      ],
+      "projectShares": [
+        { "projectId": "p-portail", "from": "2026-09-01", "percent": 60 },
+        { "projectId": "p-interne", "from": "2026-09-01", "percent": 40 },
+        { "projectId": "p-portail", "from": "2026-11-01", "percent": 100 },
+        { "projectId": "p-interne", "from": "2026-11-01", "percent": 0 }
+      ]
+    },
+    {
+      "id": "r-bob",
+      "name": "Bob",
+      "kind": "person",
+      "exceptions": [],
+      "projectShares": []
+    }
+  ],
+  "tasks": [
+    {
+      "id": "g-conception",
+      "projectId": "p-portail",
+      "parentId": null,
+      "order": 0,
+      "name": "Conception",
+      "type": "group"
+    },
+    {
+      "id": "t-spec",
+      "projectId": "p-portail",
+      "parentId": "g-conception",
+      "order": 0,
+      "name": "Spécifications",
+      "type": "task",
+      "scheduling": "effort",
+      "estimate": 5,
+      "effort": 5,
+      "remaining": 0,
+      "status": "done",
+      "blocks": [
+        {
+          "id": "b-spec",
+          "from": "2026-09-01",
+          "to": "2026-09-07",
+          "assignments": [{ "resourceId": "r-bob", "units": 100 }]
+        }
+      ]
+    },
+    {
+      "id": "t-maq",
+      "projectId": "p-portail",
+      "parentId": "g-conception",
+      "order": 1,
+      "name": "Maquettes",
+      "type": "task",
+      "scheduling": "effort",
+      "estimate": 8,
+      "effort": 10,
+      "remaining": 7,
+      "status": "in_progress",
+      "requirements": "UX confirmé · maquettes à valider client avant dev",
+      "links": [{ "on": "t-spec", "type": "after-progress", "progressDays": 2, "lag": 0 }],
+      "deadline": null,
+      "blocks": [
+        {
+          "id": "b1",
+          "from": "2026-09-08",
+          "to": "2026-09-09",
+          "assignments": [{ "resourceId": "r-bob", "units": 100 }]
+        },
+        {
+          "id": "b2",
+          "from": "2026-09-21",
+          "to": null,
+          "assignments": [{ "resourceId": "r-alice", "units": 80 }]
+        }
+      ],
+      "notes": [{ "date": "2026-09-15", "text": "Reprise par Alice après le salon" }]
+    },
+    {
+      "id": "t-recette",
+      "projectId": "p-portail",
+      "parentId": null,
+      "order": 1,
+      "name": "Recette",
+      "type": "task",
+      "scheduling": "effort",
+      "effort": 5,
+      "remaining": 5,
+      "status": "todo",
+      "links": [{ "on": "t-maq", "type": "after-end", "lag": 0 }],
+      "blocks": [
+        {
+          "id": "b-recette",
+          "from": "2026-11-23",
+          "to": null,
+          "assignments": [{ "resourceId": "r-alice", "units": 100 }]
+        }
+      ]
+    },
+    {
+      "id": "m-v1",
+      "projectId": "p-portail",
+      "parentId": null,
+      "order": 9,
+      "name": "Livraison V1",
+      "type": "milestone",
+      "date": "2026-12-04",
+      "links": [{ "on": "t-recette", "type": "after-end", "lag": 0 }]
+    }
+  ],
+  "baselines": [
+    {
+      "id": "b-initial",
+      "name": "Plan initial",
+      "createdAt": "2026-09-01",
+      "active": true,
+      "tasks": {
+        "t-maq": { "blocks": [{ "from": "2026-09-08", "to": "2026-09-19" }], "effort": 10 }
+      },
+      "milestones": { "m-v1": "2026-11-27" }
+    }
+  ],
+  "journal": [
+    {
+      "date": "2026-09-15",
+      "type": "meeting",
+      "summary": [
+        "Maquettes : reste 7 j-h (était 8)",
+        "Maquettes : Bob → Alice (80 %) à partir du 21/09",
+        "Alice : 0 % du 12 au 16/10"
+      ],
+      "note": "Salon pro la semaine 38, équipe réduite."
+    }
+  ],
+  "ui": { "zoom": "week", "projectFilter": null, "collapsed": ["g-conception"] }
+}
