@@ -1,0 +1,143 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import { createEmptyTeamFile } from '@/core/model/factory';
+import { clearHistory, useAppStore } from './store';
+import {
+  addTask,
+  collapseAll,
+  convertTaskType,
+  expandAll,
+  indentTask,
+  moveTaskDown,
+  moveTaskUp,
+  outdentTask,
+} from './taskActions';
+
+const file = () => useAppStore.getState().file;
+const taskOf = (id: string) => file().tasks.find((t) => t.id === id)!;
+const rootOrder = () =>
+  file()
+    .tasks.filter((t) => t.parentId === null)
+    .sort((a, b) => a.order - b.order)
+    .map((t) => t.id);
+
+beforeEach(() => {
+  useAppStore.getState().replaceFile(createEmptyTeamFile('Test'), null);
+  clearHistory();
+});
+
+describe('moveTaskUp / moveTaskDown', () => {
+  it('échange avec le sibling précédent / suivant', () => {
+    const a = addTask({});
+    const b = addTask({ afterId: a });
+    const c = addTask({ afterId: b });
+    expect(rootOrder()).toEqual([a, b, c]);
+
+    expect(moveTaskUp(b)).toBe(true);
+    expect(rootOrder()).toEqual([b, a, c]);
+
+    expect(moveTaskDown(b)).toBe(true);
+    expect(rootOrder()).toEqual([a, b, c]);
+  });
+
+  it('refuse aux bords de la fratrie', () => {
+    const a = addTask({});
+    const b = addTask({ afterId: a });
+    expect(moveTaskUp(a)).toBe(false);
+    expect(moveTaskDown(b)).toBe(false);
+    expect(rootOrder()).toEqual([a, b]);
+  });
+
+  it('reste dans sa fratrie (ne traverse pas les niveaux)', () => {
+    const g = addTask({ type: 'group' });
+    const child = addTask({ parentId: g });
+    expect(moveTaskUp(child)).toBe(false);
+    expect(taskOf(child).parentId).toBe(g);
+  });
+});
+
+describe('indentTask / outdentTask', () => {
+  it('indente sous le sibling précédent et désindente après son parent', () => {
+    const a = addTask({});
+    const b = addTask({ afterId: a });
+
+    expect(indentTask(b)).toBe(true);
+    expect(taskOf(b).parentId).toBe(a);
+
+    expect(outdentTask(b)).toBe(true);
+    expect(taskOf(b).parentId).toBeNull();
+    expect(rootOrder()).toEqual([a, b]);
+  });
+
+  it("refuse d'indenter sans sibling précédent ou sous un jalon", () => {
+    const m = addTask({ type: 'milestone' });
+    const b = addTask({ afterId: m });
+    expect(indentTask(m)).toBe(false); // pas de sibling précédent
+    expect(indentTask(b)).toBe(false); // précédent = jalon
+    expect(taskOf(b).parentId).toBeNull();
+  });
+
+  it('refuse de désindenter une racine', () => {
+    const a = addTask({});
+    expect(outdentTask(a)).toBe(false);
+  });
+});
+
+describe('convertTaskType', () => {
+  it('tâche → groupe : abandonne les blocs', () => {
+    const a = addTask({});
+    useAppStore.getState().mutate((f) => {
+      f.tasks
+        .find((t) => t.id === a)!
+        .blocks.push({ id: 'b1', from: '2026-06-01', to: '2026-06-05', assignments: [] });
+    });
+    expect(convertTaskType(a, 'group')).toBe(true);
+    expect(taskOf(a).type).toBe('group');
+    expect(taskOf(a).blocks).toHaveLength(0);
+  });
+
+  it('tâche → jalon : reprend le début du 1er bloc comme date', () => {
+    const a = addTask({});
+    useAppStore.getState().mutate((f) => {
+      f.tasks
+        .find((t) => t.id === a)!
+        .blocks.push({ id: 'b1', from: '2026-06-01', to: '2026-06-05', assignments: [] });
+    });
+    expect(convertTaskType(a, 'milestone')).toBe(true);
+    expect(taskOf(a).type).toBe('milestone');
+    expect(taskOf(a).date).toBe('2026-06-01');
+    expect(taskOf(a).blocks).toHaveLength(0);
+  });
+
+  it('refuse jalon si la tâche a des enfants', () => {
+    const g = addTask({ type: 'group' });
+    addTask({ parentId: g });
+    expect(convertTaskType(g, 'milestone')).toBe(false);
+    expect(taskOf(g).type).toBe('group');
+  });
+
+  it('jalon → tâche : efface la date', () => {
+    const m = addTask({ type: 'milestone' });
+    useAppStore.getState().mutate((f) => {
+      f.tasks.find((t) => t.id === m)!.date = '2026-06-12';
+    });
+    expect(convertTaskType(m, 'task')).toBe(true);
+    expect(taskOf(m).type).toBe('task');
+    expect(taskOf(m).date).toBeNull();
+  });
+});
+
+describe('collapseAll / expandAll', () => {
+  it('replie tous les parents puis déplie tout', () => {
+    const g1 = addTask({ type: 'group' });
+    addTask({ parentId: g1 });
+    const g2 = addTask({ type: 'group' });
+    addTask({ parentId: g2 });
+    addTask({}); // feuille sans enfants
+
+    collapseAll();
+    expect(new Set(file().ui.collapsed)).toEqual(new Set([g1, g2]));
+
+    expandAll();
+    expect(file().ui.collapsed).toEqual([]);
+  });
+});

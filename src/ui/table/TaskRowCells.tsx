@@ -2,8 +2,10 @@ import { useState, type DragEvent } from 'react';
 import type { Schedule } from '@/core/scheduler/schedule';
 import type { Conflict } from '@/core/conflicts/detect';
 import { useAppStore } from '@/state/store';
+import type { TaskType } from '@/core/model/types';
 import {
   addTask,
+  convertTaskType,
   deleteTask,
   moveTask,
   setTaskEffort,
@@ -16,7 +18,13 @@ import {
 } from '@/state/taskActions';
 import { EditableNumber, EditableText } from '@/ui/common/inline';
 import { ContextMenu, type MenuEntry } from '@/ui/common/ContextMenu';
-import { IconChevronDown, IconChevronRight, IconDiamond, IconPlus } from '@/ui/common/icons';
+import {
+  IconChevronDown,
+  IconChevronRight,
+  IconDiamond,
+  IconDots,
+  IconPlus,
+} from '@/ui/common/icons';
 import { t } from '@/i18n/fr';
 import { fmtDay, fmtDays, initials } from '@/ui/gantt/format';
 import type { GanttRow } from '@/ui/gantt/rows';
@@ -41,6 +49,9 @@ interface TaskRowCellsProps {
   dropIndicator: DropIndicator | null;
   onDropIndicator: (ind: DropIndicator | null) => void;
   onOpenPanel: (taskId: string) => void;
+  /** Survol synchronisé avec la timeline. */
+  hovered: boolean;
+  onHover: (taskId: string | null) => void;
 }
 
 export function TaskRowCells({
@@ -50,6 +61,8 @@ export function TaskRowCells({
   dropIndicator,
   onDropIndicator,
   onOpenPanel,
+  hovered,
+  onHover,
 }: TaskRowCellsProps) {
   const { task, depth, hasChildren, collapsed } = row;
   const selectTask = useAppStore((s) => s.selectTask);
@@ -89,6 +102,19 @@ export function TaskRowCells({
     onDropIndicator(null);
   }
 
+  const convertEntries: MenuEntry[] = (['task', 'group', 'milestone'] as TaskType[])
+    .filter((ty) => ty !== task.type)
+    .map((ty) => ({
+      label: t(`tasks.convertTo.${ty}`),
+      disabled: ty === 'milestone' && hasChildren,
+      onClick: () => {
+        const losesBlocks = ty !== 'task' && task.blocks.length > 0;
+        if (losesBlocks && !window.confirm(t('tasks.convertConfirmBlocks', { name: task.name })))
+          return;
+        convertTaskType(task.id, ty);
+      },
+    }));
+
   const addEntries: MenuEntry[] = [
     { label: t('tasks.addAfter'), onClick: () => selectTask(addTask({ afterId: task.id })) },
     {
@@ -104,6 +130,7 @@ export function TaskRowCells({
       label: t('tasks.addGroup'),
       onClick: () => selectTask(addTask({ afterId: task.id, type: 'group' })),
     },
+    ...convertEntries,
     {
       label: t('tasks.delete'),
       danger: true,
@@ -112,6 +139,23 @@ export function TaskRowCells({
       },
     },
   ];
+
+  /** Boutons ronds « + » de la ligne sélectionnée : un par niveau (0…profondeur+1). */
+  function addAtLevel(level: number) {
+    if (level === depth + 1) {
+      selectTask(addTask({ parentId: task.id }));
+      return;
+    }
+    // remonter la chaîne des parents jusqu'à l'ancêtre du niveau visé
+    const all = useAppStore.getState().file.tasks;
+    let anchor = task;
+    for (let d = depth; d > level; d--) {
+      const parent = all.find((tk) => tk.id === anchor.parentId);
+      if (!parent) break;
+      anchor = parent;
+    }
+    selectTask(addTask({ afterId: anchor.id }));
+  }
 
   const dropClass =
     dropIndicator?.taskId === task.id
@@ -124,9 +168,13 @@ export function TaskRowCells({
 
   return (
     <div
-      className={`group/row flex h-8 items-center border-b border-line/60 text-[12.5px] ${selected ? 'bg-accent-wash/60' : 'bg-surface'} ${dropClass}`}
+      className={`group/row relative flex h-6 items-center border-b border-line/60 text-[12.5px] ${
+        selected ? 'bg-accent-wash/60' : hovered ? 'bg-ink/[0.03]' : 'bg-surface'
+      } ${dropClass}`}
       onClick={() => selectTask(task.id)}
       onDoubleClick={() => onOpenPanel(task.id)}
+      onMouseEnter={() => onHover(task.id)}
+      onMouseLeave={() => onHover(null)}
       onDragOver={onDragOver}
       onDragLeave={() => onDropIndicator(null)}
       onDrop={onDrop}
@@ -174,11 +222,40 @@ export function TaskRowCells({
             e.stopPropagation();
             setMenu({ x: e.clientX, y: e.clientY });
           }}
-          title={t('tasks.addAfter')}
+          title={t('tasks.rowActions')}
+          aria-label={t('tasks.rowActions')}
         >
-          <IconPlus size={12} />
+          <IconDots size={12} />
         </button>
       </div>
+
+      {/* « + » par niveau, sous la ligne sélectionnée : choisir directement la profondeur */}
+      {selected && (
+        <div className="pointer-events-none absolute -bottom-[9px] left-0 z-20 h-[18px]">
+          {Array.from({ length: depth + 2 }, (_, level) => {
+            const isChild = level === depth + 1;
+            if (isChild && task.type === 'milestone') return null;
+            const title = isChild
+              ? t('tasks.addChild')
+              : t('tasks.addAtLevel', { level: level + 1 });
+            return (
+              <button
+                key={level}
+                className="pointer-events-auto absolute flex h-[18px] w-[18px] items-center justify-center rounded-full border border-accent bg-surface text-accent shadow-sm transition hover:bg-accent hover:text-white"
+                style={{ left: 4 + level * 16 }}
+                title={title}
+                aria-label={title}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  addAtLevel(level);
+                }}
+              >
+                <IconPlus size={10} />
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Projet */}
       <div className="flex items-center gap-1.5 px-1" style={{ width: COLS.project }}>

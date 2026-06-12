@@ -1,17 +1,35 @@
-import { useMemo, useRef, useState } from 'react';
-import { format } from 'date-fns';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { todayIso } from '@/core/calendar/dates';
 import { constrainingChain } from '@/core/scheduler/links';
-import type { ZoomLevel } from '@/core/model/types';
+import type { IsoDate, ZoomLevel } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
 import { useConflicts, useConflictsByTask, useSchedule } from '@/state/schedule';
-import { addTask, setZoom } from '@/state/taskActions';
-import { createBaseline, setActiveBaseline } from '@/state/baselineActions';
+import {
+  addTask,
+  collapseAll,
+  deleteTask,
+  expandAll,
+  indentTask,
+  moveTaskDown,
+  moveTaskUp,
+  outdentTask,
+  setZoom,
+} from '@/state/taskActions';
 import { proposalKey, useProposal } from '@/state/proposalActions';
 import { exportGanttPng, exportTasksCsv } from '@/io/export';
 import { defaultFileName } from '@/io/fileAccess';
 import { ProjectFilter } from '@/ui/app/ProjectFilter';
-import { IconCamera, IconDiamond, IconPlus, IconWarning } from '@/ui/common/icons';
+import { HelpButton } from '@/ui/app/HelpButton';
+import { usePersistedState } from '@/ui/common/persist';
+import { IconChevronDown, IconChevronRight, IconPlus, IconWarning } from '@/ui/common/icons';
+import { ContextMenu } from '@/ui/common/ContextMenu';
 import { ProposalBar } from '@/ui/proposal/ProposalBar';
 import { ImpactsPanel } from '@/ui/proposal/ImpactsPanel';
 import { ConflictsPanel } from '@/ui/proposal/ConflictsPanel';
@@ -19,8 +37,9 @@ import { TaskRowCells, type DropIndicator } from '@/ui/table/TaskRowCells';
 import { COLS, TABLE_WIDTH } from '@/ui/table/columns';
 import { t } from '@/i18n/fr';
 import { GanttChart } from './GanttChart';
+import { GanttControls } from './GanttControls';
 import { TaskPanel } from './TaskPanel';
-import { WorkloadPanel } from './WorkloadPanel';
+import { WorkloadGauges, WorkloadNames } from './WorkloadPanel';
 import { useGanttRows } from './rows';
 import {
   bottomTicks,
@@ -28,10 +47,12 @@ import {
   HEADER_HEIGHT,
   ROW_HEIGHT,
   topTicks,
+  weekHoverTicks,
 } from './timescale';
 
-const ZOOMS: ZoomLevel[] = ['day', 'week', 'month', 'quarter'];
+const ZOOM_ORDER: ZoomLevel[] = ['day', 'week', 'month', 'quarter'];
 const OVERSCAN = 6;
+const MIN_TABLE_WIDTH = 280;
 
 export function GanttTab() {
   const schedule = useSchedule();
@@ -42,6 +63,7 @@ export function GanttTab() {
   const selectTask = useAppStore((s) => s.selectTask);
   const tasks = useAppStore((s) => s.file.tasks);
   const projects = useAppStore((s) => s.file.projects);
+  const resources = useAppStore((s) => s.file.resources);
   const teamName = useAppStore((s) => s.file.team.name);
   const cycle = schedule.cycle;
 
@@ -50,11 +72,16 @@ export function GanttTab() {
   const [scrollTop, setScrollTop] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [viewportH, setViewportH] = useState(800);
-  const [showWorkload, setShowWorkload] = useState(true);
   const [showImpacts, setShowImpacts] = useState(false);
   const [showConflicts, setShowConflicts] = useState(false);
-  const [showBaseline, setShowBaseline] = useState(true);
   const [dismissedProposal, setDismissedProposal] = useState('');
+  const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
+  const [workloadMenu, setWorkloadMenu] = useState<{ x: number; y: number } | null>(null);
+
+  // Préférences d'affichage (hors fichier : ne marquent pas dirty)
+  const [tableWidth, setTableWidth] = usePersistedState('crewgantt.ui.tableWidth', TABLE_WIDTH);
+  const [workloadOpen, setWorkloadOpen] = usePersistedState('crewgantt.ui.workloadOpen', true);
+  const [workloadRowH, setWorkloadRowH] = usePersistedState('crewgantt.ui.workloadRowH', 28);
 
   const proposal = useProposal();
   const { active: activeConflicts } = useConflicts();
@@ -69,8 +96,13 @@ export function GanttTab() {
         : undefined,
     [proposal, proposalVisible],
   );
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const tableBodyRef = useRef<HTMLDivElement | null>(null);
+  const headerInnerRef = useRef<HTMLDivElement | null>(null);
+  const workloadInnerRef = useRef<HTMLDivElement | null>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
+  const zoomAnchor = useRef<{ date: IsoDate; offsetX: number } | null>(null);
 
   // Mesure du viewport pour la virtualisation des lignes.
   const attachScroll = (el: HTMLDivElement | null) => {
@@ -118,116 +150,172 @@ export function GanttTab() {
 
   const scrollToToday = () => {
     const el = scrollRef.current;
-    if (el) el.scrollLeft = TABLE_WIDTH + scale.x(today) - (el.clientWidth - TABLE_WIDTH) / 2;
+    if (el) el.scrollLeft = scale.x(today) - el.clientWidth / 2;
   };
+
+  // ——— Synchronisation : le conteneur du chart est le scroll master ———
+
+  const onChartScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (headerInnerRef.current)
+      headerInnerRef.current.style.transform = `translateX(${-el.scrollLeft}px)`;
+    if (workloadInnerRef.current)
+      workloadInnerRef.current.style.transform = `translateX(${-el.scrollLeft}px)`;
+    if (tableBodyRef.current) tableBodyRef.current.scrollTop = el.scrollTop;
+    setScrollTop(el.scrollTop);
+    setScrollLeft(el.scrollLeft);
+  };
+
+  const panBy = (dx: number, dy: number) => {
+    const el = scrollRef.current;
+    if (el) {
+      el.scrollLeft += dx;
+      el.scrollTop += dy;
+    }
+  };
+
+  // Ctrl+molette : zoomer en gardant la date sous le curseur.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const next = ZOOM_ORDER[ZOOM_ORDER.indexOf(zoom) + (e.deltaY > 0 ? 1 : -1)];
+      if (!next) return;
+      const offsetX = e.clientX - el.getBoundingClientRect().left;
+      zoomAnchor.current = { date: scale.dateAt(el.scrollLeft + offsetX), offsetX };
+      setZoom(next);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [zoom, scale]);
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const anchor = zoomAnchor.current;
+    if (el && anchor) {
+      zoomAnchor.current = null;
+      el.scrollLeft = scale.x(anchor.date) - anchor.offsetX;
+    }
+  }, [scale]);
+
+  // ——— Clavier : navigation, ALT+flèches, Entrée/Suppr/Échap ———
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const typing =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target !== null && target.isContentEditable);
+      if (typing) return;
+      const sel = selectedTaskId;
+      if (e.altKey && sel) {
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          moveTaskUp(sel);
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          moveTaskDown(sel);
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          indentTask(sel);
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          outdentTask(sel);
+        }
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && rows.length > 0) {
+        e.preventDefault();
+        const idx = rows.findIndex((r) => r.task.id === sel);
+        const nextIdx =
+          idx < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, idx + (e.key === 'ArrowDown' ? 1 : -1)));
+        selectTask(rows[nextIdx]!.task.id);
+        const el = scrollRef.current;
+        if (el) {
+          const y = nextIdx * ROW_HEIGHT;
+          if (y < el.scrollTop) el.scrollTop = y;
+          else if (y + ROW_HEIGHT > el.scrollTop + el.clientHeight)
+            el.scrollTop = y + ROW_HEIGHT - el.clientHeight;
+        }
+      } else if (e.key === 'Enter' && sel) {
+        e.preventDefault();
+        openPanel(sel);
+      } else if (e.key === 'Delete' && sel) {
+        const task = tasks.find((tk) => tk.id === sel);
+        if (task && window.confirm(t('tasks.confirmDelete', { name: task.name }))) deleteTask(sel);
+      } else if (e.key === 'Escape') {
+        if (panelOpen) setPanelOpen(false);
+        else selectTask(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [rows, selectedTaskId, panelOpen, tasks]);
+
+  // ——— Splitter table ↔ gantt et poignée de hauteur de charge ———
+
+  const startSplit = (e: ReactPointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = tableWidth;
+    const onMove = (ev: PointerEvent) => {
+      setTableWidth(Math.max(MIN_TABLE_WIDTH, Math.min(TABLE_WIDTH, startW + ev.clientX - startX)));
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  const startWorkloadResize = (e: ReactPointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = workloadRowH;
+    const count = Math.max(1, resources.length);
+    const onMove = (ev: PointerEvent) => {
+      setWorkloadRowH(
+        Math.max(16, Math.min(48, Math.round(startH + (startY - ev.clientY) / count))),
+      );
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  const exportPng = () => {
+    const svg = document.getElementById('gantt-chart-svg');
+    if (svg instanceof SVGSVGElement) {
+      void exportGanttPng(svg, `${defaultFileName(teamName).replace('.crewgantt.json', '')}-gantt.png`);
+    }
+  };
+  const exportCsv = () =>
+    exportTasksCsv(
+      useAppStore.getState().file,
+      schedule,
+      `${defaultFileName(teamName).replace('.crewgantt.json', '')}-taches.csv`,
+    );
+
+  const hasResources = resources.length > 0;
+  const workloadH = resources.length * workloadRowH;
 
   return (
     <div className="flex h-full min-h-0">
       <div className="relative flex min-w-0 flex-1 flex-col">
-        {/* Barre d'outils */}
-        <div className="flex shrink-0 items-center gap-3 border-b border-line bg-surface px-3 py-1.5">
+        {/* Barre d'outils allégée : filtre, conflits, aide */}
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface px-3 py-1.5">
           <ProjectFilter />
-          <span className="mx-1 h-5 w-px bg-line" />
-          <div className="flex items-center gap-0.5 rounded-lg bg-paper-deep p-0.5">
-            {ZOOMS.map((z) => (
-              <button
-                key={z}
-                className={`rounded-md px-2 py-0.5 text-[11.5px] font-medium transition ${
-                  zoom === z ? 'bg-surface text-ink shadow-sm' : 'text-ink-soft hover:text-ink'
-                }`}
-                onClick={() => setZoom(z)}
-              >
-                {t(`gantt.zoom.${z}`)}
-              </button>
-            ))}
-          </div>
-          <button
-            className="rounded-md border border-line px-2 py-0.5 text-[11.5px] font-medium text-ink-soft transition hover:border-accent hover:text-accent"
-            onClick={scrollToToday}
-          >
-            {t('gantt.today')}
-          </button>
-          <button
-            className={`rounded-md border px-2 py-0.5 text-[11.5px] font-medium transition ${
-              showWorkload
-                ? 'border-accent bg-accent-wash text-accent-deep'
-                : 'border-line text-ink-soft hover:text-ink'
-            }`}
-            onClick={() => setShowWorkload((v) => !v)}
-          >
-            {showWorkload ? t('workload.hide') : t('workload.show')}
-          </button>
-          <span className="mx-1 h-5 w-px bg-line" />
-          {/* Baseline : figer / choisir / afficher */}
-          <button
-            className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11.5px] font-medium text-ink-soft transition hover:border-accent hover:text-accent"
-            title={t('baseline.freeze')}
-            onClick={() => {
-              const name = window.prompt(
-                t('baseline.freezePrompt'),
-                t('baseline.defaultName', { date: format(new Date(), 'dd/MM/yyyy') }),
-              );
-              if (name) createBaseline(name);
-            }}
-          >
-            <IconCamera size={12} /> {t('baseline.freeze')}
-          </button>
-          {baselines.length > 0 && (
-            <>
-              <select
-                className="max-w-36 rounded-md border border-line bg-surface px-1.5 py-0.5 text-[11.5px] text-ink-soft outline-none"
-                value={activeBl?.id ?? ''}
-                title={t('baseline.active')}
-                onChange={(e) => setActiveBaseline(e.target.value || null)}
-              >
-                <option value="">{t('baseline.none')}</option>
-                {baselines.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                className={`rounded-md border px-2 py-0.5 text-[11.5px] font-medium transition ${
-                  showBaseline && activeBl
-                    ? 'border-line-strong bg-paper-deep text-ink'
-                    : 'border-line text-ink-soft hover:text-ink'
-                }`}
-                onClick={() => setShowBaseline((v) => !v)}
-              >
-                {t('baseline.show')}
-              </button>
-            </>
-          )}
-          <span className="mx-1 h-5 w-px bg-line" />
-          {/* Exports */}
-          <button
-            className="rounded-md border border-line px-2 py-0.5 font-mono text-[10.5px] font-medium text-ink-soft transition hover:border-accent hover:text-accent"
-            title={t('export.pngTitle')}
-            onClick={() => {
-              const svg = document.getElementById('gantt-chart-svg');
-              if (svg instanceof SVGSVGElement) {
-                void exportGanttPng(svg, `${defaultFileName(teamName).replace('.crewgantt.json', '')}-gantt.png`);
-              }
-            }}
-          >
-            {t('export.png')}
-          </button>
-          <button
-            className="rounded-md border border-line px-2 py-0.5 font-mono text-[10.5px] font-medium text-ink-soft transition hover:border-accent hover:text-accent"
-            title={t('export.csvTitle')}
-            onClick={() =>
-              exportTasksCsv(
-                useAppStore.getState().file,
-                schedule,
-                `${defaultFileName(teamName).replace('.crewgantt.json', '')}-taches.csv`,
-              )
-            }
-          >
-            {t('export.csv')}
-          </button>
           <span className="flex-1" />
-          {/* Conflits */}
           <button
             className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] font-medium transition ${
               activeConflicts.length > 0
@@ -251,24 +339,7 @@ export function GanttTab() {
               })}
             </span>
           )}
-          <button
-            className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11.5px] font-medium text-ink-soft transition hover:border-accent hover:text-accent"
-            onClick={() => openPanel(addTask({ type: 'group' }))}
-          >
-            <IconPlus size={11} /> {t('tasks.addGroup')}
-          </button>
-          <button
-            className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11.5px] font-medium text-ink-soft transition hover:border-accent hover:text-accent"
-            onClick={() => openPanel(addTask({ type: 'milestone' }))}
-          >
-            <IconDiamond size={11} /> {t('tasks.addMilestone')}
-          </button>
-          <button
-            className="flex items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-[11.5px] font-medium text-white transition hover:bg-accent-deep"
-            onClick={() => openPanel(addTask({}))}
-          >
-            <IconPlus size={11} /> {t('tasks.addTask')}
-          </button>
+          <HelpButton />
         </div>
 
         {/* Bandeau de proposition : l'outil propose, l'humain dispose */}
@@ -283,91 +354,173 @@ export function GanttTab() {
           />
         )}
 
-        {/* Zone défilante : tableau collant à gauche + timeline */}
-        <div
-          ref={attachScroll}
-          className="min-h-0 flex-1 overflow-auto"
-          onScroll={(e) => {
-            setScrollTop(e.currentTarget.scrollTop);
-            setScrollLeft(e.currentTarget.scrollLeft);
-          }}
-        >
-          <div style={{ width: TABLE_WIDTH + scale.width }} className="relative">
-            {/* En-tête collant */}
+        {projects.length === 0 ? (
+          <div className="p-8 text-sm text-ink-faint">{t('tasks.noProject')}</div>
+        ) : (
+          <div className="flex min-h-0 flex-1">
+            {/* ——— Volet table ——— */}
             <div
-              className="sticky top-0 z-20 flex border-b border-line bg-surface"
-              style={{ height: HEADER_HEIGHT }}
+              className="flex shrink-0 flex-col overflow-hidden bg-surface"
+              style={{ width: tableWidth }}
+              onWheel={(e) => {
+                const el = scrollRef.current;
+                if (el) el.scrollTop += e.deltaY;
+              }}
             >
-              <HeaderLeft />
-              <HeaderTimescale scale={scale} />
+              <div
+                className="shrink-0 overflow-hidden border-b border-line"
+                style={{ height: HEADER_HEIGHT }}
+              >
+                <HeaderLeft />
+              </div>
+              <div ref={tableBodyRef} className="min-h-0 flex-1 overflow-hidden">
+                {rows.length === 0 ? (
+                  <div className="p-6 text-sm text-ink-faint">
+                    <p>{t('tasks.emptyPlan')}</p>
+                    <button
+                      className="mt-3 flex items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-[11.5px] font-medium text-white transition hover:bg-accent-deep"
+                      onClick={() => openPanel(addTask({}))}
+                    >
+                      <IconPlus size={11} /> {t('tasks.addTask')}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative" style={{ height: rows.length * ROW_HEIGHT, width: TABLE_WIDTH }}>
+                    <div style={{ transform: `translateY(${windowStart * ROW_HEIGHT}px)` }}>
+                      {rows.slice(windowStart, windowEnd).map((row) => (
+                        <TaskRowCells
+                          key={row.task.id}
+                          row={row}
+                          schedule={schedule}
+                          conflicts={conflictsByTask.get(row.task.id)}
+                          dropIndicator={dropIndicator}
+                          onDropIndicator={setDropIndicator}
+                          onOpenPanel={openPanel}
+                          hovered={hoveredTaskId === row.task.id}
+                          onHover={setHoveredTaskId}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {/* Noms du bandeau de charge, alignés sur les jauges */}
+              {hasResources && workloadOpen && (
+                <div
+                  className="shrink-0 overflow-hidden border-t-2 border-line-strong"
+                  style={{ height: workloadH }}
+                >
+                  <WorkloadNames schedule={schedule} rowH={workloadRowH} />
+                </div>
+              )}
+              {hasResources && !workloadOpen && (
+                <div className="h-2 shrink-0 border-t-2 border-line-strong" />
+              )}
             </div>
 
-            {projects.length === 0 ? (
-              <div className="sticky left-0 p-8 text-sm text-ink-faint" style={{ width: 500 }}>
-                {t('tasks.noProject')}
-              </div>
-            ) : rows.length === 0 ? (
-              <div className="sticky left-0 p-8 text-sm text-ink-faint" style={{ width: 500 }}>
-                {t('tasks.emptyPlan')}
-              </div>
-            ) : (
-              <div className="relative" style={{ height: rows.length * ROW_HEIGHT }}>
-                {/* Timeline SVG (toutes lignes, barres virtualisées) */}
-                <div className="absolute top-0" style={{ left: TABLE_WIDTH }}>
-                  <GanttChart
-                    rows={rows}
-                    schedule={schedule}
-                    scale={scale}
-                    windowStart={windowStart}
-                    windowEnd={windowEnd}
-                    conflictTaskIds={new Set(conflictsByTask.keys())}
-                    proposalByTask={proposalByTask}
-                    baseline={showBaseline ? activeBl : null}
-                    chainTaskIds={chain?.ids}
-                    chainPairs={chain?.pairs}
-                    onOpenPanel={openPanel}
-                  />
-                </div>
-                {/* Colonnes du tableau, collantes à gauche (lignes virtualisées) */}
-                <div
-                  className="sticky left-0 z-10"
-                  style={{
-                    width: TABLE_WIDTH,
-                    transform: `translateY(${windowStart * ROW_HEIGHT}px)`,
-                  }}
-                >
-                  <div className="border-r border-line-strong shadow-[2px_0_6px_rgb(33_31_26/0.05)]">
-                    {rows.slice(windowStart, windowEnd).map((row) => (
-                      <TaskRowCells
-                        key={row.task.id}
-                        row={row}
-                        schedule={schedule}
-                        conflicts={conflictsByTask.get(row.task.id)}
-                        dropIndicator={dropIndicator}
-                        onDropIndicator={setDropIndicator}
-                        onOpenPanel={openPanel}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* ——— Splitter ——— */}
+            <div
+              className="w-1.5 shrink-0 cursor-col-resize border-x border-line bg-paper-deep transition hover:bg-accent/40"
+              onPointerDown={startSplit}
+              onDoubleClick={() => setTableWidth(TABLE_WIDTH)}
+            />
 
-            {/* Volet de charge par personne (repliable), aligné sur la timeline */}
-            {showWorkload && schedule.ctx.file.resources.length > 0 && (
-              <div className="sticky bottom-0 z-20">
-                <WorkloadPanel
+            {/* ——— Volet Gantt ——— */}
+            <div className="relative flex min-w-0 flex-1 flex-col">
+              <GanttControls
+                zoom={zoom}
+                onToday={scrollToToday}
+                onExportPng={exportPng}
+                onExportCsv={exportCsv}
+              />
+              {/* En-tête timescale, synchronisé en translateX */}
+              <div
+                className="shrink-0 overflow-hidden border-b border-line bg-surface"
+                style={{ height: HEADER_HEIGHT }}
+              >
+                <div ref={headerInnerRef} style={{ width: scale.width, willChange: 'transform' }}>
+                  <HeaderTimescale scale={scale} />
+                </div>
+              </div>
+              {/* Conteneur scroll : les deux ascenseurs natifs vivent ici, sous/à droite du Gantt */}
+              <div ref={attachScroll} className="min-h-0 flex-1 overflow-auto" onScroll={onChartScroll}>
+                <GanttChart
+                  rows={rows}
                   schedule={schedule}
                   scale={scale}
-                  visibleFrom={scale.dateAt(Math.max(0, scrollLeft - 200))}
-                  visibleTo={scale.dateAt(
-                    Math.min(scale.width - 1, scrollLeft + window.innerWidth),
-                  )}
+                  windowStart={windowStart}
+                  windowEnd={windowEnd}
+                  conflictTaskIds={new Set(conflictsByTask.keys())}
+                  proposalByTask={proposalByTask}
+                  baseline={activeBl}
+                  chainTaskIds={chain?.ids}
+                  chainPairs={chain?.pairs}
+                  onOpenPanel={openPanel}
+                  onPanBy={panBy}
+                  hoveredTaskId={hoveredTaskId}
+                  onHoverTask={setHoveredTaskId}
                 />
               </div>
-            )}
+              {/* Bandeau de charge : repliable (chevron) et redimensionnable (poignée) */}
+              {hasResources && (
+                <div className="relative shrink-0 border-t-2 border-line-strong bg-surface">
+                  {workloadOpen && (
+                    <div
+                      className="absolute -top-1.5 left-0 right-0 z-20 h-2.5 cursor-row-resize"
+                      title={t('workload.resizeHint')}
+                      onPointerDown={startWorkloadResize}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setWorkloadMenu({ x: e.clientX, y: e.clientY });
+                      }}
+                    />
+                  )}
+                  <button
+                    className="absolute -top-3 left-1/2 z-20 -translate-x-1/2 rounded-full border border-line bg-surface p-0.5 text-ink-soft shadow-sm transition hover:border-accent hover:text-accent"
+                    title={workloadOpen ? t('workload.hide') : t('workload.show')}
+                    aria-label={workloadOpen ? t('workload.hide') : t('workload.show')}
+                    onClick={() => setWorkloadOpen((v) => !v)}
+                  >
+                    <IconChevronDown size={12} className={workloadOpen ? '' : 'rotate-180'} />
+                  </button>
+                  {workloadOpen ? (
+                    <div className="overflow-hidden" style={{ height: workloadH }}>
+                      <div
+                        ref={workloadInnerRef}
+                        style={{ width: scale.width, willChange: 'transform' }}
+                      >
+                        <WorkloadGauges
+                          schedule={schedule}
+                          scale={scale}
+                          rowH={workloadRowH}
+                          visibleFrom={scale.dateAt(Math.max(0, scrollLeft - 200))}
+                          visibleTo={scale.dateAt(
+                            Math.min(scale.width - 1, scrollLeft + window.innerWidth),
+                          )}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-2" />
+                  )}
+                  {workloadMenu && (
+                    <ContextMenu
+                      x={workloadMenu.x}
+                      y={workloadMenu.y}
+                      entries={[
+                        {
+                          label: workloadOpen ? t('workload.hide') : t('workload.show'),
+                          onClick: () => setWorkloadOpen((v) => !v),
+                        },
+                      ]}
+                      onClose={() => setWorkloadMenu(null)}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Panneaux flottants */}
         {showImpacts && proposal && (
@@ -403,7 +556,7 @@ function HeaderLeft() {
   ];
   return (
     <div
-      className="sticky left-0 z-30 flex h-full items-end border-r border-line-strong bg-surface pb-1.5"
+      className="flex h-full items-end bg-surface pb-1.5"
       style={{ width: TABLE_WIDTH, minWidth: TABLE_WIDTH }}
     >
       {labels.map(({ key, label }) => (
@@ -414,7 +567,29 @@ function HeaderLeft() {
           }`}
           style={{ width: COLS[key] }}
         >
-          {label}
+          {key === 'name' ? (
+            <span className="flex items-center gap-1">
+              <button
+                className="rounded p-0.5 text-ink-faint transition hover:text-ink"
+                title={t('tasks.collapseAll')}
+                aria-label={t('tasks.collapseAll')}
+                onClick={collapseAll}
+              >
+                <IconChevronRight size={11} />
+              </button>
+              <button
+                className="rounded p-0.5 text-ink-faint transition hover:text-ink"
+                title={t('tasks.expandAll')}
+                aria-label={t('tasks.expandAll')}
+                onClick={expandAll}
+              >
+                <IconChevronDown size={11} />
+              </button>
+              {label}
+            </span>
+          ) : (
+            label
+          )}
         </span>
       ))}
     </div>
@@ -424,6 +599,7 @@ function HeaderLeft() {
 function HeaderTimescale({ scale }: { scale: ReturnType<typeof buildTimeScale> }) {
   const top = topTicks(scale);
   const bottom = bottomTicks(scale);
+  const perDay = scale.zoom === 'day' || scale.zoom === 'week';
   return (
     <svg width={scale.width} height={HEADER_HEIGHT} className="shrink-0">
       {top.map((tick, i) => (
@@ -449,25 +625,35 @@ function HeaderTimescale({ scale }: { scale: ReturnType<typeof buildTimeScale> }
       ))}
       {bottom.map((tick, i) => (
         <g key={`b${i}`}>
-          <line
-            x1={tick.x}
-            x2={tick.x}
-            y1={26}
-            y2={HEADER_HEIGHT}
-            stroke="var(--color-line)"
-            opacity={0.7}
-          />
+          {(scale.zoom !== 'week' || tick.emphasis) && (
+            <line
+              x1={tick.x}
+              x2={tick.x}
+              y1={26}
+              y2={HEADER_HEIGHT}
+              stroke="var(--color-line)"
+              opacity={0.7}
+            />
+          )}
           <text
-            x={tick.x + (scale.zoom === 'day' ? tick.width / 2 : 4)}
+            x={tick.x + (perDay ? tick.width / 2 : 4)}
             y={38}
-            fontSize={10}
+            fontSize={scale.zoom === 'week' ? 8.5 : 10}
             fill="var(--color-ink-faint)"
-            textAnchor={scale.zoom === 'day' ? 'middle' : 'start'}
+            opacity={tick.faint ? 0.45 : 1}
+            fontWeight={tick.emphasis && scale.zoom === 'week' ? 700 : 400}
+            textAnchor={perDay ? 'middle' : 'start'}
             className="font-mono"
           >
             {tick.label}
           </text>
         </g>
+      ))}
+      {/* n° de semaine au survol (zoom semaine) */}
+      {weekHoverTicks(scale).map((w, i) => (
+        <rect key={`w${i}`} x={w.x} y={22} width={w.width} height={HEADER_HEIGHT - 22} fill="transparent">
+          <title>{w.label}</title>
+        </rect>
       ))}
     </svg>
   );

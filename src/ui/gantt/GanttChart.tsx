@@ -22,8 +22,8 @@ import type { Baseline } from '@/core/model/types';
 import { ROW_HEIGHT, type TimeScale } from './timescale';
 import type { GanttRow } from './rows';
 
-const BAR_Y = 8;
-const BAR_H = 16;
+const BAR_Y = 6;
+const BAR_H = 12;
 
 interface DragMove {
   kind: 'move';
@@ -75,6 +75,10 @@ interface GanttChartProps {
   chainTaskIds?: ReadonlySet<string>;
   chainPairs?: ReadonlySet<string>;
   onOpenPanel: (taskId: string) => void;
+  /** Pan au clic gauche sur le fond : décale le conteneur de scroll. */
+  onPanBy: (dx: number, dy: number) => void;
+  hoveredTaskId: string | null;
+  onHoverTask: (taskId: string | null) => void;
 }
 
 export function GanttChart({
@@ -89,10 +93,16 @@ export function GanttChart({
   chainTaskIds,
   chainPairs,
   onOpenPanel,
+  onPanBy,
+  hoveredTaskId,
+  onHoverTask,
 }: GanttChartProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [panning, setPanning] = useState(false);
+  const panRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const suppressClickRef = useRef(false);
   const selectedTaskId = useAppStore((s) => s.selectedTaskId);
   const selectTask = useAppStore((s) => s.selectTask);
   const projectColor = useMemo(() => {
@@ -181,7 +191,29 @@ export function GanttChart({
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
+  // ——— Pan : clic gauche maintenu sur le fond (les barres stoppent la propagation) ———
+
+  function onRootPointerDown(e: ReactPointerEvent) {
+    if (e.button !== 0 || drag) return;
+    panRef.current = { x: e.clientX, y: e.clientY, moved: false };
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+  }
+
   function onPointerMove(e: ReactPointerEvent) {
+    const pan = panRef.current;
+    if (pan && !drag) {
+      const dx = e.clientX - pan.x;
+      const dy = e.clientY - pan.y;
+      if (!pan.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+      if (!pan.moved) {
+        pan.moved = true;
+        setPanning(true);
+      }
+      onPanBy(-dx, -dy);
+      pan.x = e.clientX;
+      pan.y = e.clientY;
+      return;
+    }
     if (!drag) return;
     if (drag.kind === 'move') {
       const deltaDays = Math.round((e.clientX - drag.startX) / scale.dayWidth);
@@ -204,6 +236,12 @@ export function GanttChart({
   }
 
   function onPointerUp() {
+    if (panRef.current) {
+      // après un vrai pan, étouffer le clic qui suit (sinon il sélectionne une ligne)
+      suppressClickRef.current = panRef.current.moved;
+      panRef.current = null;
+      setPanning(false);
+    }
     if (!drag) return;
     if (drag.kind === 'move') {
       if (drag.deltaDays !== 0) moveBlock(drag.taskId, drag.blockId, drag.deltaDays);
@@ -308,9 +346,17 @@ export function GanttChart({
         ref={svgRef}
         width={scale.width}
         height={height}
-        className="block select-none"
+        className={`block select-none ${panning ? 'cursor-grabbing' : ''}`}
+        onPointerDown={onRootPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerLeave={() => onHoverTask(null)}
+        onClickCapture={(e) => {
+          if (suppressClickRef.current) {
+            suppressClickRef.current = false;
+            e.stopPropagation();
+          }
+        }}
       >
         {/* Jours chômés */}
         {gridColumns.map((c, i) => (
@@ -346,6 +392,20 @@ export function GanttChart({
                 opacity={0.09}
               />
             ) : null,
+          )}
+        {/* Survol (synchronisé avec la table) */}
+        {hoveredTaskId !== null &&
+          hoveredTaskId !== selectedTaskId &&
+          rowIndexByTask.has(hoveredTaskId) && (
+            <rect
+              x={0}
+              y={rowIndexByTask.get(hoveredTaskId)! * ROW_HEIGHT}
+              width={scale.width}
+              height={ROW_HEIGHT}
+              fill="var(--color-ink)"
+              opacity={0.035}
+              pointerEvents="none"
+            />
           )}
         {/* Sélection */}
         {selectedTaskId !== null && rowIndexByTask.has(selectedTaskId) && (
@@ -400,6 +460,7 @@ export function GanttChart({
             onContextMenu={(e) => rowMenu(e, row.task)}
             onClick={() => selectTask(row.task.id)}
             onDoubleClick={() => onOpenPanel(row.task.id)}
+            onMouseEnter={() => onHoverTask(row.task.id)}
           >
             {/* zone cliquable de la ligne */}
             <rect x={0} y={0} width={scale.width} height={ROW_HEIGHT} fill="transparent" />
@@ -485,8 +546,8 @@ function RowBars({
     const cx = scale.x(task.date) + scale.dayWidth / 2;
     return (
       <g className="cursor-pointer">
-        <Diamond cx={cx} cy={mid} size={7} color={color} conflict={hasConflict} />
-        <text x={cx + 12} y={mid + 4} fontSize={11} fill="var(--color-ink-soft)">
+        <Diamond cx={cx} cy={mid} size={6} color={color} conflict={hasConflict} />
+        <text x={cx + 10} y={mid + 3.5} fontSize={10.5} fill="var(--color-ink-soft)">
           {task.name}
         </text>
       </g>
@@ -513,9 +574,9 @@ function RowBars({
           <rect
             key={i}
             x={scale.x(itv.from)}
-            y={mid - 5}
+            y={mid - 4}
             width={Math.max(3, scale.xEnd(itv.to) - scale.x(itv.from))}
-            height={10}
+            height={8}
             rx={2}
             fill={dark}
           />
@@ -524,10 +585,10 @@ function RowBars({
         {progressW > 0 && (
           <rect
             x={scale.x(agg.span.start)}
-            y={mid + 7}
+            y={mid + 5.5}
             width={progressW}
-            height={3}
-            rx={1.5}
+            height={2.5}
+            rx={1.25}
             fill={darken(color, 0.5)}
           />
         )}
@@ -539,7 +600,7 @@ function RowBars({
                 key={m.id}
                 cx={scale.x(m.date) + scale.dayWidth / 2}
                 cy={mid}
-                size={5.5}
+                size={5}
                 color={color}
               />
             ),
@@ -589,6 +650,13 @@ function RowBars({
         const x = scale.x(from) + dragOffset(r.block.id);
         const w = Math.max(4, scale.xEnd(to) - scale.x(from));
         const openEnd = r.block.to === null;
+        const who = r.block.assignments
+          .map((a) => {
+            const res = schedule.ctx.file.resources.find((rs) => rs.id === a.resourceId);
+            return res ? `${res.name} (${a.units} %)` : null;
+          })
+          .filter(Boolean)
+          .join(', ');
         return (
           <g key={r.block.id}>
             <rect
@@ -607,6 +675,8 @@ function RowBars({
             >
               <title>
                 {t('gantt.blockOf', { name: task.name })} — {from} → {to}
+                {who ? `\n${who}` : ''}
+                {`\n${t('panel.remaining')} : ${task.remaining} ${t('common.days')}`}
               </title>
             </rect>
             {/* fin calculée : bord droit en dégradé (travail qui « s'arrête tout seul ») */}
@@ -645,10 +715,10 @@ function RowBars({
       {progressW > 0 && (
         <rect
           x={scale.x(span.start)}
-          y={BAR_Y + BAR_H - 5}
+          y={BAR_Y + BAR_H - 4}
           width={progressW}
-          height={4}
-          rx={2}
+          height={3}
+          rx={1.5}
           fill={darken(color, 0.55)}
           pointerEvents="none"
         />
@@ -667,7 +737,7 @@ function RowBars({
       <circle
         cx={scale.xEnd(span.end) + 7}
         cy={mid}
-        r={4.5}
+        r={4}
         fill="var(--color-surface)"
         stroke="var(--color-accent)"
         strokeWidth={1.5}
@@ -739,7 +809,7 @@ function BaselineGhost({
     const cy = y + ROW_HEIGHT / 2;
     return (
       <path
-        d={`M ${cx} ${cy - 6} L ${cx + 6} ${cy} L ${cx} ${cy + 6} L ${cx - 6} ${cy} Z`}
+        d={`M ${cx} ${cy - 5} L ${cx + 5} ${cy} L ${cx} ${cy + 5} L ${cx - 5} ${cy} Z`}
         fill="none"
         stroke="var(--color-line-strong)"
         strokeWidth={1.5}
@@ -755,10 +825,10 @@ function BaselineGhost({
         <rect
           key={i}
           x={scale.x(b.from)}
-          y={y + ROW_HEIGHT - 7}
+          y={y + ROW_HEIGHT - 5}
           width={Math.max(2, scale.xEnd(b.to) - scale.x(b.from))}
-          height={4}
-          rx={2}
+          height={3}
+          rx={1.5}
           fill="var(--color-line-strong)"
           opacity={0.9}
         />
@@ -784,7 +854,7 @@ function ProposalGhost({
     const cy = y + ROW_HEIGHT / 2;
     return (
       <path
-        d={`M ${cx} ${cy - 7} L ${cx + 7} ${cy} L ${cx} ${cy + 7} L ${cx - 7} ${cy} Z`}
+        d={`M ${cx} ${cy - 6} L ${cx + 6} ${cy} L ${cx} ${cy + 6} L ${cx - 6} ${cy} Z`}
         fill={rgba(color, 0.25)}
         stroke="var(--color-accent)"
         strokeWidth={1.5}
@@ -804,9 +874,9 @@ function ProposalGhost({
           <rect
             key={i}
             x={scale.x(b.from)}
-            y={y + 2}
+            y={y + 1}
             width={Math.max(3, scale.xEnd(to) - scale.x(b.from))}
-            height={6}
+            height={4}
             rx={2}
             fill={rgba(color, 0.3)}
             stroke="var(--color-accent)"

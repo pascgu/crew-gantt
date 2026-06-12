@@ -90,27 +90,32 @@ export function TopBar() {
 
       <div className="flex items-center gap-1">
         <button
-          className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-ink-soft transition hover:bg-paper-deep hover:text-ink"
+          className="rounded-md p-1.5 text-ink-soft transition hover:bg-paper-deep hover:text-ink"
           onClick={newFile}
+          title={t('file.new')}
+          aria-label={t('file.new')}
         >
-          <IconPlus size={14} /> {t('file.new')}
+          <IconPlus size={15} />
         </button>
         <button
-          className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-ink-soft transition hover:bg-paper-deep hover:text-ink"
+          className="rounded-md p-1.5 text-ink-soft transition hover:bg-paper-deep hover:text-ink"
           onClick={() => void openFile()}
+          title={t('file.open')}
+          aria-label={t('file.open')}
         >
-          <IconFolder size={14} /> {t('file.open')}
+          <IconFolder size={15} />
         </button>
         <button
-          className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-accent-deep"
+          className="rounded-md bg-accent p-1.5 text-white transition hover:bg-accent-deep"
           onClick={() => void save()}
           onContextMenu={(e) => {
             e.preventDefault();
             void save({ saveAs: true });
           }}
           title={`${t('file.save')} (Ctrl+S) — clic droit : ${t('file.saveAs')}`}
+          aria-label={t('file.save')}
         >
-          <IconSave size={14} /> {t('file.save')}
+          <IconSave size={15} />
         </button>
       </div>
     </header>

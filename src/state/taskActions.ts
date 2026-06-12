@@ -1,6 +1,6 @@
 import { createBlock, createTask, newId } from '@/core/model/factory';
 import { wouldCreateCycle } from '@/core/scheduler/links';
-import { addDays } from '@/core/calendar/dates';
+import { addDays, todayIso } from '@/core/calendar/dates';
 import { t } from '@/i18n/fr';
 import type { Assignment, IsoDate, Task, TaskLink, TaskType, TeamFile } from '@/core/model/types';
 import { useAppStore } from './store';
@@ -186,6 +186,82 @@ export function moveTask(id: string, targetId: string, position: MovePosition): 
   return ok;
 }
 
+function sortedSiblings(file: TeamFile, parentId: string | null): Task[] {
+  return file.tasks
+    .filter((t) => t.parentId === parentId)
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+}
+
+/** ALT+↑ : échanger avec le sibling précédent. */
+export function moveTaskUp(id: string): boolean {
+  const file = useAppStore.getState().file;
+  const task = taskById(file, id);
+  if (!task) return false;
+  const siblings = sortedSiblings(file, task.parentId);
+  const i = siblings.findIndex((s) => s.id === id);
+  if (i <= 0) return false;
+  return moveTask(id, siblings[i - 1]!.id, 'before');
+}
+
+/** ALT+↓ : échanger avec le sibling suivant. */
+export function moveTaskDown(id: string): boolean {
+  const file = useAppStore.getState().file;
+  const task = taskById(file, id);
+  if (!task) return false;
+  const siblings = sortedSiblings(file, task.parentId);
+  const i = siblings.findIndex((s) => s.id === id);
+  if (i < 0 || i >= siblings.length - 1) return false;
+  return moveTask(id, siblings[i + 1]!.id, 'after');
+}
+
+/** ALT+→ : devenir enfant du sibling précédent. */
+export function indentTask(id: string): boolean {
+  const file = useAppStore.getState().file;
+  const task = taskById(file, id);
+  if (!task) return false;
+  const siblings = sortedSiblings(file, task.parentId);
+  const i = siblings.findIndex((s) => s.id === id);
+  const prev = i > 0 ? siblings[i - 1]! : undefined;
+  if (!prev || prev.type === 'milestone') return false;
+  return moveTask(id, prev.id, 'child');
+}
+
+/** ALT+← : remonter d'un niveau (sibling après son parent). */
+export function outdentTask(id: string): boolean {
+  const file = useAppStore.getState().file;
+  const task = taskById(file, id);
+  if (!task?.parentId) return false;
+  return moveTask(id, task.parentId, 'after');
+}
+
+/**
+ * Convertir tâche ↔ groupe ↔ jalon. Non destructif autant que possible :
+ * - vers jalon : refusé s'il y a des enfants ; la date reprend le début du 1er bloc ;
+ * - vers jalon ou groupe : les blocs propres sont abandonnés (le groupe agrège ses enfants) ;
+ * - vers tâche : la date de jalon est effacée, les blocs repartent à vide.
+ */
+export function convertTaskType(id: string, type: TaskType): boolean {
+  let ok = false;
+  mutate((file) => {
+    const task = taskById(file, id);
+    if (!task || task.type === type) return;
+    const hasChildren = file.tasks.some((t) => t.parentId === id);
+    if (type === 'milestone' && hasChildren) return;
+    if (type === 'milestone') {
+      task.date = task.date ?? task.blocks[0]?.from ?? todayIso();
+      task.blocks = [];
+    } else if (type === 'group') {
+      task.blocks = [];
+      task.date = null;
+    } else {
+      task.date = null;
+    }
+    task.type = type;
+    ok = true;
+  });
+  return ok;
+}
+
 /** Changer le projet d'une tâche racine : toute sa descendance suit. */
 export function setTaskProject(id: string, projectId: string): void {
   mutate((file) => {
@@ -339,6 +415,22 @@ export function toggleCollapsed(taskId: string): void {
     const i = file.ui.collapsed.indexOf(taskId);
     if (i >= 0) file.ui.collapsed.splice(i, 1);
     else file.ui.collapsed.push(taskId);
+  });
+}
+
+export function collapseAll(): void {
+  mutate((file) => {
+    const parents = new Set<string>();
+    for (const task of file.tasks) {
+      if (task.parentId !== null) parents.add(task.parentId);
+    }
+    file.ui.collapsed = [...parents];
+  });
+}
+
+export function expandAll(): void {
+  mutate((file) => {
+    file.ui.collapsed = [];
   });
 }
 

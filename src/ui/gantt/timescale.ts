@@ -4,7 +4,7 @@ import { addDays, diffDays, mondayOf, toDate } from '@/core/calendar/dates';
 import type { IsoDate, ZoomLevel } from '@/core/model/types';
 import { t } from '@/i18n/fr';
 
-export const ROW_HEIGHT = 32;
+export const ROW_HEIGHT = 24;
 export const HEADER_HEIGHT = 44;
 
 export const DAY_WIDTH: Record<ZoomLevel, number> = {
@@ -67,6 +67,8 @@ export interface HeaderTick {
   width: number;
   label: string;
   emphasis?: boolean;
+  /** Estompé (week-end en zoom semaine). */
+  faint?: boolean;
 }
 
 /** Rangée haute : mois (jour/semaine/mois) ou trimestres (quarter). */
@@ -128,16 +130,39 @@ export function bottomTicks(scale: TimeScale): HeaderTick[] {
     return out;
   }
   if (scale.zoom === 'week') {
-    for (let day = mondayOf(scale.origin); day <= scale.end; day = addDays(day, 7)) {
+    // une lettre par jour : L M M J V S D — le n° de semaine s'affiche au survol
+    for (let day = scale.origin; day <= scale.end; day = addDays(day, 1)) {
+      const d = toDate(day);
+      const dow = d.getDay();
       out.push({
         x: scale.x(day),
-        width: scale.dayWidth * 7,
-        label: t('gantt.week', { num: getISOWeek(toDate(day)) }),
+        width: scale.dayWidth,
+        label: format(d, 'EEEEE', { locale: frLocale }).toUpperCase(),
+        emphasis: dow === 1,
+        faint: dow === 0 || dow === 6,
       });
     }
     return out;
   }
   if (scale.zoom === 'month') return out; // la rangée haute (mois) suffit
+  return monthTicks(scale, out);
+}
+
+/** Zones de survol par semaine (zoom semaine) : « S36 » en infobulle. */
+export function weekHoverTicks(scale: TimeScale): HeaderTick[] {
+  if (scale.zoom !== 'week') return [];
+  const out: HeaderTick[] = [];
+  for (let day = mondayOf(scale.origin); day <= scale.end; day = addDays(day, 7)) {
+    out.push({
+      x: scale.x(day),
+      width: scale.dayWidth * 7,
+      label: t('gantt.week', { num: getISOWeek(toDate(day)) }),
+    });
+  }
+  return out;
+}
+
+function monthTicks(scale: TimeScale, out: HeaderTick[]): HeaderTick[] {
   // trimestre : graduations mensuelles fines
   let day = scale.origin;
   while (day <= scale.end) {

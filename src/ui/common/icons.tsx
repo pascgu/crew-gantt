@@ -107,3 +107,27 @@ export const IconCamera = (p: IconProps) => (
     <circle cx="12" cy="13" r="4" />
   </svg>
 );
+
+export const IconDots = (p: IconProps) => (
+  <svg {...base(p)} fill="currentColor" strokeWidth={0}>
+    <circle cx="5" cy="12" r="1.8" />
+    <circle cx="12" cy="12" r="1.8" />
+    <circle cx="19" cy="12" r="1.8" />
+  </svg>
+);
+
+export const IconTarget = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="7" />
+    <circle cx="12" cy="12" r="1.5" fill="currentColor" strokeWidth={0} />
+    <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+  </svg>
+);
+
+export const IconHelp = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.2 9a2.8 2.8 0 1 1 4 2.55c-.8.38-1.2.95-1.2 1.95" />
+    <path d="M12 17h.01" />
+  </svg>
+);
