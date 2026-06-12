@@ -304,6 +304,7 @@ export function GanttChart({
   return (
     <>
       <svg
+        id="gantt-chart-svg"
         ref={svgRef}
         width={scale.width}
         height={height}

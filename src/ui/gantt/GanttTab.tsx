@@ -8,6 +8,8 @@ import { useConflicts, useConflictsByTask, useSchedule } from '@/state/schedule'
 import { addTask, setZoom } from '@/state/taskActions';
 import { createBaseline, setActiveBaseline } from '@/state/baselineActions';
 import { proposalKey, useProposal } from '@/state/proposalActions';
+import { exportGanttPng, exportTasksCsv } from '@/io/export';
+import { defaultFileName } from '@/io/fileAccess';
 import { ProjectFilter } from '@/ui/app/ProjectFilter';
 import { IconCamera, IconDiamond, IconPlus, IconWarning } from '@/ui/common/icons';
 import { ProposalBar } from '@/ui/proposal/ProposalBar';
@@ -40,6 +42,7 @@ export function GanttTab() {
   const selectTask = useAppStore((s) => s.selectTask);
   const tasks = useAppStore((s) => s.file.tasks);
   const projects = useAppStore((s) => s.file.projects);
+  const teamName = useAppStore((s) => s.file.team.name);
   const cycle = schedule.cycle;
 
   const [panelOpen, setPanelOpen] = useState(false);
@@ -196,6 +199,33 @@ export function GanttTab() {
               </button>
             </>
           )}
+          <span className="mx-1 h-5 w-px bg-line" />
+          {/* Exports */}
+          <button
+            className="rounded-md border border-line px-2 py-0.5 font-mono text-[10.5px] font-medium text-ink-soft transition hover:border-accent hover:text-accent"
+            title={t('export.pngTitle')}
+            onClick={() => {
+              const svg = document.getElementById('gantt-chart-svg');
+              if (svg instanceof SVGSVGElement) {
+                void exportGanttPng(svg, `${defaultFileName(teamName).replace('.crewgantt.json', '')}-gantt.png`);
+              }
+            }}
+          >
+            {t('export.png')}
+          </button>
+          <button
+            className="rounded-md border border-line px-2 py-0.5 font-mono text-[10.5px] font-medium text-ink-soft transition hover:border-accent hover:text-accent"
+            title={t('export.csvTitle')}
+            onClick={() =>
+              exportTasksCsv(
+                useAppStore.getState().file,
+                schedule,
+                `${defaultFileName(teamName).replace('.crewgantt.json', '')}-taches.csv`,
+              )
+            }
+          >
+            {t('export.csv')}
+          </button>
           <span className="flex-1" />
           {/* Conflits */}
           <button

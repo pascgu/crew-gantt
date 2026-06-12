@@ -318,6 +318,12 @@ export const fr = {
       'Supprimer le projet « {name} » ? Impossible : des tâches y sont rattachées.',
     weekdaysShort: ['lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'],
   },
+  export: {
+    png: 'PNG',
+    pngTitle: 'Exporter le Gantt en PNG',
+    csv: 'CSV',
+    csvTitle: 'Exporter les tâches en CSV',
+  },
   common: {
     days: 'j',
     daysHuman: '{count} j-h',

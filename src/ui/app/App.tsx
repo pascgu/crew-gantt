@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { useAppStore } from '@/state/store';
+import { redo, undo, useAppStore } from '@/state/store';
 import { t } from '@/i18n/fr';
 import { DashboardTab } from '@/ui/dashboard/DashboardTab';
 import { GanttTab } from '@/ui/gantt/GanttTab';
@@ -50,12 +50,29 @@ export function App() {
     };
   }, [openDropped]);
 
-  // Ctrl+S — l'undo/redo clavier arrive avec les raccourcis globaux (phase 6).
+  // Raccourcis globaux : Ctrl+S (enregistrer), Ctrl+Z / Ctrl+Y (annuler/rétablir).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      if (key === 's') {
         e.preventDefault();
         void save({ saveAs: e.shiftKey });
+        return;
+      }
+      // pas d'undo global quand on tape dans un champ (l'input gère le sien)
+      const target = e.target as HTMLElement | null;
+      const typing =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement;
+      if (typing) return;
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
+        e.preventDefault();
+        redo();
       }
     };
     window.addEventListener('keydown', onKey);
