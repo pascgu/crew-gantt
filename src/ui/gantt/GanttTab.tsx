@@ -1,11 +1,18 @@
 import { useMemo, useRef, useState } from 'react';
+import { format } from 'date-fns';
 import { todayIso } from '@/core/calendar/dates';
+import { constrainingChain } from '@/core/scheduler/links';
 import type { ZoomLevel } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
-import { useConflictsByTask, useSchedule } from '@/state/schedule';
+import { useConflicts, useConflictsByTask, useSchedule } from '@/state/schedule';
 import { addTask, setZoom } from '@/state/taskActions';
+import { createBaseline, setActiveBaseline } from '@/state/baselineActions';
+import { proposalKey, useProposal } from '@/state/proposalActions';
 import { ProjectFilter } from '@/ui/app/ProjectFilter';
-import { IconDiamond, IconPlus } from '@/ui/common/icons';
+import { IconCamera, IconDiamond, IconPlus, IconWarning } from '@/ui/common/icons';
+import { ProposalBar } from '@/ui/proposal/ProposalBar';
+import { ImpactsPanel } from '@/ui/proposal/ImpactsPanel';
+import { ConflictsPanel } from '@/ui/proposal/ConflictsPanel';
 import { TaskRowCells, type DropIndicator } from '@/ui/table/TaskRowCells';
 import { COLS, TABLE_WIDTH } from '@/ui/table/columns';
 import { t } from '@/i18n/fr';
@@ -41,6 +48,24 @@ export function GanttTab() {
   const [scrollLeft, setScrollLeft] = useState(0);
   const [viewportH, setViewportH] = useState(800);
   const [showWorkload, setShowWorkload] = useState(true);
+  const [showImpacts, setShowImpacts] = useState(false);
+  const [showConflicts, setShowConflicts] = useState(false);
+  const [showBaseline, setShowBaseline] = useState(true);
+  const [dismissedProposal, setDismissedProposal] = useState('');
+
+  const proposal = useProposal();
+  const { active: activeConflicts } = useConflicts();
+  const baselines = useAppStore((s) => s.file.baselines);
+  const activeBl = baselines.find((b) => b.active) ?? null;
+
+  const proposalVisible = proposal !== null && proposalKey(proposal) !== dismissedProposal;
+  const proposalByTask = useMemo(
+    () =>
+      proposalVisible && proposal
+        ? new Map(proposal.changes.map((c) => [c.taskId, c]))
+        : undefined,
+    [proposal, proposalVisible],
+  );
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
 
@@ -69,6 +94,20 @@ export function GanttTab() {
 
   const selectedTask = panelOpen ? tasks.find((tk) => tk.id === selectedTaskId) : undefined;
 
+  // Chaîne contraignante : sélectionner un jalon surligne ce qui détermine sa date.
+  const chain = useMemo(() => {
+    const selected = tasks.find((tk) => tk.id === selectedTaskId);
+    if (!selected || selected.type !== 'milestone') return null;
+    const steps = constrainingChain(schedule.linkInputs, schedule.earliestByTask, selected.id);
+    if (steps.length <= 1) return null;
+    const ids = new Set(steps.map((s) => s.taskId));
+    const pairs = new Set<string>();
+    for (let i = 1; i < steps.length; i++) {
+      pairs.add(`${steps[i - 1]!.taskId}:${steps[i]!.taskId}`);
+    }
+    return { ids, pairs };
+  }, [tasks, selectedTaskId, schedule]);
+
   const openPanel = (taskId: string) => {
     selectTask(taskId);
     setPanelOpen(true);
@@ -81,7 +120,7 @@ export function GanttTab() {
 
   return (
     <div className="flex h-full min-h-0">
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative flex min-w-0 flex-1 flex-col">
         {/* Barre d'outils */}
         <div className="flex shrink-0 items-center gap-3 border-b border-line bg-surface px-3 py-1.5">
           <ProjectFilter />
@@ -115,7 +154,64 @@ export function GanttTab() {
           >
             {showWorkload ? t('workload.hide') : t('workload.show')}
           </button>
+          <span className="mx-1 h-5 w-px bg-line" />
+          {/* Baseline : figer / choisir / afficher */}
+          <button
+            className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11.5px] font-medium text-ink-soft transition hover:border-accent hover:text-accent"
+            title={t('baseline.freeze')}
+            onClick={() => {
+              const name = window.prompt(
+                t('baseline.freezePrompt'),
+                t('baseline.defaultName', { date: format(new Date(), 'dd/MM/yyyy') }),
+              );
+              if (name) createBaseline(name);
+            }}
+          >
+            <IconCamera size={12} /> {t('baseline.freeze')}
+          </button>
+          {baselines.length > 0 && (
+            <>
+              <select
+                className="max-w-36 rounded-md border border-line bg-surface px-1.5 py-0.5 text-[11.5px] text-ink-soft outline-none"
+                value={activeBl?.id ?? ''}
+                title={t('baseline.active')}
+                onChange={(e) => setActiveBaseline(e.target.value || null)}
+              >
+                <option value="">{t('baseline.none')}</option>
+                {baselines.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                className={`rounded-md border px-2 py-0.5 text-[11.5px] font-medium transition ${
+                  showBaseline && activeBl
+                    ? 'border-line-strong bg-paper-deep text-ink'
+                    : 'border-line text-ink-soft hover:text-ink'
+                }`}
+                onClick={() => setShowBaseline((v) => !v)}
+              >
+                {t('baseline.show')}
+              </button>
+            </>
+          )}
           <span className="flex-1" />
+          {/* Conflits */}
+          <button
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] font-medium transition ${
+              activeConflicts.length > 0
+                ? 'border-danger/40 bg-danger-wash text-danger'
+                : 'border-line text-ink-soft hover:text-ink'
+            }`}
+            onClick={() => {
+              setShowConflicts((v) => !v);
+              setShowImpacts(false);
+            }}
+          >
+            <IconWarning size={12} />
+            {t('conflicts.title')} ({activeConflicts.length})
+          </button>
           {cycle && (
             <span className="rounded bg-danger-wash px-2 py-0.5 text-[11.5px] font-medium text-danger">
               {t('conflicts.cycle', {
@@ -144,6 +240,18 @@ export function GanttTab() {
             <IconPlus size={11} /> {t('tasks.addTask')}
           </button>
         </div>
+
+        {/* Bandeau de proposition : l'outil propose, l'humain dispose */}
+        {proposalVisible && proposal && (
+          <ProposalBar
+            proposal={proposal}
+            onSeeImpacts={() => {
+              setShowImpacts((v) => !v);
+              setShowConflicts(false);
+            }}
+            onDismiss={() => setDismissedProposal(proposalKey(proposal))}
+          />
+        )}
 
         {/* Zone défilante : tableau collant à gauche + timeline */}
         <div
@@ -183,6 +291,10 @@ export function GanttTab() {
                     windowStart={windowStart}
                     windowEnd={windowEnd}
                     conflictTaskIds={new Set(conflictsByTask.keys())}
+                    proposalByTask={proposalByTask}
+                    baseline={showBaseline ? activeBl : null}
+                    chainTaskIds={chain?.ids}
+                    chainPairs={chain?.pairs}
                     onOpenPanel={openPanel}
                   />
                 </div>
@@ -226,6 +338,17 @@ export function GanttTab() {
             )}
           </div>
         </div>
+
+        {/* Panneaux flottants */}
+        {showImpacts && proposal && (
+          <ImpactsPanel proposal={proposal} onClose={() => setShowImpacts(false)} />
+        )}
+        {showConflicts && (
+          <ConflictsPanel
+            onClose={() => setShowConflicts(false)}
+            onSelectTask={(id) => selectTask(id)}
+          />
+        )}
       </div>
 
       {/* Panneau latéral d'édition */}

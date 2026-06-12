@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { addDays, diffDays, eachDay, todayIso } from '@/core/calendar/dates';
+import { eachDay, todayIso } from '@/core/calendar/dates';
 import { progressBarDays, taskProgress } from '@/core/scheduler/groups';
 import { workedDaysReachedOn, workedDaysUpTo } from '@/core/scheduler/links';
 import type { Schedule } from '@/core/scheduler/schedule';
@@ -17,6 +17,8 @@ import {
 import { darken, rgba } from '@/ui/common/color';
 import { ContextMenu, type MenuEntry } from '@/ui/common/ContextMenu';
 import { t } from '@/i18n/fr';
+import type { TaskChange } from '@/core/propose/propose';
+import type { Baseline } from '@/core/model/types';
 import { ROW_HEIGHT, type TimeScale } from './timescale';
 import type { GanttRow } from './rows';
 
@@ -65,6 +67,13 @@ interface GanttChartProps {
   windowStart: number;
   windowEnd: number;
   conflictTaskIds: ReadonlySet<string>;
+  /** Fantômes du plan proposé (surimpression). */
+  proposalByTask?: ReadonlyMap<string, TaskChange>;
+  /** Baseline active affichée (fantômes gris). */
+  baseline?: Baseline | null;
+  /** Chaîne contraignante du jalon sélectionné. */
+  chainTaskIds?: ReadonlySet<string>;
+  chainPairs?: ReadonlySet<string>;
   onOpenPanel: (taskId: string) => void;
 }
 
@@ -75,6 +84,10 @@ export function GanttChart({
   windowStart,
   windowEnd,
   conflictTaskIds,
+  proposalByTask,
+  baseline,
+  chainTaskIds,
+  chainPairs,
   onOpenPanel,
 }: GanttChartProps) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -318,6 +331,21 @@ export function GanttChart({
           strokeDasharray="5 3"
           opacity={0.65}
         />
+        {/* Chaîne contraignante du jalon sélectionné */}
+        {chainTaskIds &&
+          visible.map((row, i) =>
+            chainTaskIds.has(row.task.id) ? (
+              <rect
+                key={`chain-${row.task.id}`}
+                x={0}
+                y={(windowStart + i) * ROW_HEIGHT}
+                width={scale.width}
+                height={ROW_HEIGHT}
+                fill="var(--color-warn)"
+                opacity={0.09}
+              />
+            ) : null,
+          )}
         {/* Sélection */}
         {selectedTaskId !== null && rowIndexByTask.has(selectedTaskId) && (
           <rect
@@ -330,7 +358,39 @@ export function GanttChart({
           />
         )}
         {/* Liens */}
-        <LinksLayer rows={rows} schedule={schedule} scale={scale} rowIndexByTask={rowIndexByTask} />
+        <LinksLayer
+          rows={rows}
+          schedule={schedule}
+          scale={scale}
+          rowIndexByTask={rowIndexByTask}
+          chainPairs={chainPairs}
+        />
+        {/* Fantômes gris de la baseline active */}
+        {baseline &&
+          visible.map((row, i) => (
+            <BaselineGhost
+              key={`bl-${row.task.id}`}
+              baseline={baseline}
+              task={row.task}
+              y={(windowStart + i) * ROW_HEIGHT}
+              scale={scale}
+            />
+          ))}
+        {/* Fantômes colorés du plan proposé */}
+        {proposalByTask &&
+          visible.map((row, i) => {
+            const change = proposalByTask.get(row.task.id);
+            if (!change) return null;
+            return (
+              <ProposalGhost
+                key={`prop-${row.task.id}`}
+                change={change}
+                y={(windowStart + i) * ROW_HEIGHT}
+                scale={scale}
+                color={projectColor.get(row.task.projectId) ?? '#888888'}
+              />
+            );
+          })}
         {/* Barres (lignes visibles seulement) */}
         {visible.map((row, i) => (
           <g
@@ -657,6 +717,107 @@ function TargetHalo({ width }: { width: number }) {
   );
 }
 
+// ——— Fantômes ———
+
+/** Barres grises du plan de référence (baseline active). */
+function BaselineGhost({
+  baseline,
+  task,
+  y,
+  scale,
+}: {
+  baseline: Baseline;
+  task: { id: string; type: string };
+  y: number;
+  scale: TimeScale;
+}) {
+  if (task.type === 'milestone') {
+    const date = baseline.milestones[task.id];
+    if (!date) return null;
+    const cx = scale.x(date) + scale.dayWidth / 2;
+    const cy = y + ROW_HEIGHT / 2;
+    return (
+      <path
+        d={`M ${cx} ${cy - 6} L ${cx + 6} ${cy} L ${cx} ${cy + 6} L ${cx - 6} ${cy} Z`}
+        fill="none"
+        stroke="var(--color-line-strong)"
+        strokeWidth={1.5}
+        pointerEvents="none"
+      />
+    );
+  }
+  const snapshot = baseline.tasks[task.id];
+  if (!snapshot) return null;
+  return (
+    <g pointerEvents="none">
+      {snapshot.blocks.map((b, i) => (
+        <rect
+          key={i}
+          x={scale.x(b.from)}
+          y={y + ROW_HEIGHT - 7}
+          width={Math.max(2, scale.xEnd(b.to) - scale.x(b.from))}
+          height={4}
+          rx={2}
+          fill="var(--color-line-strong)"
+          opacity={0.9}
+        />
+      ))}
+    </g>
+  );
+}
+
+/** Surimpression du plan proposé : contours en pointillés au-dessus de la barre. */
+function ProposalGhost({
+  change,
+  y,
+  scale,
+  color,
+}: {
+  change: TaskChange;
+  y: number;
+  scale: TimeScale;
+  color: string;
+}) {
+  if (change.date) {
+    const cx = scale.x(change.date) + scale.dayWidth / 2;
+    const cy = y + ROW_HEIGHT / 2;
+    return (
+      <path
+        d={`M ${cx} ${cy - 7} L ${cx + 7} ${cy} L ${cx} ${cy + 7} L ${cx - 7} ${cy} Z`}
+        fill={rgba(color, 0.25)}
+        stroke="var(--color-accent)"
+        strokeWidth={1.5}
+        strokeDasharray="3 2"
+        pointerEvents="none"
+      />
+    );
+  }
+  if (!change.blocks) return null;
+  // fin du dernier bloc (ouvert) : newEnd calculé par la proposition
+  return (
+    <g pointerEvents="none">
+      {change.blocks.map((b, i) => {
+        const to = b.to ?? change.newEnd;
+        if (!to || to < b.from) return null;
+        return (
+          <rect
+            key={i}
+            x={scale.x(b.from)}
+            y={y + 2}
+            width={Math.max(3, scale.xEnd(to) - scale.x(b.from))}
+            height={6}
+            rx={2}
+            fill={rgba(color, 0.3)}
+            stroke="var(--color-accent)"
+            strokeWidth={1.1}
+            strokeDasharray="3 2"
+          />
+        );
+      })}
+    </g>
+  );
+}
+
 // ——— Liens entre tâches ———
 
 function LinksLayer({
@@ -664,13 +825,15 @@ function LinksLayer({
   schedule,
   scale,
   rowIndexByTask,
+  chainPairs,
 }: {
   rows: GanttRow[];
   schedule: Schedule;
   scale: TimeScale;
   rowIndexByTask: ReadonlyMap<string, number>;
+  chainPairs?: ReadonlySet<string>;
 }) {
-  const paths: { d: string; violated: boolean; key: string }[] = [];
+  const paths: { d: string; violated: boolean; inChain: boolean; key: string }[] = [];
 
   for (const row of rows) {
     const task = row.task;
@@ -701,11 +864,10 @@ function LinksLayer({
       const ty = targetIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
       const violated = Boolean(earliest?.date && targetSpan.start < earliest.date);
       const bend = sx + 7;
-      const dir = tx - 5 >= bend ? 1 : -1;
-      void dir;
       paths.push({
         key: `${task.id}-${li}`,
         violated,
+        inChain: chainPairs?.has(`${task.id}:${link.on}`) ?? false,
         d: `M ${sx} ${sy} L ${bend} ${sy} L ${bend} ${ty} L ${tx - 4} ${ty}`,
       });
     }
@@ -713,41 +875,34 @@ function LinksLayer({
 
   return (
     <g pointerEvents="none">
-      {paths.map((p) => (
-        <g key={p.key}>
-          <path
-            d={p.d}
-            fill="none"
-            stroke={p.violated ? 'var(--color-danger)' : 'var(--color-ink-faint)'}
-            strokeWidth={p.violated ? 1.6 : 1.1}
-            opacity={0.85}
-          />
-          <ArrowHead d={p.d} violated={p.violated} />
-        </g>
-      ))}
+      {paths.map((p) => {
+        const stroke = p.violated
+          ? 'var(--color-danger)'
+          : p.inChain
+            ? 'var(--color-warn)'
+            : 'var(--color-ink-faint)';
+        return (
+          <g key={p.key}>
+            <path
+              d={p.d}
+              fill="none"
+              stroke={stroke}
+              strokeWidth={p.violated || p.inChain ? 1.8 : 1.1}
+              opacity={0.9}
+            />
+            <ArrowHead d={p.d} color={stroke} />
+          </g>
+        );
+      })}
     </g>
   );
 }
 
-function ArrowHead({ d, violated }: { d: string; violated: boolean }) {
+function ArrowHead({ d, color }: { d: string; color: string }) {
   // pointe au bout du path (dernier point « L x y »)
   const m = d.match(/L ([-\d.]+) ([-\d.]+)$/);
   if (!m) return null;
   const x = Number(m[1]);
   const y = Number(m[2]);
-  return (
-    <path
-      d={`M ${x} ${y} l -5 -3.5 v 7 Z`}
-      fill={violated ? 'var(--color-danger)' : 'var(--color-ink-faint)'}
-    />
-  );
-}
-
-/** Décale visuellement un jour ISO (utilitaire partagé avec le tableau). */
-export function shiftDay(day: IsoDate, delta: number): IsoDate {
-  return addDays(day, delta);
-}
-
-export function spanDays(start: IsoDate, end: IsoDate): number {
-  return diffDays(start, end) + 1;
+  return <path d={`M ${x} ${y} l -5 -3.5 v 7 Z`} fill={color} />;
 }
