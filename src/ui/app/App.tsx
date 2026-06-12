@@ -1,26 +1,19 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useAppStore } from '@/state/store';
 import { t } from '@/i18n/fr';
+import { DashboardTab } from '@/ui/dashboard/DashboardTab';
 import { GanttTab } from '@/ui/gantt/GanttTab';
+import { MeetingTab } from '@/ui/meeting/MeetingTab';
 import { SettingsTab } from '@/ui/settings/SettingsTab';
 import { TeamTab } from '@/ui/team/TeamTab';
 import { TopBar } from './TopBar';
 import { BackupPrompt } from './BackupPrompt';
 import { useFileActions } from './useFileActions';
 
-function Placeholder({ label }: { label: string }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 text-ink-faint">
-      <span className="font-display text-2xl font-semibold">{label}</span>
-      <span className="text-sm">{t('placeholders.emptyTab')}</span>
-    </div>
-  );
-}
-
 const TAB_CONTENT: Record<string, () => ReactNode> = {
   gantt: () => <GanttTab />,
-  meeting: () => <Placeholder label={t('tabs.meeting')} />,
-  dashboard: () => <Placeholder label={t('tabs.dashboard')} />,
+  meeting: () => <MeetingTab />,
+  dashboard: () => <DashboardTab />,
   team: () => <TeamTab />,
   settings: () => <SettingsTab />,
 };
