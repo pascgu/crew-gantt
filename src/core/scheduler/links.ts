@@ -144,6 +144,39 @@ export function workedDaysReachedOn(inputs: LinkInputs, taskId: string, n: numbe
   return null;
 }
 
+/**
+ * Jours travaillés cumulés d'une tâche jusqu'à `day` inclus — l'inverse de
+ * `workedDaysReachedOn`. Sert à ancrer un lien « après N jours » tiré depuis
+ * un point précis de la barre.
+ */
+export function workedDaysUpTo(inputs: LinkInputs, taskId: string, day: IsoDate): number {
+  const task = inputs.hierarchy.tasksById.get(taskId);
+  if (!task || task.type === 'milestone') return 0;
+  const sources: { t: Task; from: IsoDate; to: IsoDate; blockIndex: number }[] = [];
+  const collect = (tk: Task) => {
+    const resolved = inputs.resolvedByTask.get(tk.id) ?? [];
+    resolved.forEach((r, i) => sources.push({ t: tk, from: r.from, to: r.to, blockIndex: i }));
+  };
+  if (task.type === 'group') {
+    for (const d of inputs.hierarchy.descendantsOf(taskId)) if (d.type === 'task') collect(d);
+  } else {
+    collect(task);
+  }
+  let cumulative = 0;
+  for (const s of sources) {
+    const resolved = inputs.resolvedByTask.get(s.t.id)![s.blockIndex]!;
+    const end = s.to <= day ? s.to : day;
+    for (let d = s.from; d <= end; d = addDays(d, 1)) {
+      if (resolved.block.assignments.length > 0) {
+        cumulative += blockCapacityOnDay(inputs.ctx, s.t, resolved.block, d);
+      } else if (inputs.ctx.isGlobalWorkingDay(d)) {
+        cumulative += 1;
+      }
+    }
+  }
+  return Math.round(cumulative * 100) / 100;
+}
+
 export interface EarliestResult {
   /** Date de début au plus tôt dérivée des liens (null : aucune contrainte). */
   date: IsoDate | null;

@@ -36,8 +36,18 @@ export function blockCapacityOnDay(
  * Résout les blocs d'une tâche : les blocs fermés sont pris tels quels,
  * le bloc ouvert (`to: null`, mode effort) absorbe le reste à faire — sa fin
  * est le jour où la somme des capacités a consommé `remaining`.
+ *
+ * Un bloc fermé est soit de l'historique (jours avant `today`, travail déjà
+ * déduit du reste), soit un découpage volontaire à venir : sa capacité future
+ * est alors retranchée de ce que le bloc ouvert doit absorber.
  */
 export function resolveBlocks(ctx: CalcContext, task: Task): ResolvedBlock[] {
+  let futurePlanned = 0;
+  for (const block of task.blocks) {
+    if (block.to !== null) {
+      futurePlanned += plannedFutureCapacity(ctx, task, block);
+    }
+  }
   return task.blocks.map((block) => {
     if (block.to !== null) {
       return { block, from: block.from, to: block.to, computed: false, overflow: false };
@@ -46,12 +56,24 @@ export function resolveBlocks(ctx: CalcContext, task: Task): ResolvedBlock[] {
       // En mode fixed les dates sont posées à la main ; un bloc ouvert se réduit à sa date de début.
       return { block, from: block.from, to: block.from, computed: true, overflow: false };
     }
-    const end = consumeRemaining(ctx, task, block, task.remaining);
+    const toAbsorb = Math.max(0, task.remaining - futurePlanned);
+    const end = consumeRemaining(ctx, task, block, toAbsorb);
     if (end === null) {
       return { block, from: block.from, to: block.from, computed: true, overflow: true };
     }
     return { block, from: block.from, to: end, computed: true, overflow: false };
   });
+}
+
+/** Capacité d'un bloc fermé sur ses seuls jours ≥ today (travail encore à venir). */
+export function plannedFutureCapacity(ctx: CalcContext, task: Task, block: Block): number {
+  if (block.to === null) return 0;
+  const start = block.from >= ctx.today ? block.from : ctx.today;
+  let total = 0;
+  for (let day = start; day <= block.to; day = addDays(day, 1)) {
+    total += blockCapacityOnDay(ctx, task, block, day);
+  }
+  return total;
 }
 
 /**

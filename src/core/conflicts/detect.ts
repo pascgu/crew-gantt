@@ -1,6 +1,6 @@
 import type { IsoDate } from '../model/types';
 import { diffDays, eachDay, isBetween } from '../calendar/dates';
-import { closedBlockCapacity } from '../scheduler/blocks';
+import { plannedFutureCapacity } from '../scheduler/blocks';
 import type { Schedule } from '../scheduler/schedule';
 
 export type ConflictType =
@@ -34,13 +34,11 @@ function conflictId(
   return [type, taskId ?? '', resourceId ?? '', projectId ?? ''].join(':');
 }
 
-/**
- * Détection des 7 familles de conflits du GDD. Pure : ne modifie rien.
- * `today` sert à qualifier les « blocs à venir » (tâche non affectée).
- */
-export function detectConflicts(schedule: Schedule, today: IsoDate): Conflict[] {
+/** Détection des 7 familles de conflits du GDD. Pure : ne modifie rien. */
+export function detectConflicts(schedule: Schedule): Conflict[] {
   const out: Conflict[] = [];
   const { ctx, resolvedByTask, spanByTask, earliestByTask } = schedule;
+  const today = ctx.today;
 
   for (const task of ctx.file.tasks) {
     const span = spanByTask.get(task.id) ?? null;
@@ -136,8 +134,9 @@ export function detectConflicts(schedule: Schedule, today: IsoDate): Conflict[] 
           amount: task.remaining,
         });
       } else if (!open) {
+        // Seule la capacité encore à venir peut absorber le reste à faire.
         let capacity = 0;
-        for (const r of resolved) capacity += closedBlockCapacity(ctx, task, r);
+        for (const r of resolved) capacity += plannedFutureCapacity(ctx, task, r.block);
         if (capacity < task.remaining - 1e-9) {
           out.push({
             id: conflictId('effort-overflow', task.id),

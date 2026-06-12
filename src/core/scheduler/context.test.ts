@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createCalcContext } from './context';
+import { createCalcContext as createCalcContextRaw } from './context';
 import { person, team } from '../testkit';
+import type { TeamFile } from '../model/types';
+
+// `today` n'influence ni la présence ni les parts : valeur fixe pour tous ces tests.
+const createCalcContext = (file: TeamFile) => createCalcContextRaw(file, '2026-06-01');
 
 // Juin 2026 : lundi 01, mardi 02, mercredi 03, jeudi 04, vendredi 05, samedi 06, dimanche 07…
 

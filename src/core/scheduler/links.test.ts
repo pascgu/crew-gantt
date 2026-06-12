@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeSchedule } from './schedule';
+import { computeSchedule as computeScheduleRaw } from './schedule';
 import { constrainingChain, topologicalOrder, wouldCreateCycle } from './links';
 import { assign, block, group, milestone, person, task, team } from '../testkit';
 import type { TeamFile } from '../model/types';
@@ -7,6 +7,8 @@ import type { TeamFile } from '../model/types';
 function file(tasks: TeamFile['tasks']): TeamFile {
   return team({ resources: [person('alice'), person('bob')], tasks });
 }
+
+const computeSchedule = (f: TeamFile) => computeScheduleRaw(f, '2026-06-01');
 
 describe('tri topologique et cycles', () => {
   it('ordonne prédécesseurs avant successeurs', () => {

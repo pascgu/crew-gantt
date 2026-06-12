@@ -3,10 +3,10 @@ import { createCalcContext } from './context';
 import { closedBlockCapacity, resolveBlocks, taskSpan } from './blocks';
 import { assign, block, person, task, team } from '../testkit';
 
-function ctxWith(resources = [person('alice')], holidays: string[] = []) {
+function ctxWith(resources = [person('alice')], holidays: string[] = [], today = '2026-06-01') {
   const file = team({ resources });
   file.team.calendar.holidays = holidays;
-  return createCalcContext(file);
+  return createCalcContext(file, today);
 }
 
 describe('bloc ouvert en mode effort — la fin absorbe le reste à faire', () => {
@@ -117,7 +117,7 @@ describe('bloc ouvert en mode effort — la fin absorbe le reste à faire', () =
 });
 
 describe('blocs fermés et mode fixed', () => {
-  it('les blocs fermés sont pris tels quels (historique)', () => {
+  it('un bloc fermé passé est de l’historique : déjà déduit du reste', () => {
     const t = task('t', {
       remaining: 7,
       blocks: [
@@ -125,9 +125,36 @@ describe('blocs fermés et mode fixed', () => {
         block('b2', '2026-06-15', null, [assign('alice')]),
       ],
     });
-    const resolved = resolveBlocks(ctxWith(), t);
+    // today = 08/06 : b1 est du passé, le bloc ouvert absorbe les 7 j-h entiers
+    const resolved = resolveBlocks(ctxWith([person('alice')], [], '2026-06-08'), t);
     expect(resolved[0]).toMatchObject({ from: '2026-06-01', to: '2026-06-02', computed: false });
     expect(resolved[1]).toMatchObject({ from: '2026-06-15', to: '2026-06-23', computed: true });
+  });
+
+  it('un bloc fermé à venir (découpage volontaire) consomme une part du reste', () => {
+    const t = task('t', {
+      remaining: 7,
+      blocks: [
+        block('b1', '2026-06-08', '2026-06-09', [assign('alice')]),
+        block('b2', '2026-06-15', null, [assign('alice')]),
+      ],
+    });
+    // today = 01/06 : b1 (2 j-h à venir) sera fait — le bloc ouvert n'absorbe que 5 j-h
+    const resolved = resolveBlocks(ctxWith(), t);
+    expect(resolved[1]).toMatchObject({ from: '2026-06-15', to: '2026-06-19', computed: true });
+  });
+
+  it('un bloc fermé à cheval sur today ne compte que ses jours à venir', () => {
+    const t = task('t', {
+      remaining: 6,
+      blocks: [
+        block('b1', '2026-06-01', '2026-06-05', [assign('alice')]),
+        block('b2', '2026-06-15', null, [assign('alice')]),
+      ],
+    });
+    // today = 04/06 : b1 apporte encore jeudi 04 + vendredi 05 = 2 j-h → reste 4 pour b2
+    const resolved = resolveBlocks(ctxWith([person('alice')], [], '2026-06-04'), t);
+    expect(resolved[1]).toMatchObject({ from: '2026-06-15', to: '2026-06-18' });
   });
 
   it('en mode fixed, un bloc ouvert se réduit à sa date de début', () => {
@@ -152,7 +179,7 @@ describe('blocs fermés et mode fixed', () => {
 
 describe('taskSpan', () => {
   it('du début du premier bloc à la fin du dernier', () => {
-    const ctx = ctxWith();
+    const ctx = ctxWith([person('alice')], [], '2026-06-08');
     const t = task('t', {
       remaining: 2,
       blocks: [

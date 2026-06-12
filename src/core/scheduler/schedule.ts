@@ -32,8 +32,8 @@ export interface Schedule {
   planSpan: TaskSpan | null;
 }
 
-export function computeSchedule(file: TeamFile): Schedule {
-  const ctx = createCalcContext(file);
+export function computeSchedule(file: TeamFile, today: IsoDate): Schedule {
+  const ctx = createCalcContext(file, today);
   const hierarchy = buildHierarchy(file.tasks);
 
   const resolvedByTask = new Map<string, ResolvedBlock[]>();

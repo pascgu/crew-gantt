@@ -37,7 +37,7 @@ describe('unionIntervals', () => {
 });
 
 function resolveAll(tasks: Task[]): Map<string, ResolvedBlock[]> {
-  const ctx = createCalcContext(team({ resources: [person('alice')], tasks }));
+  const ctx = createCalcContext(team({ resources: [person('alice')], tasks }), '2026-06-01');
   const map = new Map<string, ResolvedBlock[]>();
   for (const t of tasks) if (t.type === 'task') map.set(t.id, resolveBlocks(ctx, t));
   return map;

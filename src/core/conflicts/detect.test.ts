@@ -7,7 +7,7 @@ import type { TeamFile } from '../model/types';
 const TODAY = '2026-06-01';
 
 function conflictsOf(f: TeamFile, today = TODAY): Conflict[] {
-  return detectConflicts(computeSchedule(f), today);
+  return detectConflicts(computeSchedule(f, today));
 }
 
 function file(tasks: TeamFile['tasks'], resources = [person('alice'), person('bob')]): TeamFile {
@@ -62,7 +62,7 @@ describe('2 — surcharge projet', () => {
     const conflicts = conflictsOf(f);
     expect(conflicts.filter((c) => c.type === 'project-overload')).toEqual([]);
     // … mais le sur-engagement est bien signalé en avertissement doux
-    const schedule = computeSchedule(f);
+    const schedule = computeSchedule(f, TODAY);
     expect(schedule.overEngagements).toHaveLength(1);
     expect(schedule.overEngagements[0]).toMatchObject({ resourceId: 'alice' });
     expect(schedule.overEngagements[0]!.peak).toBeCloseTo(2, 10);

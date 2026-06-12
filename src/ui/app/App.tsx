@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useAppStore } from '@/state/store';
 import { t } from '@/i18n/fr';
+import { GanttTab } from '@/ui/gantt/GanttTab';
+import { SettingsTab } from '@/ui/settings/SettingsTab';
 import { TopBar } from './TopBar';
 import { BackupPrompt } from './BackupPrompt';
 import { useFileActions } from './useFileActions';
@@ -15,11 +17,11 @@ function Placeholder({ label }: { label: string }) {
 }
 
 const TAB_CONTENT: Record<string, () => ReactNode> = {
-  gantt: () => <Placeholder label={t('tabs.gantt')} />,
+  gantt: () => <GanttTab />,
   meeting: () => <Placeholder label={t('tabs.meeting')} />,
   dashboard: () => <Placeholder label={t('tabs.dashboard')} />,
   team: () => <Placeholder label={t('tabs.team')} />,
-  settings: () => <Placeholder label={t('tabs.settings')} />,
+  settings: () => <SettingsTab />,
 };
 
 export function App() {

@@ -7,6 +7,8 @@ import { addDays, isBetween, weekdayOf } from '../calendar/dates';
  */
 export interface CalcContext {
   readonly file: TeamFile;
+  /** Le « présent » du calcul : sépare l'historique (déjà déduit du reste) du planifié. */
+  readonly today: IsoDate;
   readonly resourcesById: ReadonlyMap<string, Resource>;
   /** Jour ouvré du calendrier global (motif hebdo + fériés). */
   isGlobalWorkingDay(day: IsoDate): boolean;
@@ -22,7 +24,7 @@ export interface CalcContext {
   addWorkingDays(day: IsoDate, n: number): IsoDate;
 }
 
-export function createCalcContext(file: TeamFile): CalcContext {
+export function createCalcContext(file: TeamFile, today: IsoDate): CalcContext {
   const holidays = new Set(file.team.calendar.holidays);
   const globalDays = new Set<Weekday>(file.team.calendar.workingDays);
   const resourcesById = new Map(file.resources.map((r) => [r.id, r]));
@@ -118,6 +120,7 @@ export function createCalcContext(file: TeamFile): CalcContext {
 
   return {
     file,
+    today,
     resourcesById,
     isGlobalWorkingDay,
     presence,

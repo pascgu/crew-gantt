@@ -7,7 +7,7 @@ import { assign, block, person, task, team } from '../testkit';
 describe('computeSchedule — intégration', () => {
   it('calcule le fichier démo sans erreur', () => {
     const file = createDemoTeamFile('2026-06-11');
-    const s = computeSchedule(file);
+    const s = computeSchedule(file, '2026-06-11');
     expect(s.cycle).toBeNull();
     expect(s.planSpan).not.toBeNull();
     // Toutes les tâches non-groupe ont leurs blocs résolus
@@ -17,7 +17,7 @@ describe('computeSchedule — intégration', () => {
       }
     }
     // La détection tourne sans lever
-    expect(() => detectConflicts(s, '2026-06-11')).not.toThrow();
+    expect(() => detectConflicts(s)).not.toThrow();
   });
 
   it('expose la charge par ressource et par jour', () => {
@@ -29,7 +29,7 @@ describe('computeSchedule — intégration', () => {
         task('t', { remaining: 3, effort: 3, blocks: [block('b', '2026-06-01', null, [assign('alice', 50)])] }),
       ],
     });
-    const s = computeSchedule(f);
+    const s = computeSchedule(f, '2026-06-01');
     const monday = s.loadIndex.get('alice')!.get('2026-06-01')!;
     expect(monday.perProject['pA']).toBeCloseTo(0.3, 10); // 1 × 0,6 × 0,5
     expect(monday.unitsByProject['pA']).toBe(50);
@@ -46,6 +46,9 @@ describe('computeSchedule — intégration', () => {
         task('t2', { remaining: 1, effort: 1, blocks: [block('b2', '2026-06-15', null, [assign('alice')])] }),
       ],
     });
-    expect(computeSchedule(f).planSpan).toEqual({ start: '2026-06-03', end: '2026-06-15' });
+    expect(computeSchedule(f, '2026-06-01').planSpan).toEqual({
+      start: '2026-06-03',
+      end: '2026-06-15',
+    });
   });
 });
