@@ -62,6 +62,31 @@ export function buildLoadIndex(
   return index;
 }
 
+/**
+ * Capacité libre d'une ressource sur une fenêtre : Σ par jour de
+ * max(0, présence − charge totale). Sert au tri de l'aide à l'affectation.
+ */
+export function freeCapacity(
+  ctx: CalcContext,
+  index: LoadIndex,
+  resourceId: string,
+  from: IsoDate,
+  to: IsoDate,
+): { free: number; presenceTotal: number } {
+  const days = index.get(resourceId);
+  let free = 0;
+  let presenceTotal = 0;
+  for (const day of eachDay(from, to)) {
+    if (!ctx.isGlobalWorkingDay(day)) continue;
+    const presence = ctx.presence(resourceId, day);
+    if (presence <= 0) continue;
+    presenceTotal += presence;
+    const load = days?.get(day)?.total ?? 0;
+    free += Math.max(0, presence - load);
+  }
+  return { free: Math.round(free * 100) / 100, presenceTotal };
+}
+
 export interface OverEngagement {
   resourceId: string;
   from: IsoDate;

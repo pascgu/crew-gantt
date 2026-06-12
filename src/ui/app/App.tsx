@@ -3,6 +3,7 @@ import { useAppStore } from '@/state/store';
 import { t } from '@/i18n/fr';
 import { GanttTab } from '@/ui/gantt/GanttTab';
 import { SettingsTab } from '@/ui/settings/SettingsTab';
+import { TeamTab } from '@/ui/team/TeamTab';
 import { TopBar } from './TopBar';
 import { BackupPrompt } from './BackupPrompt';
 import { useFileActions } from './useFileActions';
@@ -20,7 +21,7 @@ const TAB_CONTENT: Record<string, () => ReactNode> = {
   gantt: () => <GanttTab />,
   meeting: () => <Placeholder label={t('tabs.meeting')} />,
   dashboard: () => <Placeholder label={t('tabs.dashboard')} />,
-  team: () => <Placeholder label={t('tabs.team')} />,
+  team: () => <TeamTab />,
   settings: () => <SettingsTab />,
 };
 

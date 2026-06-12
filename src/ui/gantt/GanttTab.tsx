@@ -11,6 +11,7 @@ import { COLS, TABLE_WIDTH } from '@/ui/table/columns';
 import { t } from '@/i18n/fr';
 import { GanttChart } from './GanttChart';
 import { TaskPanel } from './TaskPanel';
+import { WorkloadPanel } from './WorkloadPanel';
 import { useGanttRows } from './rows';
 import {
   bottomTicks,
@@ -37,7 +38,9 @@ export function GanttTab() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
   const [viewportH, setViewportH] = useState(800);
+  const [showWorkload, setShowWorkload] = useState(true);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
 
@@ -102,6 +105,16 @@ export function GanttTab() {
           >
             {t('gantt.today')}
           </button>
+          <button
+            className={`rounded-md border px-2 py-0.5 text-[11.5px] font-medium transition ${
+              showWorkload
+                ? 'border-accent bg-accent-wash text-accent-deep'
+                : 'border-line text-ink-soft hover:text-ink'
+            }`}
+            onClick={() => setShowWorkload((v) => !v)}
+          >
+            {showWorkload ? t('workload.hide') : t('workload.show')}
+          </button>
           <span className="flex-1" />
           {cycle && (
             <span className="rounded bg-danger-wash px-2 py-0.5 text-[11.5px] font-medium text-danger">
@@ -136,7 +149,10 @@ export function GanttTab() {
         <div
           ref={attachScroll}
           className="min-h-0 flex-1 overflow-auto"
-          onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+          onScroll={(e) => {
+            setScrollTop(e.currentTarget.scrollTop);
+            setScrollLeft(e.currentTarget.scrollLeft);
+          }}
         >
           <div style={{ width: TABLE_WIDTH + scale.width }} className="relative">
             {/* En-tête collant */}
@@ -192,6 +208,20 @@ export function GanttTab() {
                     ))}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Volet de charge par personne (repliable), aligné sur la timeline */}
+            {showWorkload && schedule.ctx.file.resources.length > 0 && (
+              <div className="sticky bottom-0 z-20">
+                <WorkloadPanel
+                  schedule={schedule}
+                  scale={scale}
+                  visibleFrom={scale.dateAt(Math.max(0, scrollLeft - 200))}
+                  visibleTo={scale.dateAt(
+                    Math.min(scale.width - 1, scrollLeft + window.innerWidth),
+                  )}
+                />
               </div>
             )}
           </div>

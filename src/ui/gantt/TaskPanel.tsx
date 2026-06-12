@@ -21,6 +21,7 @@ import {
 } from '@/state/taskActions';
 import { DateInput, EditableNumber, EditableText } from '@/ui/common/inline';
 import { IconClose, IconPlus } from '@/ui/common/icons';
+import { AssignmentAssistant } from '@/ui/team/AssignmentAssistant';
 import { t } from '@/i18n/fr';
 import { fmtDayFull, weeklyEquivalent } from './format';
 
@@ -282,10 +283,11 @@ export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
                             </div>
                           );
                         })}
-                        <AddAssignment
-                          taskId={task.id}
-                          blockId={block.id}
-                          existing={block.assignments.map((a) => a.resourceId)}
+                        <AssignmentAssistant
+                          task={task}
+                          block={block}
+                          resolvedTo={r?.to ?? null}
+                          schedule={schedule}
                         />
                       </div>
                     </div>
@@ -438,40 +440,3 @@ export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
   );
 }
 
-function AddAssignment({
-  taskId,
-  blockId,
-  existing,
-}: {
-  taskId: string;
-  blockId: string;
-  existing: string[];
-}) {
-  const resources = useAppStore((s) => s.file.resources);
-  const file = useAppStore((s) => s.file);
-  const candidates = resources.filter((r) => !existing.includes(r.id));
-  if (candidates.length === 0) return null;
-  return (
-    <select
-      className="self-start rounded border border-dashed border-line bg-transparent px-1 py-0.5 text-[11.5px] text-ink-soft outline-none hover:border-accent"
-      value=""
-      onChange={(e) => {
-        if (!e.target.value) return;
-        const task = file.tasks.find((tk) => tk.id === taskId);
-        const block = task?.blocks.find((b) => b.id === blockId);
-        if (!block) return;
-        setBlockAssignments(taskId, blockId, [
-          ...block.assignments,
-          { resourceId: e.target.value, units: 100 },
-        ]);
-      }}
-    >
-      <option value="">+ {t('panel.addAssignment')}</option>
-      {candidates.map((r) => (
-        <option key={r.id} value={r.id}>
-          {r.name}
-        </option>
-      ))}
-    </select>
-  );
-}
