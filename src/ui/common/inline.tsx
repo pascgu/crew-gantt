@@ -6,13 +6,22 @@ interface EditableTextProps {
   className?: string;
   placeholder?: string;
   bold?: boolean;
+  autoEdit?: boolean;
+  onAutoEditConsumed?: () => void;
 }
 
 /** Texte éditable en place : clic → champ, Entrée/blur → validation, Échap → abandon. */
-export function EditableText({ value, onCommit, className, placeholder, bold }: EditableTextProps) {
+export function EditableText({ value, onCommit, className, placeholder, bold, autoEdit, onAutoEditConsumed }: EditableTextProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (autoEdit && !editing) {
+      setEditing(true);
+      onAutoEditConsumed?.();
+    }
+  }, [autoEdit]);
 
   useEffect(() => {
     if (editing) {
@@ -25,7 +34,7 @@ export function EditableText({ value, onCommit, className, placeholder, bold }: 
   if (!editing) {
     return (
       <span
-        className={`block cursor-text truncate rounded px-1 py-0.5 hover:bg-paper-deep ${bold ? 'font-medium' : ''} ${value ? '' : 'text-ink-faint'} ${className ?? ''}`}
+        className={`block cursor-text truncate rounded px-1 py-px hover:bg-paper-deep ${bold ? 'font-medium' : ''} ${value ? '' : 'text-ink-faint'} ${className ?? ''}`}
         onClick={() => setEditing(true)}
       >
         {value || placeholder || '—'}
@@ -35,7 +44,7 @@ export function EditableText({ value, onCommit, className, placeholder, bold }: 
   return (
     <input
       ref={ref}
-      className={`block w-full rounded border border-accent bg-surface px-1 py-0.5 outline-none ${className ?? ''}`}
+      className={`block w-full rounded border border-accent bg-surface px-1 py-px outline-none ${className ?? ''}`}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {
@@ -102,7 +111,7 @@ export function EditableNumber({
   if (!editing) {
     return (
       <span
-        className={`block cursor-text truncate rounded px-1 py-0.5 text-right font-mono tabular-nums hover:bg-paper-deep ${value === null ? 'text-ink-faint' : ''} ${className ?? ''}`}
+        className={`block cursor-text truncate rounded px-1 py-px text-right font-mono tabular-nums hover:bg-paper-deep ${value === null ? 'text-ink-faint' : ''} ${className ?? ''}`}
         onClick={() => setEditing(true)}
       >
         {value === null ? '—' : `${value}${suffix ?? ''}`}
@@ -113,7 +122,7 @@ export function EditableNumber({
     <input
       ref={ref}
       inputMode="decimal"
-      className={`block w-full rounded border border-accent bg-surface px-1 py-0.5 text-right font-mono outline-none ${className ?? ''}`}
+      className={`block w-full rounded border border-accent bg-surface px-1 py-px text-right font-mono outline-none ${className ?? ''}`}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}

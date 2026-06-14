@@ -38,15 +38,19 @@ export function useFileActions() {
   }, []);
 
   const openFile = useCallback(async () => {
-    if (!confirmDiscardIfDirty()) return;
     try {
+      // Ouvrir le sélecteur en premier (requiert le geste utilisateur immédiat).
+      // Confirmer l'abandon des modifs APRÈS avoir un fichier en main.
+      let opened: OpenedFile | null = null;
       if (supportsFileSystemAccess()) {
-        const opened = await openWithPicker();
-        if (opened) applyOpened(opened);
+        opened = await openWithPicker();
       } else {
         const blob = await pickFileFallback();
-        if (blob) applyOpened(await openFromBlob(blob));
+        if (blob) opened = await openFromBlob(blob);
       }
+      if (!opened) return;
+      if (!confirmDiscardIfDirty()) return;
+      applyOpened(opened);
     } catch (e) {
       const detail = e instanceof TeamFileError ? [e.message, ...e.issues].join('\n') : String(e);
       window.alert(`${t('file.openError')}\n${detail}`);

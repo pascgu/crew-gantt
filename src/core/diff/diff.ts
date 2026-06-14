@@ -37,6 +37,7 @@ export function summarizeChanges(before: TeamFile, after: TeamFile): string[] {
         in_progress: 'en cours',
         done: 'terminée',
         blocked: 'bloquée',
+        cancelled: 'annulée',
       };
       lines.push(`${task.name} : ${labels[task.status]}`);
     }

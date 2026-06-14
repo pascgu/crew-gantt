@@ -53,6 +53,7 @@ export function createTask(
     estimate: null,
     effort: 0,
     remaining: 0,
+    progress: 0,
     status: 'todo',
     requirements: '',
     links: [],

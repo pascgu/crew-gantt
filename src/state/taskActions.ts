@@ -65,13 +65,19 @@ export function setTaskRemaining(id: string, remaining: number): void {
   });
 }
 
-/** Saisie bidirectionnelle : poser un % d'avancement recalcule le reste. */
+/** Avancement visuel (0..100 %). N'affecte plus le reste à faire. */
 export function setTaskProgress(id: string, percent: number): void {
   mutate((file) => {
     const task = taskById(file, id);
     if (!task) return;
-    const p = Math.max(0, Math.min(100, percent));
-    task.remaining = Math.round(task.effort * (1 - p / 100) * 100) / 100;
+    task.progress = Math.max(0, Math.min(1, percent / 100));
+  });
+}
+
+export function setTaskScheduling(id: string, mode: import('@/core/model/types').SchedulingMode): void {
+  mutate((file) => {
+    const task = taskById(file, id);
+    if (task) task.scheduling = mode;
   });
 }
 
@@ -91,6 +97,7 @@ export function setTaskStatus(id: string, status: Task['status']): void {
     task.status = status;
     if (status === 'done') {
       task.remaining = 0;
+      task.progress = 1;
       // Clore le bloc ouvert : le travail s'arrête là.
       const open = task.blocks.find((b) => b.to === null);
       if (open) open.to = open.from;
@@ -123,11 +130,13 @@ export function addTask(options: AddTaskOptions = {}): string {
       file.projects.find((p) => !p.archived)?.id ??
       file.projects[0]?.id ??
       '';
+    const project = file.projects.find((p) => p.id === projectId);
     const task = createTask({
       name: t('tasks.newName'),
       projectId,
       parentId,
       type: options.type ?? 'task',
+      scheduling: project?.defaultScheduling ?? 'effort',
     });
     task.id = id;
     task.order = after ? after.order + 0.5 : Number.MAX_SAFE_INTEGER;
@@ -363,6 +372,36 @@ export function mergeWithNextBlock(taskId: string, blockId: string): void {
       block.assignments = next.assignments.map((a) => ({ ...a }));
     }
     task.blocks = task.blocks.filter((b) => b.id !== next.id);
+  });
+}
+
+/** Fusionne les blocs qui se chevauchent ou se touchent après un déplacement. */
+export function mergeOverlappingBlocks(taskId: string): void {
+  mutate((file) => {
+    const task = taskById(file, taskId);
+    if (!task || task.blocks.length < 2) return;
+    const sorted = [...task.blocks].sort((a, b) => a.from.localeCompare(b.from));
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const cur = sorted[i]!;
+        const next = sorted[i + 1]!;
+        const curToCompare = cur.to ?? '9999-99-99';
+        if (curToCompare >= next.from) {
+          const mergedTo = cur.to === null || next.to === null ? null :
+            cur.to >= next.to ? cur.to : next.to;
+          cur.to = mergedTo;
+          if (cur.assignments.length === 0 && next.assignments.length > 0) {
+            cur.assignments = next.assignments.map((a) => ({ ...a }));
+          }
+          sorted.splice(i + 1, 1);
+          changed = true;
+          break;
+        }
+      }
+    }
+    task.blocks = sorted;
   });
 }
 

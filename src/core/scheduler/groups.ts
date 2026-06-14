@@ -34,7 +34,7 @@ export interface GroupAggregate {
   span: { start: IsoDate; end: IsoDate } | null;
   effortTotal: number;
   effortRealized: number;
-  /** Avancement pondéré = effort réalisé cumulé ÷ effort total (0 si effort nul). */
+  /** Moyenne pondérée (par effort) de task.progress des descendants ; si effort nul, moyenne simple. */
   progress: number;
 }
 
@@ -49,10 +49,16 @@ export function aggregateGroup(
   const intervals: Interval[] = [];
   let effortTotal = 0;
   let effortRealized = 0;
+  let progressWeighted = 0;
+  let progressCount = 0;
   for (const task of descendants) {
     if (task.type === 'group') continue; // leurs efforts sont déjà portés par leurs feuilles
+    if (task.status === 'cancelled') continue; // exclus des calculs
+    const p = Math.max(0, Math.min(1, task.progress ?? 0));
     effortTotal += task.effort;
     effortRealized += Math.max(0, task.effort - task.remaining);
+    progressWeighted += p * task.effort;
+    progressCount++;
     for (const r of resolvedByTask.get(task.id) ?? []) {
       intervals.push({ from: r.from, to: r.to });
     }
@@ -62,12 +68,18 @@ export function aggregateGroup(
     union.length > 0
       ? { start: union[0]!.from, end: union[union.length - 1]!.to }
       : null;
+  const progress =
+    effortTotal > 0
+      ? progressWeighted / effortTotal
+      : progressCount > 0
+        ? progressWeighted / progressCount
+        : 0;
   return {
     intervals: union,
     span,
     effortTotal,
     effortRealized,
-    progress: effortTotal > 0 ? effortRealized / effortTotal : 0,
+    progress,
   };
 }
 
@@ -83,8 +95,7 @@ export function progressBarDays(span: { start: IsoDate; end: IsoDate }, progress
   return Math.max(0, Math.min(1, progress)) * totalDays;
 }
 
-/** Avancement d'une tâche simple : effort réalisé ÷ effort. */
-export function taskProgress(task: { effort: number; remaining: number }): number {
-  if (task.effort <= 0) return 0;
-  return Math.max(0, Math.min(1, (task.effort - task.remaining) / task.effort));
+/** Avancement d'une tâche simple : lit task.progress (champ indépendant du reste à faire). */
+export function taskProgress(task: { progress: number }): number {
+  return Math.max(0, Math.min(1, task.progress));
 }

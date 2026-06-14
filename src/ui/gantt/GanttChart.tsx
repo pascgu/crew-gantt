@@ -1,18 +1,24 @@
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { eachDay, todayIso } from '@/core/calendar/dates';
 import { progressBarDays, taskProgress } from '@/core/scheduler/groups';
-import { workedDaysReachedOn, workedDaysUpTo } from '@/core/scheduler/links';
+import { workedDaysFromBlockStart, workedDaysReachedOn, workedDaysUpTo } from '@/core/scheduler/links';
 import type { Schedule } from '@/core/scheduler/schedule';
-import type { IsoDate, Task } from '@/core/model/types';
+import type { Assignment, IsoDate, Task } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
 import {
   addBlockToTask,
   addLink,
   deleteBlock,
+  mergeOverlappingBlocks,
   mergeWithNextBlock,
   moveBlock,
+  setBlockAssignments,
   setBlockDates,
+  setTaskProgress,
+  setTaskRemaining,
   splitBlock,
+  updateTask,
 } from '@/state/taskActions';
 import { darken, rgba } from '@/ui/common/color';
 import { ContextMenu, type MenuEntry } from '@/ui/common/ContextMenu';
@@ -21,9 +27,10 @@ import type { TaskChange } from '@/core/propose/propose';
 import type { Baseline } from '@/core/model/types';
 import { ROW_HEIGHT, type TimeScale } from './timescale';
 import type { GanttRow } from './rows';
+import { useGanttColumnsStore } from './ganttColumnsStore';
+import type { ColKey } from '@/ui/table/tableStore';
+import { resourceAvatar } from '@/ui/common/Avatar';
 
-const BAR_Y = 6;
-const BAR_H = 12;
 
 interface DragMove {
   kind: 'move';
@@ -51,12 +58,33 @@ interface DragLink {
   toY: number;
   targetTaskId: string | null;
 }
-type Drag = DragMove | DragResize | DragLink;
+interface DragProgress {
+  kind: 'progress';
+  taskId: string;
+  /** x du bord gauche de la barre de la tâche (scale.x(span.start)) */
+  xStart: number;
+  /** x du bord droit de la barre de la tâche (scale.xEnd(span.end)) */
+  xEnd: number;
+  frac: number;
+}
+interface DragMoveMilestone {
+  kind: 'move-milestone';
+  taskId: string;
+  day: IsoDate;
+}
+type Drag = DragMove | DragResize | DragLink | DragProgress | DragMoveMilestone;
 
 interface MenuState {
   x: number;
   y: number;
   entries: MenuEntry[];
+}
+
+interface AssignPopoverState {
+  x: number;
+  y: number;
+  taskId: string;
+  blockId: string;
 }
 
 interface GanttChartProps {
@@ -79,6 +107,8 @@ interface GanttChartProps {
   onPanBy: (dx: number, dy: number) => void;
   hoveredTaskId: string | null;
   onHoverTask: (taskId: string | null) => void;
+  /** Hauteur minimale du SVG (= hauteur du viewport) pour rendre le fond pnable. */
+  minHeight?: number;
 }
 
 export function GanttChart({
@@ -96,11 +126,22 @@ export function GanttChart({
   onPanBy,
   hoveredTaskId,
   onHoverTask,
+  minHeight,
 }: GanttChartProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [assignPopover, setAssignPopover] = useState<AssignPopoverState | null>(null);
   const [panning, setPanning] = useState(false);
+  const [ctrlHeld, setCtrlHeld] = useState(false);
+
+  useEffect(() => {
+    const onDown = (e: KeyboardEvent) => { if (e.key === 'Control') setCtrlHeld(true); };
+    const onUp = (e: KeyboardEvent) => { if (e.key === 'Control') setCtrlHeld(false); };
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    return () => { window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); };
+  }, []);
   const panRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const suppressClickRef = useRef(false);
   const selectedTaskId = useAppStore((s) => s.selectedTaskId);
@@ -117,7 +158,7 @@ export function GanttChart({
     return map;
   }, [rows]);
 
-  const height = rows.length * ROW_HEIGHT;
+  const height = Math.max(rows.length * ROW_HEIGHT, minHeight ?? 0);
   const today = todayIso();
 
   function svgPoint(e: ReactPointerEvent): { x: number; y: number } {
@@ -163,14 +204,19 @@ export function GanttChart({
     if (e.button !== 0) return;
     e.stopPropagation();
     selectTask(task.id);
-    setDrag({
-      kind: edge === 'start' ? 'resize-start' : 'resize-end',
-      taskId: task.id,
-      blockId,
-      day: edge === 'start' ? from : to,
-      otherEdge: edge === 'start' ? to : from,
-      openEnd,
-    });
+    if (e.ctrlKey) {
+      // Ctrl = forcer le déplacement même depuis un bord de redimensionnement
+      setDrag({ kind: 'move', taskId: task.id, blockId, startX: e.clientX, deltaDays: 0 });
+    } else {
+      setDrag({
+        kind: edge === 'start' ? 'resize-start' : 'resize-end',
+        taskId: task.id,
+        blockId,
+        day: edge === 'start' ? from : to,
+        otherEdge: edge === 'start' ? to : from,
+        openEnd,
+      });
+    }
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
@@ -188,6 +234,39 @@ export function GanttChart({
       toY: y,
       targetTaskId: null,
     });
+    (e.target as Element).setPointerCapture(e.pointerId);
+  }
+
+  function startProgress(
+    e: ReactPointerEvent,
+    task: Task,
+    xStart: number,
+    xEnd: number,
+  ) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    if (e.ctrlKey) {
+      // Ctrl = forcer le déplacement du premier bloc
+      const resolved = [...(schedule.resolvedByTask.get(task.id) ?? [])].sort((a, b) =>
+        a.from.localeCompare(b.from),
+      );
+      const blockId = resolved[0]?.block.id;
+      if (blockId) {
+        setDrag({ kind: 'move', taskId: task.id, blockId, startX: e.clientX, deltaDays: 0 });
+        (e.target as Element).setPointerCapture(e.pointerId);
+      }
+      return;
+    }
+    const frac = Math.max(0, Math.min(1, (svgPoint(e).x - xStart) / (xEnd - xStart)));
+    setDrag({ kind: 'progress', taskId: task.id, xStart, xEnd, frac });
+    (e.target as Element).setPointerCapture(e.pointerId);
+  }
+
+  function startMilestoneDrag(e: ReactPointerEvent, task: Task) {
+    if (e.button !== 0 || !e.ctrlKey || !task.date) return;
+    e.stopPropagation();
+    selectTask(task.id);
+    setDrag({ kind: 'move-milestone', taskId: task.id, day: task.date });
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
@@ -228,7 +307,16 @@ export function GanttChart({
         toY: y,
         targetTaskId: target && target.id !== drag.sourceTaskId ? target.id : null,
       });
+    } else if (drag.kind === 'progress') {
+      const { x } = svgPoint(e);
+      const frac = Math.max(0, Math.min(1, (x - drag.xStart) / (drag.xEnd - drag.xStart)));
+      if (Math.abs(frac - drag.frac) > 0.001) setDrag({ ...drag, frac });
+    } else if (drag.kind === 'move-milestone') {
+      const { x } = svgPoint(e);
+      const day = scale.dateAt(x);
+      if (day !== drag.day) setDrag({ ...drag, day });
     } else {
+      // resize-start / resize-end
       const { x } = svgPoint(e);
       const day = scale.dateAt(x);
       if (day !== drag.day) setDrag({ ...drag, day });
@@ -244,13 +332,29 @@ export function GanttChart({
     }
     if (!drag) return;
     if (drag.kind === 'move') {
-      if (drag.deltaDays !== 0) moveBlock(drag.taskId, drag.blockId, drag.deltaDays);
+      if (drag.deltaDays !== 0) {
+        moveBlock(drag.taskId, drag.blockId, drag.deltaDays);
+        mergeOverlappingBlocks(drag.taskId);
+      }
+    } else if (drag.kind === 'move-milestone') {
+      updateTask(drag.taskId, { date: drag.day });
     } else if (drag.kind === 'resize-start') {
       const from = drag.day <= drag.otherEdge ? drag.day : drag.otherEdge;
       setBlockDates(drag.taskId, drag.blockId, from, drag.openEnd ? null : drag.otherEdge);
+      mergeOverlappingBlocks(drag.taskId);
     } else if (drag.kind === 'resize-end') {
       const to = drag.day >= drag.otherEdge ? drag.day : drag.otherEdge;
-      setBlockDates(drag.taskId, drag.blockId, drag.otherEdge, to);
+      const resizeTask = schedule.ctx.file.tasks.find((t) => t.id === drag.taskId);
+      if (resizeTask?.scheduling === 'effort') {
+        // G11 : la poignée de fin règle le reste à faire (longueur barre = travail restant)
+        const remaining = workedDaysFromBlockStart(schedule.linkInputs, drag.taskId, to);
+        setTaskRemaining(drag.taskId, Math.max(0, remaining));
+      } else {
+        setBlockDates(drag.taskId, drag.blockId, drag.otherEdge, to);
+        mergeOverlappingBlocks(drag.taskId);
+      }
+    } else if (drag.kind === 'progress') {
+      setTaskProgress(drag.taskId, drag.frac * 100);
     } else if (drag.kind === 'link' && drag.targetTaskId) {
       if (drag.anchorDate) {
         const progressDays = workedDaysUpTo(schedule.linkInputs, drag.sourceTaskId, drag.anchorDate);
@@ -280,9 +384,10 @@ export function GanttChart({
     const cutDay = scale.dateAt(x);
     const resolved = schedule.resolvedByTask.get(task.id) ?? [];
     const r = resolved.find((rb) => rb.block.id === blockId);
-    const sorted = [...resolved].sort((a, b) => a.from.localeCompare(b.from));
-    const idx = sorted.findIndex((rb) => rb.block.id === blockId);
-    const hasNext = idx >= 0 && idx < sorted.length - 1;
+    // G5 : hasNext basé sur les blocs stockés (pas résolus) pour éviter les faux positifs
+    const storedSorted = [...task.blocks].sort((a, b) => a.from.localeCompare(b.from));
+    const storedIdx = storedSorted.findIndex((b) => b.id === blockId);
+    const hasNext = storedIdx >= 0 && storedIdx < storedSorted.length - 1;
     setMenu({
       x: e.clientX,
       y: e.clientY,
@@ -296,6 +401,13 @@ export function GanttChart({
           label: t('gantt.mergeNext'),
           disabled: !hasNext,
           onClick: () => mergeWithNextBlock(task.id, blockId),
+        },
+        {
+          label: t('gantt.changeAssign'),
+          onClick: () => {
+            setMenu(null);
+            setAssignPopover({ x: e.clientX, y: e.clientY, taskId: task.id, blockId });
+          },
         },
         {
           label: t('gantt.deleteBlock'),
@@ -357,7 +469,25 @@ export function GanttChart({
             e.stopPropagation();
           }
         }}
+        onDoubleClick={(e) => {
+          const svgRect = svgRef.current!.getBoundingClientRect();
+          const x = e.clientX - svgRect.left;
+          const y = e.clientY - svgRect.top;
+          const rowIndex = Math.floor(y / ROW_HEIGHT);
+          const row = rows[rowIndex];
+          if (!row) return;
+          if (row.task.type !== 'task') { onOpenPanel(row.task.id); return; }
+          const resolved = schedule.resolvedByTask.get(row.task.id) ?? [];
+          const clickedOnBlock = resolved.some((r) => x >= scale.x(r.from) && x <= scale.xEnd(r.to));
+          if (clickedOnBlock) onOpenPanel(row.task.id);
+          else addBlockToTask(row.task.id, scale.dateAt(x));
+        }}
       >
+        <defs>
+          <pattern id="cancelled-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(33,31,26,0.35)" strokeWidth="3" />
+          </pattern>
+        </defs>
         {/* Jours chômés */}
         {gridColumns.map((c, i) => (
           <rect key={i} x={c.x} y={0} width={c.w} height={height} fill="rgb(33 31 26 / 0.045)" />
@@ -426,17 +556,6 @@ export function GanttChart({
           rowIndexByTask={rowIndexByTask}
           chainPairs={chainPairs}
         />
-        {/* Fantômes gris de la baseline active */}
-        {baseline &&
-          visible.map((row, i) => (
-            <BaselineGhost
-              key={`bl-${row.task.id}`}
-              baseline={baseline}
-              task={row.task}
-              y={(windowStart + i) * ROW_HEIGHT}
-              scale={scale}
-            />
-          ))}
         {/* Fantômes colorés du plan proposé */}
         {proposalByTask &&
           visible.map((row, i) => {
@@ -459,7 +578,6 @@ export function GanttChart({
             transform={`translate(0, ${(windowStart + i) * ROW_HEIGHT})`}
             onContextMenu={(e) => rowMenu(e, row.task)}
             onClick={() => selectTask(row.task.id)}
-            onDoubleClick={() => onOpenPanel(row.task.id)}
             onMouseEnter={() => onHoverTask(row.task.id)}
           >
             {/* zone cliquable de la ligne */}
@@ -471,14 +589,44 @@ export function GanttChart({
               color={projectColor.get(row.task.projectId) ?? '#888888'}
               hasConflict={conflictTaskIds.has(row.task.id)}
               drag={drag}
+              ctrlHeld={ctrlHeld}
               isLinkTarget={drag?.kind === 'link' && drag.targetTaskId === row.task.id}
               onBlockPointerDown={startMove}
               onResizePointerDown={startResize}
               onLinkPointerDown={startLink}
               onBlockContextMenu={blockMenu}
+              onProgressPointerDown={startProgress}
+              onMilestonePointerDown={startMilestoneDrag}
             />
           </g>
         ))}
+        {/* Fantômes gris de la baseline active — peints APRÈS les barres pour que le survol fonctionne */}
+        {baseline &&
+          visible.map((row, i) => (
+            <BaselineGhost
+              key={`bl-${row.task.id}`}
+              baseline={baseline}
+              task={row.task}
+              y={(windowStart + i) * ROW_HEIGHT}
+              scale={scale}
+            />
+          ))}
+        {/* G11 : tooltip Reste pendant le drag resize-end en mode effort */}
+        {drag?.kind === 'resize-end' && (() => {
+          const rt = schedule.ctx.file.tasks.find((t) => t.id === drag.taskId);
+          if (rt?.scheduling !== 'effort') return null;
+          const remaining = workedDaysFromBlockStart(schedule.linkInputs, drag.taskId, drag.day);
+          const tx = scale.xEnd(drag.day) + 6;
+          const rowIdx = rowIndexByTask.get(drag.taskId) ?? 0;
+          const ty = rowIdx * ROW_HEIGHT + ROW_HEIGHT / 2;
+          const label = `${Math.round(remaining * 10) / 10} j`;
+          return (
+            <g pointerEvents="none">
+              <rect x={tx} y={ty - 9} rx={3} width={label.length * 6.5 + 8} height={18} fill="var(--color-ink)" opacity={0.85} />
+              <text x={tx + 4} y={ty + 4} fontSize={11} fill="white">{label}</text>
+            </g>
+          );
+        })()}
         {/* Fantôme de lien en cours */}
         {drag?.kind === 'link' && (
           <g pointerEvents="none">
@@ -497,6 +645,16 @@ export function GanttChart({
         )}
       </svg>
       {menu && <ContextMenu x={menu.x} y={menu.y} entries={menu.entries} onClose={() => setMenu(null)} />}
+      {assignPopover && (
+        <BlockAssignPopover
+          x={assignPopover.x}
+          y={assignPopover.y}
+          taskId={assignPopover.taskId}
+          blockId={assignPopover.blockId}
+          schedule={schedule}
+          onClose={() => setAssignPopover(null)}
+        />
+      )}
     </>
   );
 }
@@ -510,6 +668,7 @@ interface RowBarsProps {
   color: string;
   hasConflict: boolean;
   drag: Drag | null;
+  ctrlHeld: boolean;
   isLinkTarget: boolean;
   onBlockPointerDown: (e: ReactPointerEvent, task: Task, blockId: string) => void;
   onResizePointerDown: (
@@ -523,6 +682,8 @@ interface RowBarsProps {
   ) => void;
   onLinkPointerDown: (e: ReactPointerEvent, task: Task) => void;
   onBlockContextMenu: (e: React.MouseEvent, task: Task, blockId: string) => void;
+  onProgressPointerDown: (e: ReactPointerEvent, task: Task, xStart: number, xEnd: number) => void;
+  onMilestonePointerDown: (e: ReactPointerEvent, task: Task) => void;
 }
 
 function RowBars({
@@ -532,20 +693,33 @@ function RowBars({
   color,
   hasConflict,
   drag,
+  ctrlHeld,
   isLinkTarget,
   onBlockPointerDown,
   onResizePointerDown,
   onLinkPointerDown,
   onBlockContextMenu,
+  onProgressPointerDown,
+  onMilestonePointerDown,
 }: RowBarsProps) {
   const { task } = row;
   const mid = ROW_HEIGHT / 2;
+  const barY = mid - 5.5;
+  const barH = 11;
+  const [barHovered, setBarHovered] = useState(false);
+  const { before: colsBefore, after: colsAfter, center: colsCenter, centerMode, centerOverflow, fontSize: ganttFontSize } =
+    useGanttColumnsStore();
 
   if (task.type === 'milestone') {
     if (!task.date) return null;
-    const cx = scale.x(task.date) + scale.dayWidth / 2;
+    const isMsDrag = drag?.kind === 'move-milestone' && drag.taskId === task.id;
+    const msDay = isMsDrag ? (drag as DragMoveMilestone).day : task.date;
+    const cx = scale.x(msDay) + scale.dayWidth / 2;
     return (
-      <g className="cursor-pointer">
+      <g
+        className="cursor-pointer"
+        onPointerDown={(e) => onMilestonePointerDown(e, task)}
+      >
         <Diamond cx={cx} cy={mid} size={6} color={color} conflict={hasConflict} />
         <text x={cx + 10} y={mid + 3.5} fontSize={10.5} fill="var(--color-ink-soft)">
           {task.name}
@@ -557,41 +731,105 @@ function RowBars({
   if (task.type === 'group') {
     const agg = schedule.groupAggByTask.get(task.id);
     if (!agg || !agg.span) return null;
-    const dark = darken(color, 0.25);
+    const border = darken(color, 0.45);
     const progressW = progressBarDays(agg.span, agg.progress) * scale.dayWidth;
+    const gx0 = scale.x(agg.span.start);
+    const gx1 = scale.xEnd(agg.span.end);
     return (
       <g>
-        {/* liaison fine sur toute l'étendue */}
+        {/* liaison fine sur toute l'étendue — G8 : légèrement plus haute */}
         <rect
-          x={scale.x(agg.span.start)}
-          y={mid - 1.5}
-          width={scale.xEnd(agg.span.end) - scale.x(agg.span.start)}
-          height={3}
+          x={gx0}
+          y={mid - 3}
+          width={gx1 - gx0}
+          height={6}
           fill={rgba(color, 0.28)}
         />
-        {/* union des blocs descendants — découpée pareil */}
-        {agg.intervals.map((itv, i) => (
-          <rect
-            key={i}
-            x={scale.x(itv.from)}
-            y={mid - 4}
-            width={Math.max(3, scale.xEnd(itv.to) - scale.x(itv.from))}
-            height={8}
-            rx={2}
-            fill={dark}
-          />
-        ))}
-        {/* avancement : % de la largeur calendaire totale, liaisons comprises */}
+        {/* G7 : union des blocs descendants — bords droits (rx=0), crochets par intervalle */}
+        {agg.intervals.map((itv, i) => {
+          const ix0 = scale.x(itv.from);
+          const ix1 = scale.xEnd(itv.to);
+          return (
+            <g key={i}>
+              <rect
+                x={ix0}
+                y={barY}
+                width={Math.max(3, ix1 - ix0)}
+                height={barH}
+                rx={0}
+                fill={border}
+              />
+              {/* crochet gauche — part exactement du coin bas-gauche */}
+              <path
+                d={`M ${ix0} ${barY + barH} L ${ix0 + 5} ${barY + barH} L ${ix0} ${barY + barH + 5} Z`}
+                fill={border}
+              />
+              {/* crochet droit — part exactement du coin bas-droit */}
+              <path
+                d={`M ${ix1} ${barY + barH} L ${ix1 - 5} ${barY + barH} L ${ix1} ${barY + barH + 5} Z`}
+                fill={border}
+              />
+            </g>
+          );
+        })}
+        {/* avancement : barre noire centrée */}
         {progressW > 0 && (
           <rect
             x={scale.x(agg.span.start)}
-            y={mid + 5.5}
+            y={mid - 1.25}
             width={progressW}
             height={2.5}
-            rx={1.25}
-            fill={darken(color, 0.5)}
+            rx={1}
+            fill="var(--color-ink)"
+            opacity={0.95}
+            pointerEvents="none"
           />
         )}
+        {/* P5 : textes colonnes sur barres de groupe (same logic, group zone) */}
+        {(() => {
+          const txtY = mid + ganttFontSize / 2 - 1;
+          const hasGroupCol = [...colsBefore, ...colsAfter, ...colsCenter].includes('group');
+          const groupFontWeight = hasGroupCol ? 'bold' : undefined;
+          const groupCenterTxt = colsCenter.map((k) => cellText(task, k, schedule)).filter(Boolean).join(' · ');
+          const groupBeforeParts = colsBefore.map((k) => cellText(task, k, schedule)).filter(Boolean);
+          const groupAfterParts = colsAfter.map((k) => cellText(task, k, schedule)).filter(Boolean);
+          const barW = gx1 - gx0;
+          const estW = groupCenterTxt.length * (ganttFontSize * 0.55) + 4;
+          const fits = estW <= barW;
+          const ov = !fits && centerOverflow !== 'none' ? centerOverflow : null;
+          if (ov === 'before' && groupCenterTxt) groupBeforeParts.unshift(groupCenterTxt);
+          if (ov === 'after' && groupCenterTxt) groupAfterParts.unshift(groupCenterTxt);
+          return (
+            <>
+              {groupBeforeParts.length > 0 && (
+                <text x={gx0 - 4} y={txtY} fontSize={ganttFontSize} fontWeight={groupFontWeight} textAnchor="end" fill="var(--color-ink-soft)" pointerEvents="none">
+                  {groupBeforeParts.join(' · ')}
+                </text>
+              )}
+              {groupAfterParts.length > 0 && (
+                <text x={gx1 + 4} y={txtY} fontSize={ganttFontSize} fontWeight={groupFontWeight} textAnchor="start" fill="var(--color-ink-soft)" pointerEvents="none">
+                  {groupAfterParts.join(' · ')}
+                </text>
+              )}
+              {colsCenter.length > 0 && centerMode === 'unique' && fits && groupCenterTxt && (
+                <text x={(gx0 + gx1) / 2} y={txtY} fontSize={ganttFontSize} fontWeight={groupFontWeight} textAnchor="middle" fill="var(--color-surface)" pointerEvents="none">
+                  {groupCenterTxt}
+                </text>
+              )}
+              {colsCenter.length > 0 && centerMode === 'perBlock' && agg.intervals.map((itv, i) => {
+                const ix0 = scale.x(itv.from);
+                const ix1 = scale.xEnd(itv.to);
+                const iw = ix1 - ix0;
+                if (iw < estW) return null;
+                return (
+                  <text key={i} x={(ix0 + ix1) / 2} y={txtY} fontSize={ganttFontSize} fontWeight={groupFontWeight} textAnchor="middle" fill="var(--color-surface)" pointerEvents="none">
+                    {groupCenterTxt}
+                  </text>
+                );
+              })}
+            </>
+          );
+        })()}
         {/* jalons des descendants quand le groupe est replié */}
         {row.collapsedMilestones.map(
           (m) =>
@@ -619,7 +857,15 @@ function RowBars({
   }
   const span = { start: resolved[0]!.from, end: resolved[resolved.length - 1]!.to };
   const progress = taskProgress(task);
-  const progressW = progressBarDays(span, progress) * scale.dayWidth;
+  const xStart = scale.x(span.start);
+  const xEnd = scale.xEnd(span.end);
+  const activeFrac =
+    drag?.kind === 'progress' && drag.taskId === task.id ? drag.frac : progress;
+  const progressW = (xEnd - xStart) * activeFrac;
+  const isDraggingProgress = drag?.kind === 'progress' && drag.taskId === task.id;
+  const handleW = 5;
+  const rawHandleX = xStart + activeFrac * (xEnd - xStart) - handleW / 2;
+  const handleX = Math.max(xStart, Math.min(xEnd - handleW, rawHandleX));
   const dragOffset = (blockId: string) =>
     drag?.kind === 'move' && drag.taskId === task.id && drag.blockId === blockId
       ? drag.deltaDays * scale.dayWidth
@@ -627,14 +873,18 @@ function RowBars({
 
   return (
     <g className="group">
-      {/* liaisons estompées entre blocs */}
+      <g
+        onMouseEnter={() => setBarHovered(true)}
+        onMouseLeave={() => setBarHovered(false)}
+      >
+      {/* liaisons estompées entre blocs — G8 : plus hautes pour rester visibles derrière la barre d'avancement */}
       {resolved.slice(0, -1).map((r, i) => {
         const next = resolved[i + 1]!;
         const x1 = scale.xEnd(r.to);
         const x2 = scale.x(next.from);
         if (x2 <= x1) return null;
         return (
-          <rect key={`l${i}`} x={x1} y={mid - 2} width={x2 - x1} height={4} fill={rgba(color, 0.3)} />
+          <rect key={`l${i}`} x={x1} y={mid - 3.5} width={x2 - x1} height={7} fill={rgba(color, 0.3)} />
         );
       })}
       {/* blocs */}
@@ -661,12 +911,12 @@ function RowBars({
           <g key={r.block.id}>
             <rect
               x={x}
-              y={BAR_Y}
+              y={barY}
               width={w}
-              height={BAR_H}
+              height={barH}
               rx={3}
               fill={color}
-              opacity={task.status === 'done' ? 0.55 : 1}
+              opacity={task.status === 'done' ? 0.55 : task.status === 'cancelled' ? 0.4 : 1}
               stroke={r.overflow || hasConflict ? 'var(--color-danger)' : darken(color, 0.3)}
               strokeWidth={r.overflow || hasConflict ? 1.6 : 0.5}
               className="cursor-grab active:cursor-grabbing"
@@ -679,50 +929,59 @@ function RowBars({
                 {`\n${t('panel.remaining')} : ${task.remaining} ${t('common.days')}`}
               </title>
             </rect>
+            {/* hachures diagonales si annulé */}
+            {task.status === 'cancelled' && (
+              <rect x={x} y={barY} width={w} height={barH} rx={3} fill="url(#cancelled-hatch)" pointerEvents="none" />
+            )}
             {/* fin calculée : bord droit en dégradé (travail qui « s'arrête tout seul ») */}
             {openEnd && (
-              <rect x={x + w - 3} y={BAR_Y} width={3} height={BAR_H} fill={rgba('#ffffff', 0.45)} />
+              <rect x={x + w - 3} y={barY} width={3} height={barH} fill={rgba('#ffffff', 0.45)} pointerEvents="none" />
             )}
-            {/* poignées de redimensionnement */}
+            {/* poignée de début — moitié basse seulement (haut = déplacer) */}
             <rect
               x={x - 3}
-              y={BAR_Y}
-              width={7}
-              height={BAR_H}
+              y={barY + barH / 2}
+              width={10}
+              height={barH / 2}
               fill="transparent"
-              className="cursor-ew-resize"
+              style={{ cursor: ctrlHeld ? 'grab' : 'ew-resize' }}
               onPointerDown={(e) =>
                 onResizePointerDown(e, task, r.block.id, 'start', r.from, r.to, openEnd)
               }
             />
-            {!openEnd && (
-              <rect
-                x={x + w - 4}
-                y={BAR_Y}
-                width={8}
-                height={BAR_H}
-                fill="transparent"
-                className="cursor-ew-resize"
-                onPointerDown={(e) =>
-                  onResizePointerDown(e, task, r.block.id, 'end', r.from, r.to, openEnd)
-                }
-              />
-            )}
           </g>
         );
       })}
-      {/* avancement superposé au ruban (règle unique, peut finir dans un trou) */}
+      {/* avancement : barre noire centrée */}
       {progressW > 0 && (
         <rect
-          x={scale.x(span.start)}
-          y={BAR_Y + BAR_H - 4}
+          x={xStart}
+          y={mid - 1.25}
           width={progressW}
-          height={3}
-          rx={1.5}
-          fill={darken(color, 0.55)}
+          height={2.5}
+          rx={1}
+          fill="var(--color-ink)"
+          opacity={0.95}
           pointerEvents="none"
         />
       )}
+      {/* G1 : poignée d'avancement — moitié haute seulement, rendue en dernier pour priorité pointer */}
+      {task.status !== 'cancelled' && (barHovered || isDraggingProgress) && (
+        <rect
+          x={handleX}
+          y={barY - 2}
+          width={handleW}
+          height={barH / 2 + 2}
+          rx={1.5}
+          fill="var(--color-ink)"
+          opacity={0.8}
+          style={{ cursor: ctrlHeld ? 'grab' : 'col-resize' }}
+          onPointerDown={(e) => onProgressPointerDown(e, task, xStart, xEnd)}
+        >
+          <title>{t('gantt.progressTooltip', { pct: Math.round(activeFrac * 100) })}</title>
+        </rect>
+      )}
+      </g>
       {/* deadline */}
       {task.deadline && (
         <path
@@ -733,9 +992,52 @@ function RowBars({
           opacity={0.8}
         />
       )}
-      {/* poignée de création de lien (apparaît au survol de la ligne) */}
+      {/* textes colonnes Gantt — avant / après / centre (P5 + P6) */}
+      {(() => {
+        const txtY = mid + ganttFontSize / 2 - 1;
+        const centerTxt = colsCenter.map((k) => cellText(task, k, schedule)).filter(Boolean).join(' · ');
+        const barW = xEnd - xStart;
+        const estW = centerTxt.length * (ganttFontSize * 0.55) + 4;
+        const fitsInBar = estW <= barW;
+        // P6 : repli si texte centre ne tient pas
+        const overflow = !fitsInBar && centerOverflow !== 'none' ? centerOverflow : null;
+        const beforeParts = colsBefore.map((k) => cellText(task, k, schedule)).filter(Boolean);
+        const afterParts = colsAfter.map((k) => cellText(task, k, schedule)).filter(Boolean);
+        if (overflow === 'before' && centerTxt) beforeParts.unshift(centerTxt);
+        if (overflow === 'after' && centerTxt) afterParts.unshift(centerTxt);
+        return (
+          <>
+            {beforeParts.length > 0 && (
+              <text x={xStart - 4} y={txtY} fontSize={ganttFontSize} textAnchor="end" fill="var(--color-ink-soft)" pointerEvents="none">
+                {beforeParts.join(' · ')}
+              </text>
+            )}
+            {afterParts.length > 0 && (
+              <text x={xEnd + 4} y={txtY} fontSize={ganttFontSize} textAnchor="start" fill="var(--color-ink-soft)" pointerEvents="none">
+                {afterParts.join(' · ')}
+              </text>
+            )}
+            {colsCenter.length > 0 && centerMode === 'unique' && fitsInBar && centerTxt && (
+              <text x={(xStart + xEnd) / 2} y={txtY} fontSize={ganttFontSize} textAnchor="middle" fill="var(--color-surface)" pointerEvents="none">
+                {centerTxt}
+              </text>
+            )}
+            {colsCenter.length > 0 && centerMode === 'perBlock' && resolved.map((r) => {
+              const rx = scale.x(r.from) + dragOffset(r.block.id);
+              const rw = Math.max(4, scale.xEnd(r.to) - scale.x(r.from));
+              if (rw < estW) return null;
+              return (
+                <text key={`ct-${r.block.id}`} x={rx + rw / 2} y={txtY} fontSize={ganttFontSize} textAnchor="middle" fill="var(--color-surface)" pointerEvents="none">
+                  {centerTxt}
+                </text>
+              );
+            })}
+          </>
+        );
+      })()}
+      {/* poignée de création de lien (décalée à +11 pour ne pas chevaucher la poignée de fin) */}
       <circle
-        cx={scale.xEnd(span.end) + 7}
+        cx={scale.xEnd(span.end) + 11}
         cy={mid}
         r={4}
         fill="var(--color-surface)"
@@ -746,9 +1048,74 @@ function RowBars({
       >
         <title>{t('gantt.newLinkTo')}</title>
       </circle>
+      {/* poignées de fin — rendues après le cercle de lien pour capter le pointeur en priorité */}
+      {resolved.map((r) => {
+        const openEnd = r.block.to === null;
+        const dragOff =
+          drag?.kind === 'move' && drag.taskId === task.id && drag.blockId === r.block.id
+            ? drag.deltaDays * scale.dayWidth
+            : 0;
+        let from = r.from;
+        let to = r.to;
+        if (drag?.kind === 'resize-start' && drag.taskId === task.id && drag.blockId === r.block.id) {
+          from = drag.day <= drag.otherEdge ? drag.day : drag.otherEdge;
+        }
+        if (drag?.kind === 'resize-end' && drag.taskId === task.id && drag.blockId === r.block.id) {
+          to = drag.day >= drag.otherEdge ? drag.day : drag.otherEdge;
+        }
+        const bx = scale.x(from) + dragOff;
+        const bw = Math.max(4, scale.xEnd(to) - scale.x(from));
+        return (
+          <rect
+            key={`end-${r.block.id}`}
+            x={bx + bw - 4}
+            y={barY + barH / 2}
+            width={10}
+            height={barH / 2}
+            fill="transparent"
+            style={{ cursor: ctrlHeld ? 'grab' : 'ew-resize' }}
+            onPointerDown={(e) =>
+              onResizePointerDown(e, task, r.block.id, 'end', r.from, r.to, openEnd)
+            }
+          />
+        );
+      })}
       {isLinkTarget && <TargetHalo width={scale.width} />}
     </g>
   );
+}
+
+function cellText(task: Task, key: ColKey, schedule: Schedule): string {
+  switch (key) {
+    case 'name': return task.type === 'task' ? task.name : '';
+    case 'group': return task.type === 'group' ? task.name : '';
+    case 'project': {
+      const p = schedule.ctx.file.projects.find((x) => x.id === task.projectId);
+      return p?.name ?? '';
+    }
+    case 'estimate': return task.estimate != null ? `${task.estimate}j` : '';
+    case 'effort': return `${task.effort}j`;
+    case 'remaining': return `${Math.round(task.remaining * 10) / 10}j`;
+    case 'progress': return `${Math.round(taskProgress(task) * 100)}%`;
+    case 'assignees': {
+      const res = schedule.ctx.file.resources;
+      const ids = new Set(task.blocks.flatMap((b) => b.assignments.map((a) => a.resourceId)));
+      return [...ids].map((id) => {
+        const r = res.find((x) => x.id === id);
+        return r ? resourceAvatar(r).label : '';
+      }).filter(Boolean).join(' ');
+    }
+    case 'start': {
+      const resolved = schedule.resolvedByTask.get(task.id);
+      return resolved?.[0]?.from ?? '';
+    }
+    case 'end': {
+      const resolved = schedule.resolvedByTask.get(task.id);
+      return resolved?.[resolved.length - 1]?.to ?? '';
+    }
+    case 'status': return task.status ?? '';
+    default: return '';
+  }
 }
 
 function Diamond({
@@ -813,14 +1180,16 @@ function BaselineGhost({
         fill="none"
         stroke="var(--color-line-strong)"
         strokeWidth={1.5}
-        pointerEvents="none"
-      />
+      >
+        <title>baseline : {baseline.name}</title>
+      </path>
     );
   }
   const snapshot = baseline.tasks[task.id];
   if (!snapshot) return null;
   return (
-    <g pointerEvents="none">
+    <g>
+      <title>baseline : {baseline.name}</title>
       {snapshot.blocks.map((b, i) => (
         <rect
           key={i}
@@ -976,4 +1345,119 @@ function ArrowHead({ d, color }: { d: string; color: string }) {
   const x = Number(m[1]);
   const y = Number(m[2]);
   return <path d={`M ${x} ${y} l -5 -3.5 v 7 Z`} fill={color} />;
+}
+
+// ——— Popover d'affectation de bloc ———
+
+function BlockAssignPopover({
+  x,
+  y,
+  taskId,
+  blockId,
+  schedule,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  taskId: string;
+  blockId: string;
+  schedule: Schedule;
+  onClose: () => void;
+}) {
+  const file = schedule.ctx.file;
+  const block = file.tasks.find((t) => t.id === taskId)?.blocks.find((b) => b.id === blockId);
+  const [assignments, setAssignmentsState] = useState<Assignment[]>(
+    block?.assignments.map((a) => ({ ...a })) ?? [],
+  );
+
+  const toggle = (resourceId: string) => {
+    setAssignmentsState((prev) => {
+      if (prev.some((a) => a.resourceId === resourceId)) {
+        return prev.filter((a) => a.resourceId !== resourceId);
+      }
+      return [...prev, { resourceId, units: 100 }];
+    });
+  };
+
+  const setUnits = (resourceId: string, units: number) => {
+    setAssignmentsState((prev) =>
+      prev.map((a) => (a.resourceId === resourceId ? { ...a, units } : a)),
+    );
+  };
+
+  const handleSave = () => {
+    setBlockAssignments(taskId, blockId, assignments);
+    onClose();
+  };
+
+  // Clic en dehors = fermer sans sauvegarder
+  const popRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (popRef.current && !popRef.current.contains(e.target as Node)) onCloseRef.current();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const left = Math.min(x, window.innerWidth - 260);
+  const top = Math.min(y, window.innerHeight - 300);
+
+  return createPortal(
+    <div
+      ref={popRef}
+      className="fixed z-50 min-w-[220px] rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] shadow-xl"
+      style={{ left, top }}
+    >
+      <div className="border-b border-[var(--color-line)] px-3 py-2 text-[11px] font-semibold text-[var(--color-ink-soft)] uppercase tracking-wide">
+        {t('gantt.assignPopoverTitle')}
+      </div>
+      <div className="max-h-52 overflow-y-auto p-2 space-y-1">
+        {file.resources.map((r) => {
+          const checked = assignments.some((a) => a.resourceId === r.id);
+          const units = assignments.find((a) => a.resourceId === r.id)?.units ?? 100;
+          return (
+            <label key={r.id} className="flex items-center gap-2 cursor-pointer rounded px-1 py-0.5 hover:bg-[var(--color-wash)]">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => toggle(r.id)}
+                className="accent-[var(--color-accent)]"
+              />
+              <span className="flex-1 text-[12px] truncate">{r.name}</span>
+              {checked && (
+                <input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={units}
+                  onChange={(e) => setUnits(r.id, Math.max(1, Math.min(1000, Number(e.target.value))))}
+                  className="w-14 rounded border border-[var(--color-line)] bg-[var(--color-wash)] px-1 py-0.5 text-right text-[11px]"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              )}
+              {checked && <span className="text-[10px] text-[var(--color-ink-soft)]">%</span>}
+            </label>
+          );
+        })}
+      </div>
+      <div className="flex gap-2 border-t border-[var(--color-line)] px-3 py-2">
+        <button
+          className="flex-1 rounded bg-[var(--color-accent)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90"
+          onClick={handleSave}
+        >
+          {t('common.apply')}
+        </button>
+        <button
+          className="flex-1 rounded border border-[var(--color-line)] px-2 py-1 text-[11px] hover:bg-[var(--color-wash)]"
+          onClick={onClose}
+        >
+          {t('common.cancel')}
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
 }

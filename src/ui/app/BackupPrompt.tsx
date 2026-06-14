@@ -1,60 +1,56 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { clearHistory, useAppStore } from '@/state/store';
 import { parseTeamFile } from '@/core/model/migrate';
-import { clearBackup, readBackup, type BackupRecord } from '@/io/backup';
+import { clearBackup, readBackup } from '@/io/backup';
+import { useNotifications } from '@/state/notifications';
 import { t } from '@/i18n/fr';
 
 /**
- * Au démarrage : si une sauvegarde de secours contient des modifications
- * jamais écrites dans un fichier, on propose de la restaurer.
+ * Détecte au démarrage une sauvegarde de secours non écrite et pousse
+ * une notification sticky (toast + panneau Messages) plutôt qu'un bandeau pleine largeur.
  */
 export function BackupPrompt() {
-  const [backup, setBackup] = useState<BackupRecord | null>(null);
+  const push = useNotifications((s) => s.push);
+  const dismiss = useNotifications((s) => s.dismiss);
+  const notifiedRef = useRef(false);
 
   useEffect(() => {
+    if (notifiedRef.current) return;
     void readBackup().then((record) => {
-      if (record?.dirty) setBackup(record);
+      if (!record?.dirty) return;
+      notifiedRef.current = true;
+      const when = new Date(record.savedAt).toLocaleString('fr-FR');
+
+      const restore = () => {
+        try {
+          const file = parseTeamFile(record.json);
+          useAppStore.getState().replaceFile(file, record.fileName);
+          clearHistory();
+          useAppStore.setState({ dirty: true });
+        } finally {
+          void clearBackup();
+        }
+      };
+
+      let notifId = 0;
+      notifId = push({
+        kind: 'warn',
+        message: t('backup.title'),
+        detail: t('backup.body', { date: when }),
+        sticky: true,
+        actions: [
+          { label: t('backup.restore'), primary: true, onClick: restore },
+          {
+            label: t('backup.discard'),
+            onClick: () => {
+              void clearBackup();
+              dismiss(notifId);
+            },
+          },
+        ],
+      });
     });
-  }, []);
+  }, [push, dismiss]);
 
-  if (!backup) return null;
-
-  const restore = () => {
-    try {
-      const file = parseTeamFile(backup.json);
-      useAppStore.getState().replaceFile(file, backup.fileName);
-      clearHistory();
-      useAppStore.setState({ dirty: true });
-    } finally {
-      setBackup(null);
-    }
-  };
-
-  const discard = () => {
-    void clearBackup();
-    setBackup(null);
-  };
-
-  const when = new Date(backup.savedAt).toLocaleString('fr-FR');
-
-  return (
-    <div className="flex items-center gap-4 border-b border-warn/30 bg-warn-wash px-4 py-2.5 text-sm text-ink">
-      <span className="font-medium">{t('backup.title')}</span>
-      <span className="text-ink-soft">{t('backup.body', { date: when })}</span>
-      <span className="ml-auto flex shrink-0 gap-2">
-        <button
-          className="rounded-md bg-warn px-3 py-1 text-[13px] font-medium text-white transition hover:brightness-95"
-          onClick={restore}
-        >
-          {t('backup.restore')}
-        </button>
-        <button
-          className="rounded-md border border-line bg-surface px-3 py-1 text-[13px] font-medium text-ink-soft transition hover:text-ink"
-          onClick={discard}
-        >
-          {t('backup.discard')}
-        </button>
-      </span>
-    </div>
-  );
+  return null;
 }

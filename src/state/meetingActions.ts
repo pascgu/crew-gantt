@@ -20,12 +20,12 @@ export function hasMeetingChanges(): boolean {
 }
 
 /** Clôture : entrée de journal avec résumé automatique + note libre. */
-export function closeMeeting(note: string): string[] {
+export function closeMeeting(note: string, meetingDate?: IsoDate): string[] {
   const { file, mutate } = useAppStore.getState();
   const summary = sessionStart ? summarizeChanges(sessionStart, file) : [];
   mutate((f) => {
     f.journal.push({
-      date: todayIso(),
+      date: meetingDate ?? todayIso(),
       type: 'meeting',
       summary,
       note,

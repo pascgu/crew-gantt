@@ -1,7 +1,8 @@
 import { diffDays } from '@/core/calendar/dates';
 import type { Proposal, TaskChange } from '@/core/propose/propose';
 import { useAppStore } from '@/state/store';
-import { applyProposal } from '@/state/proposalActions';
+import { applyProposal, proposalKey } from '@/state/proposalActions';
+import { useUiStore } from '@/state/uiStore';
 import { IconClose } from '@/ui/common/icons';
 import { t } from '@/i18n/fr';
 import { fmtDay } from '@/ui/gantt/format';
@@ -38,29 +39,27 @@ interface ImpactsPanelProps {
   onClose: () => void;
 }
 
-/** Panneau Impacts : tâches décalées/découpées/étirées, jalons, deadlines. */
+/** Panneau Impacts : résumé + tâches décalées/découpées/étirées, jalons, deadlines. */
 export function ImpactsPanel({ proposal, onClose }: ImpactsPanelProps) {
   const tasks = useAppStore((s) => s.file.tasks);
+  const { dismissProposal } = useUiStore();
   const nameOf = (id: string) => tasks.find((tk) => tk.id === id)?.name ?? id;
 
+  const taskCount = proposal.changes.filter((c) => c.blocks).length;
+  const milestoneCount = proposal.changes.filter((c) => c.date).length;
+
   return (
-    <div className="absolute right-3 top-12 z-40 flex max-h-[70%] w-96 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-float">
+    <div className="absolute right-3 top-12 z-40 flex max-h-[70%] w-96 flex-col overflow-hidden rounded-xl border border-accent/30 bg-surface shadow-float">
       <header className="flex items-center justify-between border-b border-line px-3 py-2">
-        <h3 className="font-display text-[13px] font-semibold">{t('proposal.impactsTitle')}</h3>
-        <div className="flex items-center gap-2">
-          <button
-            className="rounded-md bg-accent px-2.5 py-1 text-[11.5px] font-medium text-white transition hover:bg-accent-deep"
-            onClick={() => {
-              applyProposal(proposal);
-              onClose();
-            }}
-          >
-            {t('proposal.applyAll')}
-          </button>
-          <button className="rounded p-1 text-ink-soft hover:text-ink" onClick={onClose}>
-            <IconClose size={13} />
-          </button>
+        <div>
+          <h3 className="font-display text-[13px] font-semibold">{t('proposal.impactsTitle')}</h3>
+          <p className="text-[11px] text-ink-soft">
+            {t('proposal.banner', { tasks: taskCount, milestones: milestoneCount })}
+          </p>
         </div>
+        <button className="rounded p-1 text-ink-soft hover:text-ink" onClick={onClose}>
+          <IconClose size={13} />
+        </button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {proposal.changes.length === 0 && (
@@ -106,6 +105,20 @@ export function ImpactsPanel({ proposal, onClose }: ImpactsPanelProps) {
             ))}
           </>
         )}
+      </div>
+      <div className="flex gap-2 border-t border-line px-3 py-2">
+        <button
+          className="flex-1 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white transition hover:bg-accent-deep"
+          onClick={() => { applyProposal(proposal); onClose(); }}
+        >
+          {t('proposal.applyAll')}
+        </button>
+        <button
+          className="rounded-md border border-line px-3 py-1.5 text-[12px] text-ink-soft transition hover:text-ink"
+          onClick={() => { dismissProposal(proposalKey(proposal)); onClose(); }}
+        >
+          {t('proposal.dismiss')}
+        </button>
       </div>
     </div>
   );

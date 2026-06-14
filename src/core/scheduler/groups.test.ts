@@ -47,7 +47,8 @@ describe('agrégats de groupe (exemples chiffrés du GDD)', () => {
   it('« 4 tâches sur 3 jours avec recouvrement, 6 j-h dont 2 réalisés → barre à 33 % »', () => {
     const tasks = [
       group('g'),
-      task('t1', { parentId: 'g', effort: 2, remaining: 0, blocks: [block('b1', '2026-06-01', '2026-06-02')] }),
+      // t1 est terminée (progress: 1), les autres sont à 0 % → moyenne pondérée = 2/6 = 33 %
+      task('t1', { parentId: 'g', effort: 2, remaining: 0, progress: 1, blocks: [block('b1', '2026-06-01', '2026-06-02')] }),
       task('t2', { parentId: 'g', effort: 1, remaining: 1, blocks: [block('b2', '2026-06-01', '2026-06-01')] }),
       task('t3', { parentId: 'g', effort: 2, remaining: 2, blocks: [block('b3', '2026-06-02', '2026-06-03')] }),
       task('t4', { parentId: 'g', effort: 1, remaining: 1, blocks: [block('b4', '2026-06-03', '2026-06-03')] }),
@@ -60,11 +61,12 @@ describe('agrégats de groupe (exemples chiffrés du GDD)', () => {
     expect(agg.intervals).toEqual([{ from: '2026-06-01', to: '2026-06-03' }]);
   });
 
-  it('« tâche de 4 j en deux blocs de 2 j séparés de 5 j, 2 j réalisés → ruban de 9 j, barre à 50 % »', () => {
-    // La même règle de rendu s'applique aux tâches simples découpées : ici via taskProgress.
+  it('« tâche de 4 j en deux blocs de 2 j séparés de 5 j → ruban de 9 j, barre à 50 % avec progress: 0.5 »', () => {
+    // taskProgress lit désormais task.progress indépendamment du reste.
     const t = task('t', {
       effort: 4,
       remaining: 2,
+      progress: 0.5,
       blocks: [
         block('b1', '2026-06-01', '2026-06-02'),
         block('b2', '2026-06-08', '2026-06-09'),
@@ -91,7 +93,7 @@ describe('agrégats de groupe (exemples chiffrés du GDD)', () => {
     expect(agg.span).toEqual({ start: '2026-06-01', end: '2026-06-26' });
   });
 
-  it('groupes imbriqués : les efforts ne sont comptés qu’une fois, jalons ignorés', () => {
+  it("groupes imbriqués : les efforts ne sont comptés qu'une fois, jalons ignorés", () => {
     const tasks = [
       group('g'),
       group('sg', { parentId: 'g' }),
@@ -118,9 +120,11 @@ describe('agrégats de groupe (exemples chiffrés du GDD)', () => {
 });
 
 describe('taskProgress', () => {
-  it('borne 0..1 et gère l’effort nul', () => {
-    expect(taskProgress({ effort: 0, remaining: 0 })).toBe(0);
-    expect(taskProgress({ effort: 4, remaining: 6 })).toBe(0);
-    expect(taskProgress({ effort: 4, remaining: 0 })).toBe(1);
+  it('retourne task.progress clampé à 0..1 (indépendant du reste à faire)', () => {
+    expect(taskProgress({ progress: 0 })).toBe(0);
+    expect(taskProgress({ progress: 0.5 })).toBeCloseTo(0.5, 10);
+    expect(taskProgress({ progress: 1 })).toBe(1);
+    expect(taskProgress({ progress: -0.1 })).toBe(0);
+    expect(taskProgress({ progress: 1.1 })).toBe(1);
   });
 });

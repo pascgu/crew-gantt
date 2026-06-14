@@ -7,6 +7,8 @@ import { EditableText } from '@/ui/common/inline';
 import { IconClose, IconPlus } from '@/ui/common/icons';
 import { t, tList } from '@/i18n/fr';
 import { fmtDayFull } from '@/ui/gantt/format';
+import { useTableStore, type ColKey } from '@/ui/table/tableStore';
+import { useGanttColumnsStore, type CenterOverflow } from '@/ui/gantt/ganttColumnsStore';
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -17,14 +19,135 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
+const ALL_COL_KEYS: ColKey[] = [
+  'name', 'group', 'project', 'estimate', 'effort', 'remaining', 'progress',
+  'assignees', 'start', 'end', 'status',
+];
+
 export function SettingsTab() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto flex max-w-3xl flex-col gap-5 p-6">
+        <DisplayCard />
+        <GanttColumnsCard />
         <CalendarCard />
         <ProjectsCard />
       </div>
     </div>
+  );
+}
+
+function DisplayCard() {
+  const fontSize = useTableStore((s) => s.fontSize);
+  const setFontSize = useTableStore((s) => s.setFontSize);
+  return (
+    <Card title={t('settings.display')}>
+      <div className="flex items-center gap-3">
+        <span className="text-[13px] text-ink-soft">{t('settings.tableFontSize')}</span>
+        <button
+          className="flex h-6 w-6 items-center justify-center rounded border border-line text-ink-soft hover:border-accent hover:text-accent"
+          onClick={() => setFontSize(fontSize - 1)}
+        >−</button>
+        <span className="min-w-[2rem] text-center font-mono text-[13px]">{fontSize} px</span>
+        <button
+          className="flex h-6 w-6 items-center justify-center rounded border border-line text-ink-soft hover:border-accent hover:text-accent"
+          onClick={() => setFontSize(fontSize + 1)}
+        >+</button>
+        <span className="ml-2 text-[11px] text-ink-faint" style={{ fontSize }}>Aperçu</span>
+      </div>
+    </Card>
+  );
+}
+
+function GanttColumnsCard() {
+  const { before, after, center, centerMode, centerOverflow, fontSize, setBefore, setAfter, setCenter, setCenterMode, setCenterOverflow, setFontSize } =
+    useGanttColumnsStore();
+
+  function toggle(zone: 'before' | 'after' | 'center', key: ColKey) {
+    const current = zone === 'before' ? before : zone === 'after' ? after : center;
+    const setter = zone === 'before' ? setBefore : zone === 'after' ? setAfter : setCenter;
+    setter(current.includes(key) ? current.filter((k) => k !== key) : [...current, key]);
+  }
+
+  return (
+    <Card title={t('settings.ganttColumns')}>
+      <div className="flex flex-col gap-4">
+        {/* Font size */}
+        <div className="flex items-center gap-3">
+          <span className="text-[13px] text-ink-soft">{t('settings.ganttFontSize')}</span>
+          <button
+            className="flex h-6 w-6 items-center justify-center rounded border border-line text-ink-soft hover:border-accent hover:text-accent"
+            onClick={() => setFontSize(fontSize - 1)}
+          >−</button>
+          <span className="min-w-[2rem] text-center font-mono text-[13px]">{fontSize} px</span>
+          <button
+            className="flex h-6 w-6 items-center justify-center rounded border border-line text-ink-soft hover:border-accent hover:text-accent"
+            onClick={() => setFontSize(fontSize + 1)}
+          >+</button>
+        </div>
+        {/* 3 zones */}
+        {(
+          [
+            ['before', t('settings.colsBefore'), before],
+            ['after', t('settings.colsAfter'), after],
+            ['center', t('settings.colsCenter'), center],
+          ] as ['before' | 'after' | 'center', string, ColKey[]][]
+        ).map(([zone, label, selected]) => (
+          <div key={zone}>
+            <p className="mb-1.5 text-[12px] font-medium text-ink-soft">{label}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {ALL_COL_KEYS.map((key) => {
+                const active = selected.includes(key);
+                return (
+                  <button
+                    key={key}
+                    onClick={() => toggle(zone, key)}
+                    className={`rounded border px-2 py-0.5 text-[11.5px] transition ${
+                      active
+                        ? 'border-accent bg-accent-wash text-accent-deep'
+                        : 'border-line text-ink-soft hover:border-accent hover:text-ink'
+                    }`}
+                  >
+                    {t(`tasks.columns.${key}`)}
+                  </button>
+                );
+              })}
+            </div>
+            {zone === 'center' && center.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {(['unique', 'perBlock'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setCenterMode(mode)}
+                    className={`rounded border px-2 py-0.5 text-[11.5px] transition ${
+                      centerMode === mode
+                        ? 'border-accent bg-accent-wash text-accent-deep'
+                        : 'border-line text-ink-soft hover:border-accent hover:text-ink'
+                    }`}
+                  >
+                    {mode === 'unique' ? t('settings.centerUnique') : t('settings.centerPerBlock')}
+                  </button>
+                ))}
+                <span className="text-[11px] text-ink-faint">{t('settings.centerOverflow')} :</span>
+                {(['none', 'before', 'after'] as CenterOverflow[]).map((ov) => (
+                  <button
+                    key={ov}
+                    onClick={() => setCenterOverflow(ov)}
+                    className={`rounded border px-2 py-0.5 text-[11.5px] transition ${
+                      centerOverflow === ov
+                        ? 'border-accent bg-accent-wash text-accent-deep'
+                        : 'border-line text-ink-soft hover:border-accent hover:text-ink'
+                    }`}
+                  >
+                    {ov === 'none' ? t('settings.overflowNone') : ov === 'before' ? t('settings.overflowBefore') : t('settings.overflowAfter')}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
 
@@ -182,6 +305,20 @@ function ProjectsCard() {
               <span className="font-mono text-[11px] text-ink-faint">
                 {taskCount} {taskCount > 1 ? 'tâches' : 'tâche'}
               </span>
+              <select
+                className="rounded border border-line bg-surface px-1.5 py-0.5 text-[11px] text-ink-soft outline-none focus:border-accent"
+                title={t('settings.projectScheduling')}
+                value={p.defaultScheduling ?? 'effort'}
+                onChange={(e) =>
+                  mutate((f) => {
+                    const proj = f.projects.find((x) => x.id === p.id);
+                    if (proj) proj.defaultScheduling = e.target.value as 'effort' | 'fixed';
+                  })
+                }
+              >
+                <option value="effort">{t('panel.schedulingEffort')}</option>
+                <option value="fixed">{t('panel.schedulingFixed')}</option>
+              </select>
               <button
                 className="rounded border border-line px-2 py-0.5 text-[11.5px] text-ink-soft transition hover:border-accent hover:text-accent"
                 onClick={() =>

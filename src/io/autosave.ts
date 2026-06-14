@@ -1,7 +1,6 @@
 import { useAppStore } from '@/state/store';
 import { serializeTeamFile } from '@/core/model/migrate';
 import { writeBackup } from './backup';
-import { hasLinkedFile, writeLinkedFile } from './fileAccess';
 
 const DEBOUNCE_MS = 2000;
 
@@ -27,7 +26,7 @@ export function startAutosave(): void {
 }
 
 async function flush(): Promise<void> {
-  const { file, fileName, dirty, markSaved } = useAppStore.getState();
+  const { file, fileName, dirty } = useAppStore.getState();
   if (!dirty) return;
 
   let json: string;
@@ -37,15 +36,6 @@ async function flush(): Promise<void> {
     return; // état transitoirement invalide : on retentera au prochain tick
   }
 
-  if (hasLinkedFile()) {
-    try {
-      await writeLinkedFile(file);
-      markSaved();
-      await writeBackup({ json, savedAt: new Date().toISOString(), fileName, dirty: false });
-      return;
-    } catch {
-      // l'écriture directe a échoué : le backup ci-dessous reste le filet
-    }
-  }
+  // Backup de secours uniquement — le fichier lié n'est écrit qu'en sauvegarde explicite.
   await writeBackup({ json, savedAt: new Date().toISOString(), fileName, dirty: true });
 }

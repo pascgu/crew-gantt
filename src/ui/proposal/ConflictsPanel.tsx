@@ -1,7 +1,9 @@
+import { useState, useEffect } from 'react';
 import type { Conflict } from '@/core/conflicts/detect';
 import { useAppStore } from '@/state/store';
 import { useConflicts, useSchedule } from '@/state/schedule';
 import { toggleIgnoredConflict } from '@/state/taskActions';
+import { useUiStore } from '@/state/uiStore';
 import { IconClose, IconWarning } from '@/ui/common/icons';
 import { t, type TranslationKey } from '@/i18n/fr';
 import { fmtDay } from '@/ui/gantt/format';
@@ -29,8 +31,20 @@ interface ConflictsPanelProps {
 export function ConflictsPanel({ onClose, onSelectTask }: ConflictsPanelProps) {
   const { active, ignored } = useConflicts();
   const schedule = useSchedule();
+  const tasks = useAppStore((s) => s.file.tasks);
   const resources = useAppStore((s) => s.file.resources);
   const message = useConflictMessage();
+  const focusTaskId = useUiStore((s) => s.focusConflictTaskId);
+  const [taskFilter, setTaskFilter] = useState<string>(focusTaskId ?? '');
+
+  useEffect(() => {
+    setTaskFilter(focusTaskId ?? '');
+  }, [focusTaskId]);
+
+  // Tâches distinctes qui ont au moins un conflit actif
+  const taskIds = [...new Set(active.map((c) => c.taskId).filter(Boolean))] as string[];
+
+  const filterFn = (c: Conflict) => !taskFilter || c.taskId === taskFilter;
 
   const renderConflict = (c: Conflict, isIgnored: boolean) => (
     <div
@@ -68,11 +82,26 @@ export function ConflictsPanel({ onClose, onSelectTask }: ConflictsPanelProps) {
           <IconClose size={13} />
         </button>
       </header>
+      {/* Filtre par tâche */}
+      {taskIds.length > 1 && (
+        <div className="border-b border-line px-3 py-1.5">
+          <select
+            className="w-full rounded border border-line bg-surface px-1.5 py-0.5 text-[11.5px] text-ink"
+            value={taskFilter}
+            onChange={(e) => setTaskFilter(e.target.value)}
+          >
+            <option value="">{t('conflicts.filterAll')}</option>
+            {taskIds.map((id) => (
+              <option key={id} value={id}>{tasks.find((tk) => tk.id === id)?.name ?? id}</option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {active.length === 0 && (
+        {active.filter(filterFn).length === 0 && active.length === 0 && (
           <p className="p-3 text-[12px] text-ok">{t('conflicts.none')}</p>
         )}
-        {active.map((c) => renderConflict(c, false))}
+        {active.filter(filterFn).map((c) => renderConflict(c, false))}
 
         {/* Sur-engagement : avertissement doux, jamais un conflit rouge */}
         {schedule.overEngagements.map((o) => (
@@ -95,12 +124,12 @@ export function ConflictsPanel({ onClose, onSelectTask }: ConflictsPanelProps) {
           </div>
         ))}
 
-        {ignored.length > 0 && (
+        {ignored.filter(filterFn).length > 0 && (
           <>
             <p className="mb-1 mt-3 px-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-              {t('conflicts.ignored')} ({ignored.length})
+              {t('conflicts.ignored')} ({ignored.filter(filterFn).length})
             </p>
-            {ignored.map((c) => renderConflict(c, true))}
+            {ignored.filter(filterFn).map((c) => renderConflict(c, true))}
           </>
         )}
       </div>

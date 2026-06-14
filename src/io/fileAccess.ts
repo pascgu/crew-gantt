@@ -36,8 +36,9 @@ export async function openWithPicker(): Promise<OpenedFile | null> {
   let handles: FileSystemFileHandle[];
   try {
     handles = await window.showOpenFilePicker({ types: FILE_TYPES, multiple: false });
-  } catch {
-    return null; // annulation utilisateur
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return null; // annulation utilisateur
+    throw e;
   }
   const handle = handles[0];
   if (!handle) return null;

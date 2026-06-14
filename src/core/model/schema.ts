@@ -26,6 +26,7 @@ const projectSchema = z.object({
   color: z.string().default('#4f8ef7'),
   archived: z.boolean().default(false),
   notes: z.string().default(''),
+  defaultScheduling: z.enum(['effort', 'fixed']).optional(),
 });
 
 const calendarExceptionSchema = z.object({
@@ -49,6 +50,8 @@ const resourceSchema = z.object({
   workingDays: z.array(weekday).optional(),
   exceptions: z.array(calendarExceptionSchema).default([]),
   projectShares: z.array(projectShareSchema).default([]),
+  avatarColor: z.string().optional(),
+  avatarInitials: z.string().max(2).optional(),
 });
 
 const taskLinkSchema = z.object({
@@ -87,7 +90,8 @@ const taskSchema = z.object({
   estimate: z.number().min(0).nullable().default(null),
   effort: z.number().min(0).default(0),
   remaining: z.number().min(0).optional(),
-  status: z.enum(['todo', 'in_progress', 'done', 'blocked']).default('todo'),
+  progress: z.number().min(0).max(1).optional(),
+  status: z.enum(['todo', 'in_progress', 'done', 'blocked', 'cancelled']).default('todo'),
   requirements: z.string().default(''),
   links: z.array(taskLinkSchema).default([]),
   deadline: isoDate.nullable().default(null),
@@ -154,6 +158,7 @@ export function normalizeTeamFile(parsed: ParsedTeamFile): TeamFile {
     tasks: parsed.tasks.map((t) => ({
       ...t,
       remaining: t.remaining ?? (t.status === 'done' ? 0 : t.effort),
+      progress: t.progress ?? (t.status === 'done' ? 1 : 0),
     })),
   };
 }

@@ -177,6 +177,28 @@ export function workedDaysUpTo(inputs: LinkInputs, taskId: string, day: IsoDate)
   return Math.round(cumulative * 100) / 100;
 }
 
+/**
+ * Jours travaillés depuis le début du premier bloc de la tâche jusqu'à `toDay`,
+ * sans être limité par la date de fin actuelle du bloc (contrairement à workedDaysUpTo).
+ * Utilisé pour G11 : poignée de fin en mode effort → peut agrandir ET réduire.
+ */
+export function workedDaysFromBlockStart(inputs: LinkInputs, taskId: string, toDay: IsoDate): number {
+  const task = inputs.hierarchy.tasksById.get(taskId);
+  if (!task || task.type !== 'task') return 0;
+  const resolved = inputs.resolvedByTask.get(taskId) ?? [];
+  if (resolved.length === 0) return 0;
+  const first = resolved[0]!;
+  let cumulative = 0;
+  for (let d = first.from; d <= toDay; d = addDays(d, 1)) {
+    if (first.block.assignments.length > 0) {
+      cumulative += blockCapacityOnDay(inputs.ctx, task, first.block, d);
+    } else if (inputs.ctx.isGlobalWorkingDay(d)) {
+      cumulative += 1;
+    }
+  }
+  return Math.round(cumulative * 100) / 100;
+}
+
 export interface EarliestResult {
   /** Date de début au plus tôt dérivée des liens (null : aucune contrainte). */
   date: IsoDate | null;

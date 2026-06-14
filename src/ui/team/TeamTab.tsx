@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Resource, Weekday } from '@/core/model/types';
+import { EditableAvatar } from '@/ui/common/Avatar';
 import { todayIso } from '@/core/calendar/dates';
 import { useAppStore } from '@/state/store';
 import { useSchedule } from '@/state/schedule';
@@ -69,9 +70,11 @@ function ResourceCard({ resource }: { resource: Resource }) {
   return (
     <section className="rounded-xl border border-line bg-surface p-5 shadow-panel">
       <header className="mb-4 flex items-center gap-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-wash font-display text-sm font-bold text-accent-deep">
-          {resource.name.slice(0, 1).toUpperCase()}
-        </span>
+        <EditableAvatar
+          resource={resource}
+          onChangeColor={(color) => updateResource(resource.id, { avatarColor: color })}
+          onChangeInitials={(initials) => updateResource(resource.id, { avatarInitials: initials })}
+        />
         <span className="min-w-0 flex-1 font-display text-base font-semibold">
           <EditableText value={resource.name} onCommit={(name) => updateResource(resource.id, { name })} bold />
         </span>

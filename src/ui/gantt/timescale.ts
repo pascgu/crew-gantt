@@ -4,8 +4,8 @@ import { addDays, diffDays, mondayOf, toDate } from '@/core/calendar/dates';
 import type { IsoDate, ZoomLevel } from '@/core/model/types';
 import { t } from '@/i18n/fr';
 
-export const ROW_HEIGHT = 24;
-export const HEADER_HEIGHT = 44;
+export const ROW_HEIGHT = 21;
+export const HEADER_HEIGHT = 34;
 
 export const DAY_WIDTH: Record<ZoomLevel, number> = {
   day: 34,
@@ -40,8 +40,11 @@ export function buildTimeScale(
   span: { start: IsoDate; end: IsoDate } | null,
   zoom: ZoomLevel,
   today: IsoDate,
+  extend?: { before: number; after: number },
 ): TimeScale {
-  const [before, after] = PADDING_DAYS[zoom];
+  const [baseBefore, baseAfter] = PADDING_DAYS[zoom];
+  const before = baseBefore + (extend?.before ?? 0);
+  const after = baseAfter + (extend?.after ?? 0);
   const rawStart = span && span.start < today ? span.start : today;
   const rawEnd = span && span.end > today ? span.end : today;
   const origin = mondayOf(addDays(rawStart, -before));
@@ -146,6 +149,20 @@ export function bottomTicks(scale: TimeScale): HeaderTick[] {
   }
   if (scale.zoom === 'month') return out; // la rangée haute (mois) suffit
   return monthTicks(scale, out);
+}
+
+/** Zones cliquables par jour pour l'infobulle DD/MM/YYYY (zoom jour et semaine). */
+export function dayHoverTicks(scale: TimeScale): { x: number; width: number; label: string }[] {
+  if (scale.zoom !== 'day' && scale.zoom !== 'week') return [];
+  const out: { x: number; width: number; label: string }[] = [];
+  for (let day = scale.origin; day <= scale.end; day = addDays(day, 1)) {
+    out.push({
+      x: scale.x(day),
+      width: scale.dayWidth,
+      label: `${format(toDate(day), 'dd/MM/yyyy')} — S${getISOWeek(toDate(day))}`,
+    });
+  }
+  return out;
 }
 
 /** Zones de survol par semaine (zoom semaine) : « S36 » en infobulle. */

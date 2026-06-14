@@ -24,6 +24,8 @@ export interface Project {
   archived: boolean;
   /** Notes libres de la fiche projet (tableau de bord). */
   notes: string;
+  /** Mode de planification par défaut pour les nouvelles tâches du projet. */
+  defaultScheduling?: SchedulingMode;
 }
 
 /**
@@ -60,6 +62,10 @@ export interface Resource {
   workingDays?: Weekday[];
   exceptions: CalendarException[];
   projectShares: ProjectShare[];
+  /** Couleur personnalisée du rond d'avatar (ex. '#4f8ef7'). */
+  avatarColor?: string;
+  /** Initiales affichées dans l'avatar (1-2 caractères). */
+  avatarInitials?: string;
 }
 
 /** Trois types de liens, tous « au plus tôt » (liens faibles, jamais un aimant). */
@@ -93,7 +99,8 @@ export interface Block {
 }
 
 export type TaskType = 'task' | 'milestone' | 'group';
-export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
+export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked' | 'cancelled';
+export const TASK_STATUSES: TaskStatus[] = ['todo', 'in_progress', 'done', 'blocked', 'cancelled'];
 export type SchedulingMode = 'effort' | 'fixed';
 
 export interface TaskNote {
@@ -116,6 +123,8 @@ export interface Task {
   effort: number;
   /** Jours-homme restants — pilote le recalcul. */
   remaining: number;
+  /** Avancement visuel (0..1), indépendant du reste à faire. */
+  progress: number;
   status: TaskStatus;
   /** Compétences/conditions nécessaires, texte libre. */
   requirements: string;

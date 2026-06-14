@@ -107,7 +107,7 @@ export function proposePlan(file: TeamFile, today: IsoDate): Proposal | null {
       continue;
     }
 
-    if (task.type !== 'task' || task.scheduling === 'fixed' || task.status === 'done') continue;
+    if (task.type !== 'task' || task.scheduling === 'fixed' || task.status === 'done' || task.status === 'cancelled') continue;
     if (task.blocks.length === 0 || task.remaining <= EPS) continue;
 
     const resolved = resolvedByTask.get(taskId) ?? [];

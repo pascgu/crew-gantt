@@ -29,6 +29,7 @@ export function buildLoadIndex(
   for (const [taskId, resolved] of resolvedByTask) {
     const task = hierarchy.tasksById.get(taskId);
     if (!task || task.type !== 'task') continue;
+    if (task.status === 'cancelled') continue;
     for (const r of resolved) {
       for (const assignment of r.block.assignments) {
         let perResource = index.get(assignment.resourceId);

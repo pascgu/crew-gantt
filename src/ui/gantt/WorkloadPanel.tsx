@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { eachDay, maxIso, minIso } from '@/core/calendar/dates';
 import type { Schedule } from '@/core/scheduler/schedule';
 import { t } from '@/i18n/fr';
+import { Avatar } from '@/ui/common/Avatar';
 import type { TimeScale } from './timescale';
 
 interface WorkloadGaugesProps {
@@ -14,18 +15,24 @@ interface WorkloadGaugesProps {
   visibleTo: string;
 }
 
-/** Colonne des noms, rendue dans le volet table, alignée sur les jauges. */
-export function WorkloadNames({ schedule, rowH }: { schedule: Schedule; rowH: number }) {
+/** Noms des ressources en overlay pincé à gauche du bandeau de charge, non affectés par le translateX. */
+export function WorkloadNamesOverlay({ schedule, rowH }: { schedule: Schedule; rowH: number }) {
   const persons = schedule.ctx.file.resources;
   return (
-    <div className="flex flex-col bg-surface">
+    <div className="pointer-events-none absolute left-0 top-0 z-10 flex flex-col">
       {persons.map((r) => (
         <div
           key={r.id}
-          className="flex items-center gap-2 overflow-hidden border-b border-line/50 px-3 text-[11.5px] font-medium text-ink"
+          className="flex items-center gap-1 overflow-hidden rounded-r px-1.5"
           style={{ height: rowH }}
         >
-          <span className="truncate">{r.name}</span>
+          <Avatar resource={r} size="xs" />
+          <span
+            className="truncate rounded bg-surface/80 px-1 text-[9.5px] font-medium text-ink-soft"
+            style={{ maxWidth: 100 }}
+          >
+            {r.name}
+          </span>
         </div>
       ))}
     </div>

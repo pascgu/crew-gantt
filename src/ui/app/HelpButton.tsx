@@ -6,6 +6,7 @@ import { t } from '@/i18n/fr';
 const LEGEND_KEYS = [
   'dragBar',
   'dragEdge',
+  'progressDrag',
   'linkHandle',
   'shiftDrag',
   'rightClickBar',
@@ -15,8 +16,11 @@ const LEGEND_KEYS = [
   'ctrlWheel',
   'doubleClick',
   'arrows',
+  'insertKey',
   'altArrows',
   'undoRedo',
+  'cancelled',
+  'ctrlDrag',
 ] as const;
 
 const GUIDE_SECTIONS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;

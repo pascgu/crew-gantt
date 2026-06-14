@@ -2,6 +2,7 @@ import { useState, type DragEvent } from 'react';
 import type { Schedule } from '@/core/scheduler/schedule';
 import type { Conflict } from '@/core/conflicts/detect';
 import { useAppStore } from '@/state/store';
+import { useUiStore } from '@/state/uiStore';
 import type { TaskType } from '@/core/model/types';
 import {
   addTask,
@@ -11,6 +12,7 @@ import {
   setTaskEffort,
   setTaskProject,
   setTaskRemaining,
+  setTaskScheduling,
   setTaskStatus,
   toggleCollapsed,
   updateTask,
@@ -26,20 +28,24 @@ import {
   IconPlus,
 } from '@/ui/common/icons';
 import { t } from '@/i18n/fr';
-import { fmtDay, fmtDays, initials } from '@/ui/gantt/format';
+import { fmtDay, fmtDays } from '@/ui/gantt/format';
+import { resourceAvatar } from '@/ui/common/Avatar';
 import type { GanttRow } from '@/ui/gantt/rows';
-import { COLS } from './columns';
+import { useTableStore } from './tableStore';
 
 const STATUS_COLOR: Record<string, string> = {
   todo: 'var(--color-ink-faint)',
   in_progress: 'var(--color-accent)',
   done: 'var(--color-ok)',
   blocked: 'var(--color-danger)',
+  cancelled: 'var(--color-ink-faint)',
 };
 
 export interface DropIndicator {
   taskId: string;
   position: MovePosition;
+  /** Niveau cible (0 = racine) déduit de la position horizontale du curseur. */
+  level?: number;
 }
 
 interface TaskRowCellsProps {
@@ -70,6 +76,12 @@ export function TaskRowCells({
   const projects = useAppStore((s) => s.file.projects);
   const resources = useAppStore((s) => s.file.resources);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const cols = useTableStore((s) => s.widths);
+  const hidden = useTableStore((s) => s.hidden);
+  const fontSize = useTableStore((s) => s.fontSize);
+  const show = (col: string) => !hidden.includes(col as keyof typeof cols);
+  const editingTaskId = useUiStore((s) => s.editingTaskId);
+  const setEditingTaskId = useUiStore((s) => s.setEditingTaskId);
 
   const span = schedule.spanByTask.get(task.id) ?? null;
   const agg = task.type === 'group' ? schedule.groupAggByTask.get(task.id) : undefined;
@@ -78,18 +90,26 @@ export function TaskRowCells({
   // — affectés : le dernier bloc (le plus récent) fait foi
   const resolved = schedule.resolvedByTask.get(task.id) ?? [];
   const lastBlock = resolved.length > 0 ? resolved[resolved.length - 1]!.block : null;
-  const assignees = (lastBlock?.assignments ?? [])
-    .map((a) => resources.find((r) => r.id === a.resourceId)?.name ?? '?')
-    .map(initials);
+  const assigneeResources = (lastBlock?.assignments ?? [])
+    .map((a) => resources.find((r) => r.id === a.resourceId))
+    .filter(Boolean);
 
-  // — glisser-déposer : réordonner / ré-indenter
+  // — glisser-déposer : réordonner / ré-indenter avec niveau horizontal
   function onDragOver(e: DragEvent) {
     e.preventDefault();
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = (e.clientY - rect.top) / rect.height;
     const position: MovePosition = ratio < 0.3 ? 'before' : ratio > 0.7 ? 'after' : 'child';
-    if (dropIndicator?.taskId !== task.id || dropIndicator.position !== position) {
-      onDropIndicator({ taskId: task.id, position });
+    // Le niveau cible est déduit de la position X dans la cellule Nom (16px par niveau)
+    const relX = Math.max(0, e.clientX - rect.left - 6);
+    const maxLevel = position === 'child' ? depth + 1 : depth;
+    const level = Math.min(Math.floor(relX / 16), maxLevel);
+    if (
+      dropIndicator?.taskId !== task.id ||
+      dropIndicator.position !== position ||
+      dropIndicator.level !== level
+    ) {
+      onDropIndicator({ taskId: task.id, position, level });
     }
   }
 
@@ -97,7 +117,20 @@ export function TaskRowCells({
     e.preventDefault();
     const sourceId = e.dataTransfer.getData('text/crewgantt-task');
     if (sourceId && dropIndicator) {
-      moveTask(sourceId, task.id, dropIndicator.position);
+      // Si le niveau cible est inférieur à la profondeur de la cible, remonter aux ancêtres
+      const targetLevel = dropIndicator.level ?? depth;
+      let targetId = task.id;
+      if (targetLevel < depth && dropIndicator.position !== 'child') {
+        const all = useAppStore.getState().file.tasks;
+        let anchor = task;
+        for (let d = depth; d > targetLevel; d--) {
+          const parent = all.find((tk) => tk.id === anchor.parentId);
+          if (!parent) break;
+          anchor = parent;
+        }
+        targetId = anchor.id;
+      }
+      moveTask(sourceId, targetId, dropIndicator.position);
     }
     onDropIndicator(null);
   }
@@ -157,18 +190,14 @@ export function TaskRowCells({
     selectTask(addTask({ afterId: anchor.id }));
   }
 
-  const dropClass =
-    dropIndicator?.taskId === task.id
-      ? dropIndicator.position === 'before'
-        ? 'shadow-[inset_0_2px_0_var(--color-accent)]'
-        : dropIndicator.position === 'after'
-          ? 'shadow-[inset_0_-2px_0_var(--color-accent)]'
-          : 'bg-accent-wash'
-      : '';
+  const isDropTarget = dropIndicator?.taskId === task.id;
+  const dropLevelX = 6 + (dropIndicator?.level ?? depth) * 16;
+  const dropClass = isDropTarget && dropIndicator?.position === 'child' ? 'bg-accent-wash' : '';
 
   return (
     <div
-      className={`group/row relative flex h-6 items-center border-b border-line/60 text-[12.5px] ${
+      style={{ fontSize }}
+      className={`group/row relative flex h-[21px] items-center border-b border-line/60 ${
         selected ? 'bg-accent-wash/60' : hovered ? 'bg-ink/[0.03]' : 'bg-surface'
       } ${dropClass}`}
       onClick={() => selectTask(task.id)}
@@ -179,10 +208,17 @@ export function TaskRowCells({
       onDragLeave={() => onDropIndicator(null)}
       onDrop={onDrop}
     >
+      {/* Indicateur de drop : trait bleu aligné sur le niveau cible */}
+      {isDropTarget && dropIndicator?.position !== 'child' && (
+        <div
+          className={`pointer-events-none absolute ${dropIndicator.position === 'before' ? 'top-0' : 'bottom-0'} right-0 h-0.5 bg-accent`}
+          style={{ left: dropLevelX }}
+        />
+      )}
       {/* Nom (indentation, pli, type) */}
       <div
         className="flex min-w-0 items-center gap-0.5 pr-1"
-        style={{ width: COLS.name, paddingLeft: 6 + depth * 16 }}
+        style={{ width: cols.name, paddingLeft: 6 + depth * 16 }}
         draggable
         onDragStart={(e) => {
           e.dataTransfer.setData('text/crewgantt-task', task.id);
@@ -206,15 +242,25 @@ export function TaskRowCells({
           <IconDiamond size={11} className="shrink-0 text-ink-soft" />
         )}
         <span className={`min-w-0 flex-1 ${task.type === 'group' ? 'font-semibold' : ''}`}>
-          <EditableText value={task.name} onCommit={(name) => updateTask(task.id, { name })} />
+          <EditableText
+            value={task.name}
+            onCommit={(name) => updateTask(task.id, { name })}
+            autoEdit={editingTaskId === task.id}
+            onAutoEditConsumed={() => setEditingTaskId(null)}
+          />
         </span>
         {conflicts && conflicts.length > 0 && (
-          <span
-            className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-danger px-1 font-mono text-[10px] font-bold text-white"
+          <button
+            className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-danger px-1 font-mono text-[10px] font-bold text-white cursor-pointer hover:bg-danger/80"
             title={conflicts.map((c) => t(`conflicts.types.${c.type}`)).join(' · ')}
+            onClick={(e) => {
+              e.stopPropagation();
+              selectTask(task.id);
+              useUiStore.getState().openConflicts(task.id);
+            }}
           >
             {conflicts.length}
-          </span>
+          </button>
         )}
         <button
           className="shrink-0 rounded p-0.5 text-ink-faint opacity-0 transition hover:text-accent group-hover/row:opacity-100"
@@ -258,7 +304,7 @@ export function TaskRowCells({
       )}
 
       {/* Projet */}
-      <div className="flex items-center gap-1.5 px-1" style={{ width: COLS.project }}>
+      <div className="flex items-center gap-1.5 overflow-hidden px-1" style={{ width: show('project') ? cols.project : 0, display: show('project') ? undefined : 'none' }}>
         <span
           className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
           style={{ background: projects.find((p) => p.id === task.projectId)?.color ?? '#888' }}
@@ -272,7 +318,18 @@ export function TaskRowCells({
             className="w-full cursor-pointer truncate bg-transparent outline-none"
             value={task.projectId}
             onClick={(e) => e.stopPropagation()}
-            onChange={(e) => setTaskProject(task.id, e.target.value)}
+            onChange={(e) => {
+              const newProjectId = e.target.value;
+              setTaskProject(task.id, newProjectId);
+              const newProject = projects.find((p) => p.id === newProjectId);
+              const defaultScheduling = newProject?.defaultScheduling ?? 'effort';
+              if (task.scheduling !== defaultScheduling) {
+                const modeLabel = defaultScheduling === 'effort' ? t('panel.schedulingEffort') : t('panel.schedulingFixed');
+                if (window.confirm(t('tasks.switchScheduling', { mode: modeLabel }))) {
+                  setTaskScheduling(task.id, defaultScheduling);
+                }
+              }
+            }}
           >
             {projects
               .filter((p) => !p.archived || p.id === task.projectId)
@@ -286,7 +343,7 @@ export function TaskRowCells({
       </div>
 
       {/* Estim / Effort / Reste */}
-      <div style={{ width: COLS.estimate }} className="px-0.5">
+      <div style={{ width: show('estimate') ? cols.estimate : 0, display: show('estimate') ? undefined : 'none' }} className="overflow-hidden px-0.5">
         {task.type === 'task' ? (
           <EditableNumber
             value={task.estimate}
@@ -297,7 +354,7 @@ export function TaskRowCells({
           <span className="block px-1 text-right font-mono text-ink-faint">—</span>
         )}
       </div>
-      <div style={{ width: COLS.effort }} className="px-0.5">
+      <div style={{ width: show('effort') ? cols.effort : 0, display: show('effort') ? undefined : 'none' }} className="overflow-hidden px-0.5">
         {task.type === 'task' ? (
           <EditableNumber
             value={task.effort}
@@ -314,7 +371,7 @@ export function TaskRowCells({
           <span className="block px-1 text-right font-mono text-ink-faint">—</span>
         )}
       </div>
-      <div style={{ width: COLS.remaining }} className="px-0.5">
+      <div style={{ width: show('remaining') ? cols.remaining : 0, display: show('remaining') ? undefined : 'none' }} className="overflow-hidden px-0.5">
         {task.type === 'task' ? (
           <EditableNumber value={task.remaining} onCommit={(v) => setTaskRemaining(task.id, v ?? 0)} />
         ) : task.type === 'group' && agg ? (
@@ -326,32 +383,48 @@ export function TaskRowCells({
         )}
       </div>
 
+      {/* % Avancement */}
+      <div style={{ width: show('progress') ? cols.progress : 0, display: show('progress') ? undefined : 'none' }} className="overflow-hidden px-1 text-right font-mono text-[11.5px] text-ink-soft">
+        {task.type === 'task' && task.effort > 0 ? (
+          `${Math.round(Math.max(0, Math.min(1, (task.effort - task.remaining) / task.effort)) * 100)} %`
+        ) : task.type === 'group' && agg && agg.effortTotal > 0 ? (
+          `${Math.round(agg.progress * 100)} %`
+        ) : (
+          <span className="text-ink-faint">—</span>
+        )}
+      </div>
+
       {/* Affectés */}
-      <div className="flex items-center gap-0.5 overflow-hidden px-1" style={{ width: COLS.assignees }}>
-        {assignees.length > 0 ? (
-          assignees.map((a, i) => (
-            <span
-              key={i}
-              className="inline-flex h-[18px] items-center rounded-full bg-paper-deep px-1.5 font-mono text-[10px] font-medium text-ink-soft"
-            >
-              {a}
-            </span>
-          ))
+      <div className="flex items-center gap-0.5 overflow-hidden px-1" style={{ width: show('assignees') ? cols.assignees : 0, display: show('assignees') ? undefined : 'none' }}>
+        {assigneeResources.length > 0 ? (
+          assigneeResources.map((r, i) => {
+            const { color, label } = resourceAvatar(r!);
+            return (
+              <span
+                key={i}
+                className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full font-display text-[9px] font-bold text-white"
+                style={{ background: color }}
+                title={r!.name}
+              >
+                {label}
+              </span>
+            );
+          })
         ) : (
           <span className="text-ink-faint">—</span>
         )}
       </div>
 
       {/* Début / Fin */}
-      <div style={{ width: COLS.start }} className="px-1 text-right font-mono text-[11.5px] text-ink-soft">
+      <div style={{ width: show('start') ? cols.start : 0, display: show('start') ? undefined : 'none' }} className="overflow-hidden px-1 text-right font-mono text-[11.5px] text-ink-soft">
         {fmtDay(span?.start)}
       </div>
-      <div style={{ width: COLS.end }} className="px-1 text-right font-mono text-[11.5px] text-ink-soft">
+      <div style={{ width: show('end') ? cols.end : 0, display: show('end') ? undefined : 'none' }} className="overflow-hidden px-1 text-right font-mono text-[11.5px] text-ink-soft">
         {fmtDay(span?.end)}
       </div>
 
       {/* Statut */}
-      <div className="flex items-center gap-1.5 px-1.5" style={{ width: COLS.status }}>
+      <div className="flex items-center gap-1.5 overflow-hidden px-1.5" style={{ width: show('status') ? cols.status : 0, display: show('status') ? undefined : 'none' }}>
         {task.type !== 'group' ? (
           <>
             <span
@@ -368,6 +441,7 @@ export function TaskRowCells({
               <option value="in_progress">{t('tasks.status.in_progress')}</option>
               <option value="done">{t('tasks.status.done')}</option>
               <option value="blocked">{t('tasks.status.blocked')}</option>
+              <option value="cancelled">{t('tasks.status.cancelled')}</option>
             </select>
           </>
         ) : (

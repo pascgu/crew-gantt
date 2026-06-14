@@ -6,11 +6,12 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { todayIso } from '@/core/calendar/dates';
 import { constrainingChain } from '@/core/scheduler/links';
 import type { IsoDate, ZoomLevel } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
-import { useConflicts, useConflictsByTask, useSchedule } from '@/state/schedule';
+import { useConflictsByTask, useSchedule } from '@/state/schedule';
 import {
   addTask,
   collapseAll,
@@ -22,28 +23,26 @@ import {
   outdentTask,
   setZoom,
 } from '@/state/taskActions';
-import { proposalKey, useProposal } from '@/state/proposalActions';
 import { exportGanttPng, exportTasksCsv } from '@/io/export';
 import { defaultFileName } from '@/io/fileAccess';
-import { ProjectFilter } from '@/ui/app/ProjectFilter';
-import { HelpButton } from '@/ui/app/HelpButton';
+import { useProposal } from '@/state/proposalActions';
 import { usePersistedState } from '@/ui/common/persist';
-import { IconChevronDown, IconChevronRight, IconPlus, IconWarning } from '@/ui/common/icons';
+import { IconChevronDown, IconChevronRight, IconFilter, IconPlus } from '@/ui/common/icons';
 import { ContextMenu } from '@/ui/common/ContextMenu';
-import { ProposalBar } from '@/ui/proposal/ProposalBar';
-import { ImpactsPanel } from '@/ui/proposal/ImpactsPanel';
-import { ConflictsPanel } from '@/ui/proposal/ConflictsPanel';
 import { TaskRowCells, type DropIndicator } from '@/ui/table/TaskRowCells';
-import { COLS, TABLE_WIDTH } from '@/ui/table/columns';
+import { TABLE_WIDTH } from '@/ui/table/columns';
+import { useTableStore } from '@/ui/table/tableStore';
+import { useUiStore } from '@/state/uiStore';
 import { t } from '@/i18n/fr';
 import { GanttChart } from './GanttChart';
 import { GanttControls } from './GanttControls';
 import { TaskPanel } from './TaskPanel';
-import { WorkloadGauges, WorkloadNames } from './WorkloadPanel';
+import { WorkloadGauges, WorkloadNamesOverlay } from './WorkloadPanel';
 import { useGanttRows } from './rows';
 import {
   bottomTicks,
   buildTimeScale,
+  dayHoverTicks,
   HEADER_HEIGHT,
   ROW_HEIGHT,
   topTicks,
@@ -52,7 +51,8 @@ import {
 
 const ZOOM_ORDER: ZoomLevel[] = ['day', 'week', 'month', 'quarter'];
 const OVERSCAN = 6;
-const MIN_TABLE_WIDTH = 280;
+const EXTEND_THRESHOLD = 200;
+const EXTEND_CHUNK: Record<ZoomLevel, number> = { day: 60, week: 120, month: 365, quarter: 730 };
 
 export function GanttTab() {
   const schedule = useSchedule();
@@ -65,16 +65,24 @@ export function GanttTab() {
   const projects = useAppStore((s) => s.file.projects);
   const resources = useAppStore((s) => s.file.resources);
   const teamName = useAppStore((s) => s.file.team.name);
-  const cycle = schedule.cycle;
+
+  const tableColWidths = useTableStore((s) => s.widths);
+  const tableColHidden = useTableStore((s) => s.hidden);
+  const TABLE_TRAIL = 14; // espace après la dernière colonne pour attraper sa poignée de resize
+  const tableInnerWidth = useMemo(
+    () =>
+      (Object.keys(tableColWidths) as (keyof typeof tableColWidths)[])
+        .filter((k) => !tableColHidden.includes(k))
+        .reduce((s, k) => s + tableColWidths[k], 0) + TABLE_TRAIL,
+    [tableColWidths, tableColHidden],
+  );
 
   const [panelOpen, setPanelOpen] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [viewportH, setViewportH] = useState(800);
-  const [showImpacts, setShowImpacts] = useState(false);
-  const [showConflicts, setShowConflicts] = useState(false);
-  const [dismissedProposal, setDismissedProposal] = useState('');
+  const [viewportW, setViewportW] = useState(800);
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const [workloadMenu, setWorkloadMenu] = useState<{ x: number; y: number } | null>(null);
 
@@ -84,41 +92,45 @@ export function GanttTab() {
   const [workloadRowH, setWorkloadRowH] = usePersistedState('crewgantt.ui.workloadRowH', 28);
 
   const proposal = useProposal();
-  const { active: activeConflicts } = useConflicts();
   const baselines = useAppStore((s) => s.file.baselines);
   const activeBl = baselines.find((b) => b.active) ?? null;
 
-  const proposalVisible = proposal !== null && proposalKey(proposal) !== dismissedProposal;
   const proposalByTask = useMemo(
     () =>
-      proposalVisible && proposal
-        ? new Map(proposal.changes.map((c) => [c.taskId, c]))
-        : undefined,
-    [proposal, proposalVisible],
+      proposal ? new Map(proposal.changes.map((c) => [c.taskId, c])) : undefined,
+    [proposal],
   );
+
+  const [extend, setExtend] = useState({ before: 0, after: 0 });
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const tableBodyRef = useRef<HTMLDivElement | null>(null);
   const headerInnerRef = useRef<HTMLDivElement | null>(null);
   const workloadInnerRef = useRef<HTMLDivElement | null>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
+  const hasAutoScrolled = useRef(false);
   const zoomAnchor = useRef<{ date: IsoDate; offsetX: number } | null>(null);
+  const scrollAnchor = useRef<{ date: IsoDate; offsetX: number } | null>(null);
 
-  // Mesure du viewport pour la virtualisation des lignes.
+  // Mesure du viewport pour la virtualisation des lignes et calcul todayVisible.
   const attachScroll = (el: HTMLDivElement | null) => {
     scrollRef.current = el;
     resizeObserver.current?.disconnect();
     if (el) {
       setViewportH(el.clientHeight);
-      resizeObserver.current = new ResizeObserver(() => setViewportH(el.clientHeight));
+      setViewportW(el.clientWidth);
+      resizeObserver.current = new ResizeObserver(() => {
+        setViewportH(el.clientHeight);
+        setViewportW(el.clientWidth);
+      });
       resizeObserver.current.observe(el);
     }
   };
 
   const today = todayIso();
   const scale = useMemo(
-    () => buildTimeScale(schedule.planSpan, zoom, today),
-    [schedule.planSpan, zoom, today],
+    () => buildTimeScale(schedule.planSpan, zoom, today, extend),
+    [schedule.planSpan, zoom, today, extend],
   );
 
   const windowStart = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
@@ -148,9 +160,12 @@ export function GanttTab() {
     setPanelOpen(true);
   };
 
+  const todayX = scale.x(today);
+  const todayVisible = todayX >= scrollLeft && todayX <= scrollLeft + viewportW;
+
   const scrollToToday = () => {
     const el = scrollRef.current;
-    if (el) el.scrollLeft = scale.x(today) - el.clientWidth / 2;
+    if (el) el.scrollLeft = scale.x(today) - el.clientWidth * 0.3;
   };
 
   // ——— Synchronisation : le conteneur du chart est le scroll master ———
@@ -164,6 +179,15 @@ export function GanttTab() {
     if (tableBodyRef.current) tableBodyRef.current.scrollTop = el.scrollTop;
     setScrollTop(el.scrollTop);
     setScrollLeft(el.scrollLeft);
+
+    // Extension infinie : étendre la timescale si le scroll approche d'un bord
+    const chunk = EXTEND_CHUNK[zoom];
+    if (el.scrollLeft < EXTEND_THRESHOLD && !scrollAnchor.current) {
+      scrollAnchor.current = { date: scale.dateAt(el.scrollLeft), offsetX: 0 };
+      setExtend((prev) => ({ ...prev, before: prev.before + chunk }));
+    } else if (el.scrollLeft + el.clientWidth > scale.width - EXTEND_THRESHOLD && !scrollAnchor.current) {
+      setExtend((prev) => ({ ...prev, after: prev.after + chunk }));
+    }
   };
 
   const panBy = (dx: number, dy: number) => {
@@ -193,12 +217,25 @@ export function GanttTab() {
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    const anchor = zoomAnchor.current;
-    if (el && anchor) {
+    if (!el) return;
+    const za = zoomAnchor.current;
+    if (za) {
       zoomAnchor.current = null;
-      el.scrollLeft = scale.x(anchor.date) - anchor.offsetX;
+      el.scrollLeft = scale.x(za.date) - za.offsetX;
+      return;
     }
-  }, [scale]);
+    const sa = scrollAnchor.current;
+    if (sa) {
+      scrollAnchor.current = null;
+      el.scrollLeft = scale.x(sa.date) - sa.offsetX;
+      return;
+    }
+    // Centrage initial sur aujourd'hui (une seule fois à l'ouverture de l'onglet)
+    if (!hasAutoScrolled.current) {
+      hasAutoScrolled.current = true;
+      el.scrollLeft = scale.x(today) - el.clientWidth * 0.3;
+    }
+  }, [scale, today]);
 
   // ——— Clavier : navigation, ALT+flèches, Entrée/Suppr/Échap ———
 
@@ -212,21 +249,25 @@ export function GanttTab() {
         (target !== null && target.isContentEditable);
       if (typing) return;
       const sel = selectedTaskId;
-      if (e.altKey && sel) {
+      // Ctrl+flèches : déplacer/indenter (ALT évité car Alt+←/→ = retour navigateur)
+      if ((e.ctrlKey || e.metaKey) && sel) {
         if (e.key === 'ArrowUp') {
           e.preventDefault();
           moveTaskUp(sel);
+          return;
         } else if (e.key === 'ArrowDown') {
           e.preventDefault();
           moveTaskDown(sel);
+          return;
         } else if (e.key === 'ArrowRight') {
           e.preventDefault();
           indentTask(sel);
+          return;
         } else if (e.key === 'ArrowLeft') {
           e.preventDefault();
           outdentTask(sel);
+          return;
         }
-        return;
       }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && rows.length > 0) {
@@ -242,9 +283,30 @@ export function GanttTab() {
           else if (y + ROW_HEIGHT > el.scrollTop + el.clientHeight)
             el.scrollTop = y + ROW_HEIGHT - el.clientHeight;
         }
+      } else if (e.key === 'ArrowLeft' && sel) {
+        const task = tasks.find((tk) => tk.id === sel);
+        if (task?.parentId) {
+          e.preventDefault();
+          selectTask(task.parentId);
+          const el = scrollRef.current;
+          if (el) {
+            const parentIdx = rows.findIndex((r) => r.task.id === task.parentId);
+            if (parentIdx >= 0) {
+              const y = parentIdx * ROW_HEIGHT;
+              if (y < el.scrollTop) el.scrollTop = y;
+              else if (y + ROW_HEIGHT > el.scrollTop + el.clientHeight)
+                el.scrollTop = y + ROW_HEIGHT - el.clientHeight;
+            }
+          }
+        }
       } else if (e.key === 'Enter' && sel) {
         e.preventDefault();
         openPanel(sel);
+      } else if (e.key === 'Insert') {
+        e.preventDefault();
+        const newId = addTask(sel ? { afterId: sel } : {});
+        selectTask(newId);
+        useUiStore.getState().setEditingTaskId(newId);
       } else if (e.key === 'Delete' && sel) {
         const task = tasks.find((tk) => tk.id === sel);
         if (task && window.confirm(t('tasks.confirmDelete', { name: task.name }))) deleteTask(sel);
@@ -259,12 +321,15 @@ export function GanttTab() {
 
   // ——— Splitter table ↔ gantt et poignée de hauteur de charge ———
 
+  const splitContainerRef = useRef<HTMLDivElement | null>(null);
+
   const startSplit = (e: ReactPointerEvent) => {
     e.preventDefault();
     const startX = e.clientX;
     const startW = tableWidth;
+    const containerW = splitContainerRef.current?.clientWidth ?? 1200;
     const onMove = (ev: PointerEvent) => {
-      setTableWidth(Math.max(MIN_TABLE_WIDTH, Math.min(TABLE_WIDTH, startW + ev.clientX - startX)));
+      setTableWidth(Math.max(0, Math.min(containerW - 6, startW + ev.clientX - startX)));
     };
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
@@ -312,52 +377,10 @@ export function GanttTab() {
   return (
     <div className="flex h-full min-h-0">
       <div className="relative flex min-w-0 flex-1 flex-col">
-        {/* Barre d'outils allégée : filtre, conflits, aide */}
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface px-3 py-1.5">
-          <ProjectFilter />
-          <span className="flex-1" />
-          <button
-            className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] font-medium transition ${
-              activeConflicts.length > 0
-                ? 'border-danger/40 bg-danger-wash text-danger'
-                : 'border-line text-ink-soft hover:text-ink'
-            }`}
-            onClick={() => {
-              setShowConflicts((v) => !v);
-              setShowImpacts(false);
-            }}
-          >
-            <IconWarning size={12} />
-            {t('conflicts.title')} ({activeConflicts.length})
-          </button>
-          {cycle && (
-            <span className="rounded bg-danger-wash px-2 py-0.5 text-[11.5px] font-medium text-danger">
-              {t('conflicts.cycle', {
-                tasks: cycle
-                  .map((id) => tasks.find((tk) => tk.id === id)?.name ?? id)
-                  .join(' → '),
-              })}
-            </span>
-          )}
-          <HelpButton />
-        </div>
-
-        {/* Bandeau de proposition : l'outil propose, l'humain dispose */}
-        {proposalVisible && proposal && (
-          <ProposalBar
-            proposal={proposal}
-            onSeeImpacts={() => {
-              setShowImpacts((v) => !v);
-              setShowConflicts(false);
-            }}
-            onDismiss={() => setDismissedProposal(proposalKey(proposal))}
-          />
-        )}
-
         {projects.length === 0 ? (
           <div className="p-8 text-sm text-ink-faint">{t('tasks.noProject')}</div>
         ) : (
-          <div className="flex min-h-0 flex-1">
+          <div ref={splitContainerRef} className="flex min-h-0 flex-1">
             {/* ——— Volet table ——— */}
             <div
               className="flex shrink-0 flex-col overflow-hidden bg-surface"
@@ -373,7 +396,7 @@ export function GanttTab() {
               >
                 <HeaderLeft />
               </div>
-              <div ref={tableBodyRef} className="min-h-0 flex-1 overflow-hidden">
+              <div ref={tableBodyRef} className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
                 {rows.length === 0 ? (
                   <div className="p-6 text-sm text-ink-faint">
                     <p>{t('tasks.emptyPlan')}</p>
@@ -385,7 +408,7 @@ export function GanttTab() {
                     </button>
                   </div>
                 ) : (
-                  <div className="relative" style={{ height: rows.length * ROW_HEIGHT, width: TABLE_WIDTH }}>
+                  <div className="relative" style={{ height: rows.length * ROW_HEIGHT, width: tableInnerWidth }}>
                     <div style={{ transform: `translateY(${windowStart * ROW_HEIGHT}px)` }}>
                       {rows.slice(windowStart, windowEnd).map((row) => (
                         <TaskRowCells
@@ -404,31 +427,20 @@ export function GanttTab() {
                   </div>
                 )}
               </div>
-              {/* Noms du bandeau de charge, alignés sur les jauges */}
-              {hasResources && workloadOpen && (
-                <div
-                  className="shrink-0 overflow-hidden border-t-2 border-line-strong"
-                  style={{ height: workloadH }}
-                >
-                  <WorkloadNames schedule={schedule} rowH={workloadRowH} />
-                </div>
-              )}
-              {hasResources && !workloadOpen && (
-                <div className="h-2 shrink-0 border-t-2 border-line-strong" />
-              )}
             </div>
 
             {/* ——— Splitter ——— */}
             <div
               className="w-1.5 shrink-0 cursor-col-resize border-x border-line bg-paper-deep transition hover:bg-accent/40"
               onPointerDown={startSplit}
-              onDoubleClick={() => setTableWidth(TABLE_WIDTH)}
+              onDoubleClick={() => setTableWidth((splitContainerRef.current?.clientWidth ?? 1200) / 2)}
             />
 
             {/* ——— Volet Gantt ——— */}
             <div className="relative flex min-w-0 flex-1 flex-col">
               <GanttControls
                 zoom={zoom}
+                todayVisible={todayVisible}
                 onToday={scrollToToday}
                 onExportPng={exportPng}
                 onExportCsv={exportCsv}
@@ -439,7 +451,7 @@ export function GanttTab() {
                 style={{ height: HEADER_HEIGHT }}
               >
                 <div ref={headerInnerRef} style={{ width: scale.width, willChange: 'transform' }}>
-                  <HeaderTimescale scale={scale} />
+                  <HeaderTimescale scale={scale} visibleLeft={scrollLeft} visibleRight={scrollLeft + viewportW} />
                 </div>
               </div>
               {/* Conteneur scroll : les deux ascenseurs natifs vivent ici, sous/à droite du Gantt */}
@@ -459,6 +471,7 @@ export function GanttTab() {
                   onPanBy={panBy}
                   hoveredTaskId={hoveredTaskId}
                   onHoverTask={setHoveredTaskId}
+                  minHeight={viewportH}
                 />
               </div>
               {/* Bandeau de charge : repliable (chevron) et redimensionnable (poignée) */}
@@ -484,7 +497,8 @@ export function GanttTab() {
                     <IconChevronDown size={12} className={workloadOpen ? '' : 'rotate-180'} />
                   </button>
                   {workloadOpen ? (
-                    <div className="overflow-hidden" style={{ height: workloadH }}>
+                    <div className="relative overflow-hidden" style={{ height: workloadH }}>
+                      <WorkloadNamesOverlay schedule={schedule} rowH={workloadRowH} />
                       <div
                         ref={workloadInnerRef}
                         style={{ width: scale.width, willChange: 'transform' }}
@@ -522,16 +536,6 @@ export function GanttTab() {
           </div>
         )}
 
-        {/* Panneaux flottants */}
-        {showImpacts && proposal && (
-          <ImpactsPanel proposal={proposal} onClose={() => setShowImpacts(false)} />
-        )}
-        {showConflicts && (
-          <ConflictsPanel
-            onClose={() => setShowConflicts(false)}
-            onSelectTask={(id) => selectTask(id)}
-          />
-        )}
       </div>
 
       {/* Panneau latéral d'édition */}
@@ -543,63 +547,258 @@ export function GanttTab() {
 }
 
 function HeaderLeft() {
-  const labels: { key: keyof typeof COLS; label: string }[] = [
+  const { widths, hidden, setWidth, toggleHidden, setStatusFilter, setAssigneeFilter, setNameQuery, statusFilter, assigneeFilter, nameQuery } = useTableStore();
+  const projects = useAppStore((s) => s.file.projects);
+  const resources = useAppStore((s) => s.file.resources);
+  const projectFilter = useAppStore((s) => s.file.ui.projectFilter);
+  const setProjectFilter = useAppStore((s) => s.mutate);
+  const [filterCol, setFilterCol] = useState<string | null>(null);
+  const [filterAnchor, setFilterAnchor] = useState<DOMRect | null>(null);
+  const [visMenu, setVisMenu] = useState(false);
+  const [visAnchor, setVisAnchor] = useState<DOMRect | null>(null);
+
+  type ColDef = { key: string; label: string; filterable?: boolean };
+  const labels: ColDef[] = [
     { key: 'name', label: t('tasks.columns.name') },
-    { key: 'project', label: t('tasks.columns.project') },
+    { key: 'project', label: t('tasks.columns.project'), filterable: true },
     { key: 'estimate', label: t('tasks.columns.estimate') },
     { key: 'effort', label: t('tasks.columns.effort') },
     { key: 'remaining', label: t('tasks.columns.remaining') },
-    { key: 'assignees', label: t('tasks.columns.assignees') },
+    { key: 'progress', label: t('tasks.columns.progress') },
+    { key: 'assignees', label: t('tasks.columns.assignees'), filterable: true },
     { key: 'start', label: t('tasks.columns.start') },
     { key: 'end', label: t('tasks.columns.end') },
-    { key: 'status', label: t('tasks.columns.status') },
+    { key: 'status', label: t('tasks.columns.status'), filterable: true },
   ];
+
+  const visibleLabels = labels.filter((l) => !hidden.includes(l.key as keyof typeof widths));
+  const totalWidth = visibleLabels.reduce((s, l) => s + widths[l.key as keyof typeof widths], 0);
+
+  const startColResize = (e: ReactPointerEvent<HTMLDivElement>, col: string) => {
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = widths[col as keyof typeof widths];
+    const onMove = (ev: PointerEvent) => setWidth(col as keyof typeof widths, startW + ev.clientX - startX);
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    (e.target as Element).setPointerCapture(e.pointerId);
+  };
+
+  const hasFilter = (col: string) => {
+    if (col === 'name') return nameQuery !== '';
+    if (col === 'status') return statusFilter !== null && statusFilter.length > 0;
+    if (col === 'assignees') return assigneeFilter !== null && assigneeFilter.length > 0;
+    if (col === 'project') return projectFilter !== null && projectFilter.length > 0;
+    return false;
+  };
+
+  const openFilter = (e: React.MouseEvent, key: string) => {
+    e.stopPropagation();
+    if (filterCol === key) { setFilterCol(null); setFilterAnchor(null); }
+    else { setFilterCol(key); setFilterAnchor((e.currentTarget as HTMLElement).getBoundingClientRect()); }
+  };
+
+  const closeAll = () => { setFilterCol(null); setFilterAnchor(null); setVisMenu(false); setVisAnchor(null); };
+
+  const filterPopover = filterCol && filterAnchor ? createPortal(
+    <>
+      <div className="fixed inset-0 z-40" onClick={closeAll} />
+      <div
+        className="fixed z-50 min-w-40 rounded-lg border border-line bg-surface shadow-float"
+        style={{ left: filterAnchor.left, top: filterAnchor.bottom + 2 }}
+      >
+        {filterCol === 'name' && (
+          <div className="p-2">
+            <input
+              autoFocus
+              className="w-full rounded border border-line px-2 py-1 text-[12px] outline-none focus:border-accent"
+              placeholder={t('columns.filterAll')}
+              value={nameQuery}
+              onChange={(e) => setNameQuery(e.target.value)}
+            />
+            {nameQuery && <button className="mt-1 text-[11px] text-ink-faint hover:text-ink" onClick={() => { setNameQuery(''); closeAll(); }}>✕ Effacer</button>}
+          </div>
+        )}
+        {filterCol === 'status' && (
+          <div className="p-2 flex flex-col gap-1">
+            {(['todo', 'in_progress', 'done', 'blocked', 'cancelled'] as const).map((s) => {
+              const checked = (statusFilter ?? []).includes(s);
+              return (
+                <label key={s} className="flex items-center gap-2 text-[12px] cursor-pointer">
+                  <input type="checkbox" checked={checked} onChange={() => {
+                    const cur = statusFilter ?? [];
+                    const next = checked ? cur.filter((v) => v !== s) : [...cur, s];
+                    setStatusFilter(next.length > 0 ? next : null);
+                  }} />
+                  {t(`tasks.status.${s}`)}
+                </label>
+              );
+            })}
+            {statusFilter && <button className="mt-1 text-left text-[11px] text-ink-faint hover:text-ink" onClick={() => setStatusFilter(null)}>✕ Effacer</button>}
+          </div>
+        )}
+        {filterCol === 'assignees' && (
+          <div className="p-2 flex flex-col gap-1 max-h-48 overflow-y-auto">
+            {resources.map((r) => {
+              const checked = (assigneeFilter ?? []).includes(r.id);
+              return (
+                <label key={r.id} className="flex items-center gap-2 text-[12px] cursor-pointer">
+                  <input type="checkbox" checked={checked} onChange={() => {
+                    const cur = assigneeFilter ?? [];
+                    const next = checked ? cur.filter((v) => v !== r.id) : [...cur, r.id];
+                    setAssigneeFilter(next.length > 0 ? next : null);
+                  }} />
+                  {r.name}
+                </label>
+              );
+            })}
+            {assigneeFilter && <button className="mt-1 text-left text-[11px] text-ink-faint hover:text-ink" onClick={() => setAssigneeFilter(null)}>✕ Effacer</button>}
+          </div>
+        )}
+        {filterCol === 'project' && (
+          <div className="p-2 flex flex-col gap-1 max-h-48 overflow-y-auto">
+            {projects.filter((p) => !p.archived).map((p) => {
+              const cur = projectFilter ?? [];
+              const checked = cur.includes(p.id);
+              return (
+                <label key={p.id} className="flex items-center gap-2 text-[12px] cursor-pointer">
+                  <input type="checkbox" checked={checked} onChange={() => {
+                    const next = checked ? cur.filter((v) => v !== p.id) : [...cur, p.id];
+                    setProjectFilter((f) => { f.ui.projectFilter = next.length > 0 ? next : null; });
+                  }} />
+                  <span className="h-2 w-2 rounded-[2px] shrink-0" style={{ background: p.color }} />
+                  {p.name}
+                </label>
+              );
+            })}
+            {projectFilter && <button className="mt-1 text-left text-[11px] text-ink-faint hover:text-ink" onClick={() => setProjectFilter((f) => { f.ui.projectFilter = null; })}>✕ Effacer</button>}
+          </div>
+        )}
+      </div>
+    </>,
+    document.body,
+  ) : null;
+
+  const visPopover = visMenu && visAnchor ? createPortal(
+    <>
+      <div className="fixed inset-0 z-40" onClick={closeAll} />
+      <div
+        className="fixed z-50 min-w-36 rounded-lg border border-line bg-surface p-2 shadow-float"
+        style={{ right: window.innerWidth - visAnchor.right, top: visAnchor.bottom + 2 }}
+      >
+        {labels.filter((l) => l.key !== 'name').map(({ key, label }) => (
+          <label key={key} className="flex items-center gap-2 py-0.5 text-[12px] cursor-pointer">
+            <input type="checkbox" checked={!hidden.includes(key as keyof typeof widths)} onChange={() => toggleHidden(key as keyof typeof widths)} />
+            {label}
+          </label>
+        ))}
+        <button className="mt-1 w-full text-left text-[11px] text-ink-faint hover:text-ink" onClick={() => { useTableStore.getState().resetWidths(); closeAll(); }}>{t('columns.resetWidths')}</button>
+      </div>
+    </>,
+    document.body,
+  ) : null;
+
   return (
-    <div
-      className="flex h-full items-end bg-surface pb-1.5"
-      style={{ width: TABLE_WIDTH, minWidth: TABLE_WIDTH }}
-    >
-      {labels.map(({ key, label }) => (
-        <span
-          key={key}
-          className={`truncate px-1.5 font-display text-[10.5px] font-semibold uppercase tracking-wide text-ink-faint ${
-            ['estimate', 'effort', 'remaining', 'start', 'end'].includes(key) ? 'text-right' : ''
-          }`}
-          style={{ width: COLS[key] }}
+    <div className="relative h-full bg-surface">
+      {/* Colonnes : déborde à droite (clippé par le parent overflow-hidden) */}
+      <div className="flex h-full items-end pb-1" style={{ width: totalWidth + 14 }}>
+        {visibleLabels.map(({ key, label, filterable }) => {
+          const w = widths[key as keyof typeof widths];
+          const right = ['estimate', 'effort', 'remaining', 'start', 'end'].includes(key);
+          const active = hasFilter(key);
+          return (
+            <div
+              key={key}
+              className="relative flex shrink-0 items-center overflow-hidden border-r border-line/40"
+              style={{ width: w }}
+            >
+              {key === 'name' ? (
+                <span className="flex items-center gap-0 pl-1 overflow-hidden w-full pr-4">
+                  <button className="rounded p-0 text-ink-faint transition hover:text-ink shrink-0" title={t('tasks.expandAll')} onClick={expandAll}><IconChevronDown size={10} /></button>
+                  <button className="rounded p-0 text-ink-faint transition hover:text-ink shrink-0" title={t('tasks.collapseAll')} onClick={collapseAll}><IconChevronRight size={10} /></button>
+                  <span className="shrink-0 px-0.5 font-display text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{label}</span>
+                  <input
+                    className="ml-1 min-w-0 flex-1 rounded border border-line/60 bg-transparent px-1 text-[10px] text-ink outline-none focus:border-accent placeholder:text-ink-faint/60"
+                    placeholder={t('columns.searchTask')}
+                    value={nameQuery}
+                    onChange={(e) => setNameQuery(e.target.value)}
+                  />
+                  {nameQuery && (
+                    <button className="ml-0.5 shrink-0 text-[9px] text-ink-faint hover:text-ink" onClick={() => setNameQuery('')}>✕</button>
+                  )}
+                </span>
+              ) : (
+                <span className={`flex-1 truncate px-1.5 font-display text-[10px] font-semibold uppercase tracking-wide text-ink-faint ${right ? 'text-right' : ''}`}>
+                  {label}
+                </span>
+              )}
+              {filterable && (
+                <button
+                  className={`mr-0.5 shrink-0 rounded p-0.5 transition ${active ? 'text-accent' : 'text-ink-faint hover:text-ink'}`}
+                  title={t('columns.filter')}
+                  onClick={(e) => openFilter(e, key)}
+                >
+                  <IconFilter size={11} />
+                </button>
+              )}
+              {/* Poignée de redimension (visible via border-r sur la cellule) */}
+              <div
+                className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent/50"
+                onPointerDown={(e) => startColResize(e, key)}
+              />
+            </div>
+          );
+        })}
+        {/* Espace de fin pour attraper la poignée de la dernière colonne */}
+        <div style={{ width: 14, flexShrink: 0 }} />
+      </div>
+      {/* Bouton « … » sticky — toujours visible hors du flux des colonnes */}
+      <div className="absolute right-0 top-0 h-full flex items-center bg-surface pl-0.5 z-10">
+        <button
+          className="rounded px-1 py-0.5 text-[10px] text-ink-faint transition hover:text-ink"
+          title={t('columns.choose')}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (visMenu) { setVisMenu(false); setVisAnchor(null); }
+            else { setVisMenu(true); setVisAnchor((e.currentTarget as HTMLElement).getBoundingClientRect()); }
+          }}
         >
-          {key === 'name' ? (
-            <span className="flex items-center gap-1">
-              <button
-                className="rounded p-0.5 text-ink-faint transition hover:text-ink"
-                title={t('tasks.collapseAll')}
-                aria-label={t('tasks.collapseAll')}
-                onClick={collapseAll}
-              >
-                <IconChevronRight size={11} />
-              </button>
-              <button
-                className="rounded p-0.5 text-ink-faint transition hover:text-ink"
-                title={t('tasks.expandAll')}
-                aria-label={t('tasks.expandAll')}
-                onClick={expandAll}
-              >
-                <IconChevronDown size={11} />
-              </button>
-              {label}
-            </span>
-          ) : (
-            label
-          )}
-        </span>
-      ))}
+          …
+        </button>
+      </div>
+      {filterPopover}
+      {visPopover}
     </div>
   );
 }
 
-function HeaderTimescale({ scale }: { scale: ReturnType<typeof buildTimeScale> }) {
+function HeaderTimescale({
+  scale,
+  visibleLeft,
+  visibleRight,
+}: {
+  scale: ReturnType<typeof buildTimeScale>;
+  visibleLeft: number;
+  visibleRight: number;
+}) {
+  const MARGIN = 400;
+  const vl = visibleLeft - MARGIN;
+  const vr = visibleRight + MARGIN;
+
   const top = topTicks(scale);
   const bottom = bottomTicks(scale);
   const perDay = scale.zoom === 'day' || scale.zoom === 'week';
+  const dayHovers = dayHoverTicks(scale);
+
+  // Lazy filtering for dense tick types (day/week zoom)
+  const visBottom = perDay ? bottom.filter((t) => t.x + t.width >= vl && t.x <= vr) : bottom;
+  const visHovers = dayHovers.filter((d) => d.x + d.width >= vl && d.x <= vr);
+  const visWeekHovers = weekHoverTicks(scale).filter((w) => w.x + w.width >= vl && w.x <= vr);
+
   return (
     <svg width={scale.width} height={HEADER_HEIGHT} className="shrink-0">
       {top.map((tick, i) => (
@@ -607,14 +806,14 @@ function HeaderTimescale({ scale }: { scale: ReturnType<typeof buildTimeScale> }
           <line
             x1={tick.x}
             x2={tick.x}
-            y1={4}
+            y1={3}
             y2={HEADER_HEIGHT}
             stroke="var(--color-line)"
           />
           <text
-            x={tick.x + 6}
-            y={16}
-            fontSize={11}
+            x={tick.x + 5}
+            y={13}
+            fontSize={10.5}
             fontWeight={600}
             fill="var(--color-ink-soft)"
             className="font-display"
@@ -623,13 +822,13 @@ function HeaderTimescale({ scale }: { scale: ReturnType<typeof buildTimeScale> }
           </text>
         </g>
       ))}
-      {bottom.map((tick, i) => (
+      {visBottom.map((tick, i) => (
         <g key={`b${i}`}>
           {(scale.zoom !== 'week' || tick.emphasis) && (
             <line
               x1={tick.x}
               x2={tick.x}
-              y1={26}
+              y1={18}
               y2={HEADER_HEIGHT}
               stroke="var(--color-line)"
               opacity={0.7}
@@ -637,8 +836,8 @@ function HeaderTimescale({ scale }: { scale: ReturnType<typeof buildTimeScale> }
           )}
           <text
             x={tick.x + (perDay ? tick.width / 2 : 4)}
-            y={38}
-            fontSize={scale.zoom === 'week' ? 8.5 : 10}
+            y={29}
+            fontSize={scale.zoom === 'week' ? 8 : 9.5}
             fill="var(--color-ink-faint)"
             opacity={tick.faint ? 0.45 : 1}
             fontWeight={tick.emphasis && scale.zoom === 'week' ? 700 : 400}
@@ -650,9 +849,15 @@ function HeaderTimescale({ scale }: { scale: ReturnType<typeof buildTimeScale> }
         </g>
       ))}
       {/* n° de semaine au survol (zoom semaine) */}
-      {weekHoverTicks(scale).map((w, i) => (
-        <rect key={`w${i}`} x={w.x} y={22} width={w.width} height={HEADER_HEIGHT - 22} fill="transparent">
+      {visWeekHovers.map((w, i) => (
+        <rect key={`w${i}`} x={w.x} y={18} width={w.width} height={HEADER_HEIGHT - 18} fill="transparent">
           <title>{w.label}</title>
+        </rect>
+      ))}
+      {/* date complète DD/MM/YYYY au survol du jour (zoom jour et semaine) */}
+      {visHovers.map((d, i) => (
+        <rect key={`d${i}`} x={d.x} y={0} width={d.width} height={HEADER_HEIGHT} fill="transparent">
+          <title>{d.label}</title>
         </rect>
       ))}
     </svg>

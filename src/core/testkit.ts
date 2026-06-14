@@ -51,6 +51,7 @@ export function task(id: string, partial: Partial<Task> = {}): Task {
     estimate: null,
     effort: 0,
     remaining: 0,
+    progress: 0,
     status: 'todo',
     requirements: '',
     links: [],
