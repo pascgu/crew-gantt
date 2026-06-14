@@ -322,7 +322,7 @@ export function TaskRowCells({
               const newProjectId = e.target.value;
               setTaskProject(task.id, newProjectId);
               const newProject = projects.find((p) => p.id === newProjectId);
-              const defaultScheduling = newProject?.defaultScheduling ?? 'effort';
+              const defaultScheduling = newProject?.defaultScheduling ?? 'fixed';
               if (task.scheduling !== defaultScheduling) {
                 const modeLabel = defaultScheduling === 'effort' ? t('panel.schedulingEffort') : t('panel.schedulingFixed');
                 if (window.confirm(t('tasks.switchScheduling', { mode: modeLabel }))) {
@@ -340,6 +340,17 @@ export function TaskRowCells({
               ))}
           </select>
         )}
+      </div>
+
+      {/* Planification */}
+      <div style={{ width: show('scheduling') ? cols.scheduling : 0, display: show('scheduling') ? undefined : 'none' }} className="overflow-hidden px-0.5">
+        <span className="truncate text-ink-faint block">
+          {task.type === 'task'
+            ? task.scheduling === 'effort'
+              ? t('tasks.schedulingShort.effort')
+              : t('tasks.schedulingShort.fixed')
+            : '—'}
+        </span>
       </div>
 
       {/* Estim / Effort / Reste */}

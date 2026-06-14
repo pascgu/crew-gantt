@@ -3,6 +3,7 @@ import { eachDay, maxIso, minIso } from '@/core/calendar/dates';
 import type { Schedule } from '@/core/scheduler/schedule';
 import { t } from '@/i18n/fr';
 import { Avatar } from '@/ui/common/Avatar';
+import { useAppStore } from '@/state/store';
 import type { TimeScale } from './timescale';
 
 interface WorkloadGaugesProps {
@@ -18,13 +19,16 @@ interface WorkloadGaugesProps {
 /** Noms des ressources en overlay pincé à gauche du bandeau de charge, non affectés par le translateX. */
 export function WorkloadNamesOverlay({ schedule, rowH }: { schedule: Schedule; rowH: number }) {
   const persons = schedule.ctx.file.resources;
+  const focusResource = useAppStore((s) => s.focusResource);
   return (
     <div className="pointer-events-none absolute left-0 top-0 z-10 flex flex-col">
       {persons.map((r) => (
         <div
           key={r.id}
-          className="flex items-center gap-1 overflow-hidden rounded-r px-1.5"
+          className="pointer-events-auto flex cursor-pointer items-center gap-1 overflow-hidden rounded-r px-1.5"
           style={{ height: rowH }}
+          title={r.name}
+          onDoubleClick={() => focusResource(r.id)}
         >
           <Avatar resource={r} size="xs" />
           <span

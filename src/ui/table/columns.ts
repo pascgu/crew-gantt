@@ -2,6 +2,7 @@
 export const COLS = {
   name: 270,
   project: 104,
+  scheduling: 64,
   estimate: 46,
   effort: 46,
   remaining: 46,

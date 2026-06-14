@@ -15,6 +15,8 @@ export interface AppState {
   lastSavedAt: string | null;
   activeTab: TabId;
   selectedTaskId: string | null;
+  /** Ressource à mettre en évidence dans l'onglet Équipe (hors undo). */
+  focusResourceId: string | null;
 }
 
 export interface AppActions {
@@ -26,6 +28,9 @@ export interface AppActions {
   markSaved: () => void;
   setActiveTab: (tab: TabId) => void;
   selectTask: (taskId: string | null) => void;
+  /** Ouvre l'onglet Équipe et met en évidence la ressource `id`. */
+  focusResource: (id: string) => void;
+  clearFocusResource: () => void;
 }
 
 export type AppStore = AppState & AppActions;
@@ -39,6 +44,7 @@ export const useAppStore = create<AppStore>()(
       lastSavedAt: null,
       activeTab: 'gantt',
       selectedTaskId: null,
+      focusResourceId: null,
 
       replaceFile: (file, fileName) =>
         set((s) => {
@@ -74,6 +80,17 @@ export const useAppStore = create<AppStore>()(
       selectTask: (taskId) =>
         set((s) => {
           s.selectedTaskId = taskId;
+        }),
+
+      focusResource: (id) =>
+        set((s) => {
+          s.activeTab = 'team';
+          s.focusResourceId = id;
+        }),
+
+      clearFocusResource: () =>
+        set((s) => {
+          s.focusResourceId = null;
         }),
     })),
     {

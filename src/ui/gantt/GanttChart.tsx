@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import { createPortal } from 'react-dom';
 import { eachDay, todayIso } from '@/core/calendar/dates';
 import { progressBarDays, taskProgress } from '@/core/scheduler/groups';
-import { workedDaysFromBlockStart, workedDaysReachedOn, workedDaysUpTo } from '@/core/scheduler/links';
+import { workedDaysReachedOn, workedDaysUpTo } from '@/core/scheduler/links';
+import { remainingForEndDate } from '@/core/scheduler/blocks';
 import type { Schedule } from '@/core/scheduler/schedule';
 import type { Assignment, IsoDate, Task } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
@@ -340,14 +341,26 @@ export function GanttChart({
       updateTask(drag.taskId, { date: drag.day });
     } else if (drag.kind === 'resize-start') {
       const from = drag.day <= drag.otherEdge ? drag.day : drag.otherEdge;
-      setBlockDates(drag.taskId, drag.blockId, from, drag.openEnd ? null : drag.otherEdge);
-      mergeOverlappingBlocks(drag.taskId);
+      const startResizeTask = schedule.ctx.file.tasks.find((t) => t.id === drag.taskId);
+      if (startResizeTask?.scheduling === 'effort') {
+        // Déplacer le début d'une tâche effort : garder la fin fixe, ajuster le reste
+        const remaining = remainingForEndDate(schedule.ctx, startResizeTask, drag.blockId, drag.otherEdge, from);
+        setBlockDates(drag.taskId, drag.blockId, from, null);
+        setTaskRemaining(drag.taskId, Math.max(0, remaining));
+      } else {
+        // Mode fixed : toujours passer un `to` explicite (jamais null, même pour un bloc ouvert)
+        setBlockDates(drag.taskId, drag.blockId, from, drag.otherEdge);
+        mergeOverlappingBlocks(drag.taskId);
+      }
     } else if (drag.kind === 'resize-end') {
       const to = drag.day >= drag.otherEdge ? drag.day : drag.otherEdge;
       const resizeTask = schedule.ctx.file.tasks.find((t) => t.id === drag.taskId);
       if (resizeTask?.scheduling === 'effort') {
-        // G11 : la poignée de fin règle le reste à faire (longueur barre = travail restant)
-        const remaining = workedDaysFromBlockStart(schedule.linkInputs, drag.taskId, to);
+        // Poignée de fin (ou bloc fermé converti) : ajuster le reste, ouvrir le bloc si nécessaire
+        const remaining = remainingForEndDate(schedule.ctx, resizeTask, drag.blockId, to);
+        if (!drag.openEnd) {
+          setBlockDates(drag.taskId, drag.blockId, drag.otherEdge, null);
+        }
         setTaskRemaining(drag.taskId, Math.max(0, remaining));
       } else {
         setBlockDates(drag.taskId, drag.blockId, drag.otherEdge, to);
@@ -611,18 +624,28 @@ export function GanttChart({
               scale={scale}
             />
           ))}
-        {/* G11 : tooltip Reste pendant le drag resize-end en mode effort */}
-        {drag?.kind === 'resize-end' && (() => {
+        {/* Tooltip Reste pendant resize en mode effort (resize-start et resize-end) */}
+        {(drag?.kind === 'resize-end' || drag?.kind === 'resize-start') && (() => {
           const rt = schedule.ctx.file.tasks.find((t) => t.id === drag.taskId);
           if (rt?.scheduling !== 'effort') return null;
-          const remaining = workedDaysFromBlockStart(schedule.linkInputs, drag.taskId, drag.day);
-          const tx = scale.xEnd(drag.day) + 6;
           const rowIdx = rowIndexByTask.get(drag.taskId) ?? 0;
           const ty = rowIdx * ROW_HEIGHT + ROW_HEIGHT / 2;
+          let remaining: number;
+          if (drag.kind === 'resize-end') {
+            const to = drag.day >= drag.otherEdge ? drag.day : drag.otherEdge;
+            remaining = remainingForEndDate(schedule.ctx, rt, drag.blockId, to);
+          } else {
+            const from = drag.day <= drag.otherEdge ? drag.day : drag.otherEdge;
+            remaining = remainingForEndDate(schedule.ctx, rt, drag.blockId, drag.otherEdge, from);
+          }
           const label = `${Math.round(remaining * 10) / 10} j`;
+          const labelWidth = label.length * 6.5 + 8;
+          const tx = drag.kind === 'resize-end'
+            ? scale.xEnd(drag.day) + 6
+            : scale.x(drag.day) - 6 - labelWidth;
           return (
             <g pointerEvents="none">
-              <rect x={tx} y={ty - 9} rx={3} width={label.length * 6.5 + 8} height={18} fill="var(--color-ink)" opacity={0.85} />
+              <rect x={tx} y={ty - 9} rx={3} width={labelWidth} height={18} fill="var(--color-ink)" opacity={0.85} />
               <text x={tx + 4} y={ty + 4} fontSize={11} fill="white">{label}</text>
             </g>
           );
@@ -900,6 +923,8 @@ function RowBars({
         const x = scale.x(from) + dragOffset(r.block.id);
         const w = Math.max(4, scale.xEnd(to) - scale.x(from));
         const openEnd = r.block.to === null;
+        // effort = coins arrondis (fin calculée, souple) ; fixed = coins carrés (dates posées)
+        const rx = task.scheduling === 'effort' ? 3 : 0;
         const who = r.block.assignments
           .map((a) => {
             const res = schedule.ctx.file.resources.find((rs) => rs.id === a.resourceId);
@@ -914,7 +939,7 @@ function RowBars({
               y={barY}
               width={w}
               height={barH}
-              rx={3}
+              rx={rx}
               fill={color}
               opacity={task.status === 'done' ? 0.55 : task.status === 'cancelled' ? 0.4 : 1}
               stroke={r.overflow || hasConflict ? 'var(--color-danger)' : darken(color, 0.3)}
@@ -931,11 +956,7 @@ function RowBars({
             </rect>
             {/* hachures diagonales si annulé */}
             {task.status === 'cancelled' && (
-              <rect x={x} y={barY} width={w} height={barH} rx={3} fill="url(#cancelled-hatch)" pointerEvents="none" />
-            )}
-            {/* fin calculée : bord droit en dégradé (travail qui « s'arrête tout seul ») */}
-            {openEnd && (
-              <rect x={x + w - 3} y={barY} width={3} height={barH} fill={rgba('#ffffff', 0.45)} pointerEvents="none" />
+              <rect x={x} y={barY} width={w} height={barH} rx={rx} fill="url(#cancelled-hatch)" pointerEvents="none" />
             )}
             {/* poignée de début — moitié basse seulement (haut = déplacer) */}
             <rect
@@ -1093,6 +1114,8 @@ function cellText(task: Task, key: ColKey, schedule: Schedule): string {
       const p = schedule.ctx.file.projects.find((x) => x.id === task.projectId);
       return p?.name ?? '';
     }
+    case 'scheduling':
+      return task.type === 'task' ? (task.scheduling === 'effort' ? t('tasks.schedulingShort.effort') : t('tasks.schedulingShort.fixed')) : '';
     case 'estimate': return task.estimate != null ? `${task.estimate}j` : '';
     case 'effort': return `${task.effort}j`;
     case 'remaining': return `${Math.round(task.remaining * 10) / 10}j`;

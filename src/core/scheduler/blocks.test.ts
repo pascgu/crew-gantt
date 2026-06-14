@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { createCalcContext } from './context';
-import { closedBlockCapacity, resolveBlocks, taskSpan } from './blocks';
+import {
+  closedBlockCapacity,
+  effortCapacityOnDay,
+  remainingForEndDate,
+  resolveBlocks,
+  taskSpan,
+} from './blocks';
 import { assign, block, person, task, team } from '../testkit';
 
 function ctxWith(resources = [person('alice')], holidays: string[] = [], today = '2026-06-01') {
@@ -97,14 +103,14 @@ describe('bloc ouvert en mode effort — la fin absorbe le reste à faire', () =
     expect(r!.overflow).toBe(false);
   });
 
-  it('sans affectation : effort non casé (overflow)', () => {
+  it('sans affectation : 1 j-h / jour ouvré → lundi à vendredi', () => {
     const t = task('t', { remaining: 5, blocks: [block('b', '2026-06-01', null)] });
     const [r] = resolveBlocks(ctxWith(), t);
-    expect(r!.overflow).toBe(true);
-    expect(r!.to).toBe('2026-06-01');
+    expect(r!.overflow).toBe(false);
+    expect(r!.to).toBe('2026-06-05');
   });
 
-  it('affecté à quelqu’un qui n’a aucune capacité : overflow', () => {
+  it("affecté à quelqu'un qui n'a aucune capacité : overflow", () => {
     const alice = person('alice', {
       projectShares: [{ projectId: 'pA', from: '2026-01-01', percent: 0 }],
     });
@@ -174,6 +180,57 @@ describe('blocs fermés et mode fixed', () => {
     const [r] = resolveBlocks(ctx, t);
     // 6 jours ouvrés (lun–ven + lun) × 0,5
     expect(closedBlockCapacity(ctx, t, r!)).toBeCloseTo(3, 10);
+  });
+});
+
+describe('effortCapacityOnDay', () => {
+  it('bloc affecté : délègue à blockCapacityOnDay', () => {
+    const ctx = ctxWith();
+    const t = task('t', { blocks: [block('b', '2026-06-01', null, [assign('alice')])] });
+    expect(effortCapacityOnDay(ctx, t, t.blocks[0]!, '2026-06-01')).toBeCloseTo(1);
+    expect(effortCapacityOnDay(ctx, t, t.blocks[0]!, '2026-06-06')).toBe(0); // week-end
+  });
+
+  it('bloc sans affectation : 1 j-h sur jour ouvré, 0 le week-end', () => {
+    const ctx = ctxWith();
+    const t = task('t', { blocks: [block('b', '2026-06-01', null)] });
+    expect(effortCapacityOnDay(ctx, t, t.blocks[0]!, '2026-06-01')).toBe(1); // lundi
+    expect(effortCapacityOnDay(ctx, t, t.blocks[0]!, '2026-06-06')).toBe(0); // samedi
+  });
+});
+
+describe('remainingForEndDate', () => {
+  it('sans affectation : fin tirée à +4 j ouvrés → Reste = 4', () => {
+    const ctx = ctxWith();
+    const t = task('t', {
+      remaining: 1,
+      blocks: [block('b', '2026-06-01', null)],
+    });
+    // Tirer la fin au vendredi 5 juin = 5 j-h (lun-ven)
+    expect(remainingForEndDate(ctx, t, 'b', '2026-06-05')).toBe(5);
+  });
+
+  it('2 personnes à 100 % : fin à +2 j → Reste = 4', () => {
+    const ctx = ctxWith([person('alice'), person('bob')]);
+    const t = task('t', {
+      remaining: 1,
+      blocks: [block('b', '2026-06-01', null, [assign('alice'), assign('bob')])],
+    });
+    // 2 pers × 2 j = 4
+    expect(remainingForEndDate(ctx, t, 'b', '2026-06-02')).toBe(4);
+  });
+
+  it('aller-retour : resolveBlocks re-place la fin exactement sur endDay', () => {
+    const ctx = ctxWith();
+    const t = task('t', {
+      remaining: 1,
+      blocks: [block('b', '2026-06-01', null)],
+    });
+    const endDay = '2026-06-05'; // vendredi
+    const newRemaining = remainingForEndDate(ctx, t, 'b', endDay);
+    const t2 = task('t', { remaining: newRemaining, blocks: [block('b', '2026-06-01', null)] });
+    const [r] = resolveBlocks(ctx, t2);
+    expect(r!.to).toBe(endDay);
   });
 });
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Resource, Weekday } from '@/core/model/types';
 import { EditableAvatar } from '@/ui/common/Avatar';
 import { todayIso } from '@/core/calendar/dates';
@@ -25,6 +25,7 @@ import { fmtDay } from '@/ui/gantt/format';
 
 export function TeamTab() {
   const resources = useAppStore((s) => s.file.resources);
+  const focusResourceId = useAppStore((s) => s.focusResourceId);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -35,7 +36,7 @@ export function TeamTab() {
           </p>
         )}
         {resources.map((r) => (
-          <ResourceCard key={r.id} resource={r} />
+          <ResourceCard key={r.id} resource={r} focused={r.id === focusResourceId} />
         ))}
         <button
           className="flex items-center gap-1.5 self-start rounded-lg border border-dashed border-line px-3 py-2 text-[13px] text-ink-soft transition hover:border-accent hover:text-accent"
@@ -48,12 +49,23 @@ export function TeamTab() {
   );
 }
 
-function ResourceCard({ resource }: { resource: Resource }) {
+function ResourceCard({ resource, focused }: { resource: Resource; focused: boolean }) {
   const schedule = useSchedule();
   const projects = useAppStore((s) => s.file.projects);
   const globalDays = useAppStore((s) => s.file.team.calendar.workingDays);
+  const clearFocusResource = useAppStore((s) => s.clearFocusResource);
   const weekdays = tList('settings.weekdaysShort');
   const [newExceptionFrom, setNewExceptionFrom] = useState('');
+  const [halo, setHalo] = useState(false);
+  const cardRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!focused) return;
+    cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHalo(true);
+    const t = setTimeout(() => { setHalo(false); clearFocusResource(); }, 1200);
+    return () => clearTimeout(t);
+  }, [focused, clearFocusResource]);
 
   const pattern = resource.workingDays ?? globalDays;
   const inherited = resource.workingDays === undefined;
@@ -68,7 +80,10 @@ function ResourceCard({ resource }: { resource: Resource }) {
   const weeklyDays = Math.round(pattern.length * (totalShare / 100) * 10) / 10;
 
   return (
-    <section className="rounded-xl border border-line bg-surface p-5 shadow-panel">
+    <section
+      ref={cardRef}
+      className={`rounded-xl border bg-surface p-5 shadow-panel transition-shadow duration-300 ${halo ? 'border-accent ring-2 ring-accent/40' : 'border-line'}`}
+    >
       <header className="mb-4 flex items-center gap-3">
         <EditableAvatar
           resource={resource}

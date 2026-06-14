@@ -95,6 +95,7 @@ export const fr = {
     columns: {
       name: 'Tâche',
       project: 'Projet',
+      scheduling: 'Planification',
       estimate: 'Estim',
       effort: 'Effort',
       remaining: 'Reste',
@@ -104,6 +105,10 @@ export const fr = {
       status: 'Statut',
       progress: 'Av.',
       group: 'Groupe',
+    },
+    schedulingShort: {
+      effort: 'Pilotée',
+      fixed: 'Dates',
     },
     switchScheduling: 'Ce projet planifie par défaut « {mode} ». Adopter ce mode pour cette tâche ?',
     status: {
@@ -152,7 +157,8 @@ export const fr = {
     week: 'S{num}',
     controls: 'Contrôles Gantt',
     progressTooltip: 'Avancement : {pct} %',
-    changeAssign: 'Changer l’affectation',
+    remainingTooltip: 'Reste : {days} j-h',
+    changeAssign: "Changer l'affectation",
     assignPopoverTitle: 'Affectation du bloc',
   },
   links: {
@@ -398,6 +404,22 @@ export const fr = {
     legendTitle: 'Gestes & raccourcis',
     guideTitle: 'Prise en main',
     close: 'Fermer',
+    tabs: {
+      guide: 'Prise en main',
+      planning: 'Planification tâches',
+    },
+    planning: {
+      s1Title: '1. Deux types de tâches',
+      s1Body: "Chaque tâche fonctionne selon l'un de ces deux modes. Dates fixées : vous dessinez vous-même le début et la fin (réunions, jalons contractuels, contraintes externes). Pilotée par l'effort : vous indiquez le travail en j-h, l'outil calcule la fin selon les affectations.",
+      s2Title: "2. L'équation fondamentale",
+      s2Body: "Travail = Durée × Capacité. La capacité est la somme des affectations sur la période (1 personne à 100 % = 1 j-h par jour ouvré). En mode effort, le Travail est fixé : si vous ajoutez une personne, la barre raccourcit. En mode dates, la durée est fixée : le travail implicite varie.",
+      s3Title: "3. L'effet de l'affectation (mode effort)",
+      s3Body: "Affecter plus de monde ne change pas le travail total prévu. Ça raccourcit la durée. Retirer quelqu'un l'allonge. La barre reflète toujours le temps calendaire nécessaire pour absorber le reste.",
+      s4Title: '4. Utiliser une tâche pilotée par l’effort',
+      s4Body: "1. Donnez l’Effort prévu (j-h, souvent issu du devis).\n2. Posez le début en ajoutant un bloc.\n3. Affectez — la barre se cale automatiquement.\n4. Pour changer l’effort, tirez le bord droit de la barre : l’info-bulle affiche « Reste : N j-h » en temps réel.\n5. Chaque semaine, mettez à jour le Reste dans le panneau.",
+      s5Title: '5. Les deux gestes — bord gauche et bord droit',
+      s5Body: "Bord droit (tâche effort) : tire la fin → ajuste le travail restant. Bord gauche (tâche effort) : déplace le début et ajuste aussi le travail restant pour garder la fin fixe. Bords (tâche dates fixées) : déplacent simplement les dates.",
+    },
     legend: {
       dragBar: 'Glisser une barre — déplacer le bloc de travail',
       dragEdge: 'Glisser un bord de barre — avancer/retarder le début ou la fin',

@@ -6,6 +6,7 @@ export type ColKey = keyof typeof COLS;
 
 const DEFAULT_WIDTHS = { ...COLS } as Record<ColKey, number>;
 const MIN_COL = 32;
+const MIN_COL_BY_KEY: Partial<Record<ColKey, number>> = { scheduling: 14 };
 
 interface TableState {
   widths: Record<ColKey, number>;
@@ -39,7 +40,7 @@ export const useTableStore = create<TableState>()(
       fontSize: 11,
 
       setWidth: (col, w) =>
-        set((s) => ({ widths: { ...s.widths, [col]: Math.max(MIN_COL, w) } })),
+        set((s) => ({ widths: { ...s.widths, [col]: Math.max(MIN_COL_BY_KEY[col] ?? MIN_COL, w) } })),
 
       toggleHidden: (col) =>
         set((s) => ({

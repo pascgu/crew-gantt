@@ -41,7 +41,13 @@ function descendantIds(file: TeamFile, rootId: string): Set<string> {
 export function updateTask(id: string, patch: Partial<Task>): void {
   mutate((file) => {
     const task = taskById(file, id);
-    if (task) Object.assign(task, patch);
+    if (!task) return;
+    const wasFixed = task.scheduling === 'fixed';
+    Object.assign(task, patch);
+    // Passer de fixed → effort : ouvrir tous les blocs fermés pour que resolveBlocks les pilote
+    if (wasFixed && task.scheduling === 'effort') {
+      for (const block of task.blocks) block.to = null;
+    }
   });
 }
 
@@ -136,7 +142,7 @@ export function addTask(options: AddTaskOptions = {}): string {
       projectId,
       parentId,
       type: options.type ?? 'task',
-      scheduling: project?.defaultScheduling ?? 'effort',
+      scheduling: project?.defaultScheduling ?? 'fixed',
     });
     task.id = id;
     task.order = after ? after.order + 0.5 : Number.MAX_SAFE_INTEGER;

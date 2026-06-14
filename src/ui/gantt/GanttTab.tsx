@@ -561,6 +561,7 @@ function HeaderLeft() {
   const labels: ColDef[] = [
     { key: 'name', label: t('tasks.columns.name') },
     { key: 'project', label: t('tasks.columns.project'), filterable: true },
+    { key: 'scheduling', label: t('tasks.columns.scheduling') },
     { key: 'estimate', label: t('tasks.columns.estimate') },
     { key: 'effort', label: t('tasks.columns.effort') },
     { key: 'remaining', label: t('tasks.columns.remaining') },

@@ -308,7 +308,7 @@ function ProjectsCard() {
               <select
                 className="rounded border border-line bg-surface px-1.5 py-0.5 text-[11px] text-ink-soft outline-none focus:border-accent"
                 title={t('settings.projectScheduling')}
-                value={p.defaultScheduling ?? 'effort'}
+                value={p.defaultScheduling ?? 'fixed'}
                 onChange={(e) =>
                   mutate((f) => {
                     const proj = f.projects.find((x) => x.id === p.id);

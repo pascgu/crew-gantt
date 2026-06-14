@@ -1,7 +1,7 @@
 import type { IsoDate, Task, TaskLink } from '../model/types';
 import { addDays } from '../calendar/dates';
 import type { CalcContext } from './context';
-import { blockCapacityOnDay, taskSpan, type ResolvedBlock } from './blocks';
+import { effortCapacityOnDay, taskSpan, type ResolvedBlock } from './blocks';
 import type { GroupAggregate } from './groups';
 import type { Hierarchy } from './hierarchy';
 
@@ -133,11 +133,7 @@ export function workedDaysReachedOn(inputs: LinkInputs, taskId: string, n: numbe
   for (let day = first; day <= last; day = addDays(day, 1)) {
     for (const { t, r } of intervals) {
       if (day < r.from || day > r.to) continue;
-      if (r.block.assignments.length > 0) {
-        cumulative += blockCapacityOnDay(inputs.ctx, t, r.block, day);
-      } else if (inputs.ctx.isGlobalWorkingDay(day)) {
-        cumulative += 1;
-      }
+      cumulative += effortCapacityOnDay(inputs.ctx, t, r.block, day);
     }
     if (cumulative >= n - 1e-9) return day;
   }
@@ -167,37 +163,12 @@ export function workedDaysUpTo(inputs: LinkInputs, taskId: string, day: IsoDate)
     const resolved = inputs.resolvedByTask.get(s.t.id)![s.blockIndex]!;
     const end = s.to <= day ? s.to : day;
     for (let d = s.from; d <= end; d = addDays(d, 1)) {
-      if (resolved.block.assignments.length > 0) {
-        cumulative += blockCapacityOnDay(inputs.ctx, s.t, resolved.block, d);
-      } else if (inputs.ctx.isGlobalWorkingDay(d)) {
-        cumulative += 1;
-      }
+      cumulative += effortCapacityOnDay(inputs.ctx, s.t, resolved.block, d);
     }
   }
   return Math.round(cumulative * 100) / 100;
 }
 
-/**
- * Jours travaillés depuis le début du premier bloc de la tâche jusqu'à `toDay`,
- * sans être limité par la date de fin actuelle du bloc (contrairement à workedDaysUpTo).
- * Utilisé pour G11 : poignée de fin en mode effort → peut agrandir ET réduire.
- */
-export function workedDaysFromBlockStart(inputs: LinkInputs, taskId: string, toDay: IsoDate): number {
-  const task = inputs.hierarchy.tasksById.get(taskId);
-  if (!task || task.type !== 'task') return 0;
-  const resolved = inputs.resolvedByTask.get(taskId) ?? [];
-  if (resolved.length === 0) return 0;
-  const first = resolved[0]!;
-  let cumulative = 0;
-  for (let d = first.from; d <= toDay; d = addDays(d, 1)) {
-    if (first.block.assignments.length > 0) {
-      cumulative += blockCapacityOnDay(inputs.ctx, task, first.block, d);
-    } else if (inputs.ctx.isGlobalWorkingDay(d)) {
-      cumulative += 1;
-    }
-  }
-  return Math.round(cumulative * 100) / 100;
-}
 
 export interface EarliestResult {
   /** Date de début au plus tôt dérivée des liens (null : aucune contrainte). */

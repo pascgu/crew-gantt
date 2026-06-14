@@ -33,6 +33,21 @@ export function blockCapacityOnDay(
 }
 
 /**
+ * Source unique de vérité pour la capacité effort d'un bloc un jour donné.
+ * Bloc sans affectation = 1 personne à 100 % (1 j-h / jour ouvré global).
+ * Bloc affecté = somme des affectations (peut être 0 si toutes à 0 %).
+ */
+export function effortCapacityOnDay(
+  ctx: CalcContext,
+  task: Task,
+  block: Block,
+  day: IsoDate,
+): number {
+  if (block.assignments.length > 0) return blockCapacityOnDay(ctx, task, block, day);
+  return ctx.isGlobalWorkingDay(day) ? 1 : 0;
+}
+
+/**
  * Résout les blocs d'une tâche : les blocs fermés sont pris tels quels,
  * le bloc ouvert (`to: null`, mode effort) absorbe le reste à faire — sa fin
  * est le jour où la somme des capacités a consommé `remaining`.
@@ -71,7 +86,7 @@ export function plannedFutureCapacity(ctx: CalcContext, task: Task, block: Block
   const start = block.from >= ctx.today ? block.from : ctx.today;
   let total = 0;
   for (let day = start; day <= block.to; day = addDays(day, 1)) {
-    total += blockCapacityOnDay(ctx, task, block, day);
+    total += effortCapacityOnDay(ctx, task, block, day);
   }
   return total;
 }
@@ -87,11 +102,10 @@ function consumeRemaining(
   remaining: number,
 ): IsoDate | null {
   if (remaining <= EPS) return block.from;
-  if (block.assignments.length === 0) return null;
   let cumulative = 0;
   let day = block.from;
   for (let i = 0; i < HORIZON_DAYS; i++) {
-    cumulative += blockCapacityOnDay(ctx, task, block, day);
+    cumulative += effortCapacityOnDay(ctx, task, block, day);
     if (cumulative >= remaining - EPS) return day;
     day = addDays(day, 1);
   }
@@ -103,10 +117,44 @@ export function closedBlockCapacity(ctx: CalcContext, task: Task, resolved: Reso
   let total = 0;
   let day = resolved.from;
   while (day <= resolved.to) {
-    total += blockCapacityOnDay(ctx, task, resolved.block, day);
+    total += effortCapacityOnDay(ctx, task, resolved.block, day);
     day = addDays(day, 1);
   }
   return total;
+}
+
+/**
+ * Calcule le `remaining` à poser pour que `openBlockId` se termine exactement sur `endDay`.
+ * `fromOverride` permet de surcharger le début du bloc (geste resize-start : on veut
+ * garder la fin fixe et ajuster le reste en déplaçant le début).
+ * Garantit l'aller-retour : tirer la fin (ou déplacer le début) → fin = endDay.
+ */
+export function remainingForEndDate(
+  ctx: CalcContext,
+  task: Task,
+  openBlockId: string,
+  endDay: IsoDate,
+  fromOverride?: IsoDate,
+): number {
+  const openBlock = task.blocks.find((b) => b.id === openBlockId);
+  if (!openBlock) return task.remaining;
+  const fromDay = fromOverride ?? openBlock.from;
+
+  // Capacité des blocs fermés à venir, hors le bloc redimensionné (déduits dans resolveBlocks)
+  let futureClosed = 0;
+  for (const block of task.blocks) {
+    if (block.id !== openBlockId && block.to !== null) {
+      futureClosed += plannedFutureCapacity(ctx, task, block);
+    }
+  }
+
+  // Capacité du bloc de fromDay jusqu'à endDay
+  let openCapacity = 0;
+  for (let d = fromDay; d <= endDay; d = addDays(d, 1)) {
+    openCapacity += effortCapacityOnDay(ctx, task, openBlock, d);
+  }
+
+  return Math.round((futureClosed + openCapacity) * 100) / 100;
 }
 
 export interface TaskSpan {
