@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { eachDay, todayIso } from '@/core/calendar/dates';
+import { diffDays, eachDay, todayIso } from '@/core/calendar/dates';
 import { progressBarDays, taskProgress } from '@/core/scheduler/groups';
 import { workedDaysReachedOn, workedDaysUpTo } from '@/core/scheduler/links';
 import { remainingForEndDate } from '@/core/scheduler/blocks';
@@ -16,7 +16,6 @@ import {
   moveBlock,
   setBlockAssignments,
   setBlockDates,
-  setTaskProgress,
   setTaskRemaining,
   splitBlock,
   updateTask,
@@ -367,7 +366,10 @@ export function GanttChart({
         mergeOverlappingBlocks(drag.taskId);
       }
     } else if (drag.kind === 'progress') {
-      setTaskProgress(drag.taskId, drag.frac * 100);
+      const progressTask = schedule.ctx.file.tasks.find((t) => t.id === drag.taskId);
+      if (progressTask?.scheduling === 'fixed') {
+        setTaskRemaining(drag.taskId, Math.max(0, (1 - drag.frac) * progressTask.effort));
+      }
     } else if (drag.kind === 'link' && drag.targetTaskId) {
       if (drag.anchorDate) {
         const progressDays = workedDaysUpTo(schedule.linkInputs, drag.sourceTaskId, drag.anchorDate);
@@ -401,6 +403,9 @@ export function GanttChart({
     const storedSorted = [...task.blocks].sort((a, b) => a.from.localeCompare(b.from));
     const storedIdx = storedSorted.findIndex((b) => b.id === blockId);
     const hasNext = storedIdx >= 0 && storedIdx < storedSorted.length - 1;
+    const earliestResult = schedule.earliestByTask.get(task.id);
+    const earliestDate = earliestResult?.date ?? null;
+    const snapBlock = task.blocks.find((b) => b.id === blockId);
     setMenu({
       x: e.clientX,
       y: e.clientY,
@@ -414,6 +419,15 @@ export function GanttChart({
           label: t('gantt.mergeNext'),
           disabled: !hasNext,
           onClick: () => mergeWithNextBlock(task.id, blockId),
+        },
+        {
+          label: t('gantt.snapToPredecessor'),
+          disabled: !earliestDate || !snapBlock || snapBlock.from === earliestDate,
+          onClick: () => {
+            if (!earliestDate || !snapBlock) return;
+            const delta = diffDays(snapBlock.from, earliestDate);
+            if (delta !== 0) moveBlock(task.id, blockId, delta);
+          },
         },
         {
           label: t('gantt.changeAssign'),
@@ -521,6 +535,21 @@ export function GanttChart({
           strokeDasharray="5 3"
           opacity={0.65}
         />
+        {/* Ligne date de réunion (rouge) — visible seulement si différente d'aujourd'hui */}
+        {schedule.ctx.today !== today && (
+          <line
+            x1={scale.x(schedule.ctx.today) + scale.dayWidth / 2}
+            x2={scale.x(schedule.ctx.today) + scale.dayWidth / 2}
+            y1={0}
+            y2={height}
+            stroke="var(--color-danger)"
+            strokeWidth={1.5}
+            strokeDasharray="5 3"
+            opacity={0.7}
+          >
+            <title>{t('gantt.reviewDateLine')}</title>
+          </line>
+        )}
         {/* Chaîne contraignante du jalon sélectionné */}
         {chainTaskIds &&
           visible.map((row, i) =>
@@ -941,7 +970,9 @@ function RowBars({
               height={barH}
               rx={rx}
               fill={color}
-              opacity={task.status === 'done' ? 0.55 : task.status === 'cancelled' ? 0.4 : 1}
+              opacity={task.scheduling === 'effort'
+                ? (task.status === 'cancelled' ? 0.4 : 0.28)
+                : (task.status === 'done' ? 0.55 : task.status === 'cancelled' ? 0.4 : 1)}
               stroke={r.overflow || hasConflict ? 'var(--color-danger)' : darken(color, 0.3)}
               strokeWidth={r.overflow || hasConflict ? 1.6 : 0.5}
               className="cursor-grab active:cursor-grabbing"
@@ -954,6 +985,21 @@ function RowBars({
                 {`\n${t('panel.remaining')} : ${task.remaining} ${t('common.days')}`}
               </title>
             </rect>
+            {/* barre sombre = reste à faire (tâche effort : délimitée par la date de réunion) */}
+            {task.scheduling === 'effort' && task.status !== 'cancelled' && (() => {
+              const reviewX = scale.x(schedule.ctx.today) + scale.dayWidth / 2;
+              const darkX = Math.max(x, reviewX);
+              const darkW = (x + w) - darkX;
+              if (darkW <= 0) return null;
+              return (
+                <rect
+                  x={darkX} y={barY} width={darkW} height={barH} rx={rx}
+                  fill={color}
+                  opacity={task.status === 'done' ? 0.22 : 0.92}
+                  pointerEvents="none"
+                />
+              );
+            })()}
             {/* hachures diagonales si annulé */}
             {task.status === 'cancelled' && (
               <rect x={x} y={barY} width={w} height={barH} rx={rx} fill="url(#cancelled-hatch)" pointerEvents="none" />
@@ -973,8 +1019,8 @@ function RowBars({
           </g>
         );
       })}
-      {/* avancement : barre noire centrée */}
-      {progressW > 0 && (
+      {/* avancement : barre noire centrée (tâches à dates fixées seulement) */}
+      {task.scheduling !== 'effort' && progressW > 0 && (
         <rect
           x={xStart}
           y={mid - 1.25}
@@ -986,8 +1032,8 @@ function RowBars({
           pointerEvents="none"
         />
       )}
-      {/* G1 : poignée d'avancement — moitié haute seulement, rendue en dernier pour priorité pointer */}
-      {task.status !== 'cancelled' && (barHovered || isDraggingProgress) && (
+      {/* G1 : poignée d'avancement (tâches à dates fixées seulement) — règle le reste à faire */}
+      {task.scheduling !== 'effort' && task.status !== 'cancelled' && (barHovered || isDraggingProgress) && (
         <rect
           x={handleX}
           y={barY - 2}
@@ -1370,7 +1416,7 @@ function ArrowHead({ d, color }: { d: string; color: string }) {
   return <path d={`M ${x} ${y} l -5 -3.5 v 7 Z`} fill={color} />;
 }
 
-// ——— Popover d'affectation de bloc ———
+// ——— Popover d'affectation de bloc — sliders par personne/matériel ———
 
 function BlockAssignPopover({
   x,
@@ -1393,19 +1439,20 @@ function BlockAssignPopover({
     block?.assignments.map((a) => ({ ...a })) ?? [],
   );
 
-  const toggle = (resourceId: string) => {
+  const setUnits = (resourceId: string, units: number) => {
+    const u = Math.max(0, Math.min(1000, units));
     setAssignmentsState((prev) => {
+      if (u === 0) return prev.filter((a) => a.resourceId !== resourceId);
       if (prev.some((a) => a.resourceId === resourceId)) {
-        return prev.filter((a) => a.resourceId !== resourceId);
+        return prev.map((a) => (a.resourceId === resourceId ? { ...a, units: u } : a));
       }
-      return [...prev, { resourceId, units: 100 }];
+      return [...prev, { resourceId, units: u }];
     });
   };
 
-  const setUnits = (resourceId: string, units: number) => {
-    setAssignmentsState((prev) =>
-      prev.map((a) => (a.resourceId === resourceId ? { ...a, units } : a)),
-    );
+  const toggle = (resourceId: string) => {
+    const cur = assignments.find((a) => a.resourceId === resourceId);
+    setUnits(resourceId, cur ? 0 : 100);
   };
 
   const handleSave = () => {
@@ -1425,44 +1472,48 @@ function BlockAssignPopover({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const left = Math.min(x, window.innerWidth - 260);
-  const top = Math.min(y, window.innerHeight - 300);
+  const left = Math.min(x, window.innerWidth - 280);
+  const top = Math.min(y, window.innerHeight - 320);
 
   return createPortal(
     <div
       ref={popRef}
-      className="fixed z-50 min-w-[220px] rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] shadow-xl"
+      className="fixed z-50 w-[260px] rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] shadow-xl"
       style={{ left, top }}
     >
       <div className="border-b border-[var(--color-line)] px-3 py-2 text-[11px] font-semibold text-[var(--color-ink-soft)] uppercase tracking-wide">
         {t('gantt.assignPopoverTitle')}
       </div>
-      <div className="max-h-52 overflow-y-auto p-2 space-y-1">
+      <div className="max-h-60 overflow-y-auto p-2 space-y-2">
         {file.resources.map((r) => {
-          const checked = assignments.some((a) => a.resourceId === r.id);
-          const units = assignments.find((a) => a.resourceId === r.id)?.units ?? 100;
+          const units = assignments.find((a) => a.resourceId === r.id)?.units ?? 0;
+          const active = units > 0;
+          const { color, label } = resourceAvatar(r);
           return (
-            <label key={r.id} className="flex items-center gap-2 cursor-pointer rounded px-1 py-0.5 hover:bg-[var(--color-wash)]">
+            <div key={r.id} className={`flex items-center gap-2 rounded px-1 py-0.5 ${active ? '' : 'opacity-40'}`}>
+              {/* Avatar = poignée / bouton bascule */}
+              <button
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white transition hover:scale-110 cursor-pointer"
+                style={{ background: color }}
+                title={active ? `${r.name} — cliquer pour retirer` : `Ajouter ${r.name}`}
+                onClick={() => toggle(r.id)}
+              >
+                {label}
+              </button>
               <input
-                type="checkbox"
-                checked={checked}
-                onChange={() => toggle(r.id)}
-                className="accent-[var(--color-accent)]"
+                type="range"
+                min={0}
+                max={200}
+                step={5}
+                value={units}
+                onChange={(e) => setUnits(r.id, Number(e.target.value))}
+                className="flex-1 accent-[var(--color-accent)]"
+                title={`${r.name} : ${units} %`}
               />
-              <span className="flex-1 text-[12px] truncate">{r.name}</span>
-              {checked && (
-                <input
-                  type="number"
-                  min={1}
-                  max={1000}
-                  value={units}
-                  onChange={(e) => setUnits(r.id, Math.max(1, Math.min(1000, Number(e.target.value))))}
-                  className="w-14 rounded border border-[var(--color-line)] bg-[var(--color-wash)] px-1 py-0.5 text-right text-[11px]"
-                  onClick={(e) => e.stopPropagation()}
-                />
-              )}
-              {checked && <span className="text-[10px] text-[var(--color-ink-soft)]">%</span>}
-            </label>
+              <span className="w-9 shrink-0 text-right font-mono text-[11px] text-[var(--color-ink-soft)]">
+                {units} %
+              </span>
+            </div>
           );
         })}
       </div>

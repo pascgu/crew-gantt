@@ -120,11 +120,12 @@ describe('agrégats de groupe (exemples chiffrés du GDD)', () => {
 });
 
 describe('taskProgress', () => {
-  it('retourne task.progress clampé à 0..1 (indépendant du reste à faire)', () => {
-    expect(taskProgress({ progress: 0 })).toBe(0);
-    expect(taskProgress({ progress: 0.5 })).toBeCloseTo(0.5, 10);
-    expect(taskProgress({ progress: 1 })).toBe(1);
-    expect(taskProgress({ progress: -0.1 })).toBe(0);
-    expect(taskProgress({ progress: 1.1 })).toBe(1);
+  it('retourne (effort - reste) / effort, clampé à 0..1', () => {
+    expect(taskProgress({ effort: 10, remaining: 10 })).toBe(0);
+    expect(taskProgress({ effort: 10, remaining: 5 })).toBeCloseTo(0.5, 10);
+    expect(taskProgress({ effort: 10, remaining: 0 })).toBe(1);
+    expect(taskProgress({ effort: 10, remaining: 11 })).toBe(0);
+    expect(taskProgress({ effort: 10, remaining: -1 })).toBe(1);
+    expect(taskProgress({ effort: 0, remaining: 0 })).toBe(0);
   });
 });

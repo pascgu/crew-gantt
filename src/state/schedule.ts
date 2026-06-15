@@ -32,12 +32,14 @@ export function getConflicts(file: TeamFile, today = todayIso()): Conflict[] {
 
 export function useSchedule(): Schedule {
   const file = useAppStore((s) => s.file);
-  return getSchedule(file);
+  const reviewDate = useAppStore((s) => s.reviewDate);
+  return getSchedule(file, reviewDate ?? todayIso());
 }
 
 export function useConflicts(): { active: Conflict[]; ignored: Conflict[] } {
   const file = useAppStore((s) => s.file);
-  return splitIgnored(getConflicts(file), file.ui.ignoredConflicts);
+  const reviewDate = useAppStore((s) => s.reviewDate);
+  return splitIgnored(getConflicts(file, reviewDate ?? todayIso()), file.ui.ignoredConflicts);
 }
 
 /** Conflits actifs indexés par tâche (pour les badges). */

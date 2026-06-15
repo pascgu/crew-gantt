@@ -10,7 +10,7 @@ import {
   quickAbsence,
   quickShareChange,
 } from '@/state/meetingActions';
-import { setTaskProgress, setTaskRemaining, setTaskStatus, updateTask } from '@/state/taskActions';
+import { setTaskRemaining, setTaskStatus, updateTask } from '@/state/taskActions';
 import { ProjectFilter } from '@/ui/app/ProjectFilter';
 import { EditableNumber } from '@/ui/common/inline';
 import { IconCheck, IconNote, IconWarning } from '@/ui/common/icons';
@@ -63,10 +63,17 @@ export function MeetingTab() {
   const journal = useAppStore((s) => s.file.journal);
   const projectFilter = useAppStore((s) => s.file.ui.projectFilter);
   const filter = projectFilter ? new Set(projectFilter) : null;
+  const setReviewDate = useAppStore((s) => s.setReviewDate);
+  const clearReviewDate = useAppStore((s) => s.clearReviewDate);
 
   const detailTask = detailTaskId ? tasks.find((t) => t.id === detailTaskId) ?? null : null;
 
   useEffect(() => ensureMeetingSession(), []);
+
+  useEffect(() => {
+    setReviewDate(date);
+    return () => clearReviewDate();
+  }, [date]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleClose() {
     if (!window.confirm(t('meeting.closeConfirm'))) return;
@@ -272,9 +279,9 @@ function TaskLine({
       <span className="w-[58px] shrink-0">
         <EditableNumber value={task.remaining} onCommit={(v) => setTaskRemaining(task.id, v ?? 0)} />
       </span>
-      {/* Avancement */}
-      <span className="w-[54px] shrink-0">
-        <EditableNumber value={progress} suffix=" %" max={100} onCommit={(v) => setTaskProgress(task.id, v ?? 0)} />
+      {/* Avancement (dérivé, lecture seule) */}
+      <span className="w-[54px] shrink-0 text-center font-mono text-[11px] text-ink-faint">
+        {progress} %
       </span>
       {/* Actions (M8 : bouton Détail supprimé — double-clic sur la ligne ouvre le panneau) */}
       <span className="flex w-[40px] shrink-0 items-center gap-0.5 opacity-50 transition group-hover/line:opacity-100">

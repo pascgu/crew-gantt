@@ -93,6 +93,7 @@ export function plannedFutureCapacity(ctx: CalcContext, task: Task, block: Block
 
 /**
  * Fin du bloc ouvert : premier jour où le cumul des capacités atteint `remaining`.
+ * Le décompte commence au plus tôt à ctx.today (trait de revue) si le bloc a déjà démarré.
  * null si l'horizon est dépassé (aucune capacité suffisante).
  */
 function consumeRemaining(
@@ -101,9 +102,10 @@ function consumeRemaining(
   block: Block,
   remaining: number,
 ): IsoDate | null {
-  if (remaining <= EPS) return block.from;
+  const effectiveStart = block.from >= ctx.today ? block.from : ctx.today;
+  if (remaining <= EPS) return effectiveStart;
   let cumulative = 0;
-  let day = block.from;
+  let day = effectiveStart;
   for (let i = 0; i < HORIZON_DAYS; i++) {
     cumulative += effortCapacityOnDay(ctx, task, block, day);
     if (cumulative >= remaining - EPS) return day;
@@ -148,9 +150,10 @@ export function remainingForEndDate(
     }
   }
 
-  // Capacité du bloc de fromDay jusqu'à endDay
+  // Capacité du bloc depuis max(fromDay, ctx.today) jusqu'à endDay
+  const effectiveStart = fromDay >= ctx.today ? fromDay : ctx.today;
   let openCapacity = 0;
-  for (let d = fromDay; d <= endDay; d = addDays(d, 1)) {
+  for (let d = effectiveStart; d <= endDay; d = addDays(d, 1)) {
     openCapacity += effortCapacityOnDay(ctx, task, openBlock, d);
   }
 

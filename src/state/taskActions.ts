@@ -51,32 +51,21 @@ export function updateTask(id: string, patch: Partial<Task>): void {
   });
 }
 
-/** Modifier l'effort conserve le réalisé : reste = max(0, effort − réalisé). */
+/** Effort = référence libre (estimation du total). Indépendant du reste à faire. */
 export function setTaskEffort(id: string, effort: number): void {
   mutate((file) => {
     const task = taskById(file, id);
     if (!task) return;
-    const realized = Math.max(0, task.effort - task.remaining);
     task.effort = Math.max(0, effort);
-    task.remaining = Math.max(0, task.effort - realized);
   });
 }
 
+/** Reste à faire = pilote la barre et la date de fin. Indépendant de l'effort. */
 export function setTaskRemaining(id: string, remaining: number): void {
   mutate((file) => {
     const task = taskById(file, id);
     if (!task) return;
     task.remaining = Math.max(0, remaining);
-    if (task.remaining > task.effort) task.effort = task.remaining;
-  });
-}
-
-/** Avancement visuel (0..100 %). N'affecte plus le reste à faire. */
-export function setTaskProgress(id: string, percent: number): void {
-  mutate((file) => {
-    const task = taskById(file, id);
-    if (!task) return;
-    task.progress = Math.max(0, Math.min(1, percent / 100));
   });
 }
 
@@ -103,7 +92,6 @@ export function setTaskStatus(id: string, status: Task['status']): void {
     task.status = status;
     if (status === 'done') {
       task.remaining = 0;
-      task.progress = 1;
       // Clore le bloc ouvert : le travail s'arrête là.
       const open = task.blocks.find((b) => b.to === null);
       if (open) open.to = open.from;

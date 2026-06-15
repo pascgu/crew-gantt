@@ -3,7 +3,7 @@ import { temporal } from 'zundo';
 import { immer } from 'zustand/middleware/immer';
 import { createDemoTeamFile } from '@/core/model/demo';
 import { todayIso } from '@/core/calendar/dates';
-import type { TeamFile } from '@/core/model/types';
+import type { IsoDate, TeamFile } from '@/core/model/types';
 
 export type TabId = 'gantt' | 'meeting' | 'dashboard' | 'team' | 'settings';
 
@@ -17,6 +17,8 @@ export interface AppState {
   selectedTaskId: string | null;
   /** Ressource à mettre en évidence dans l'onglet Équipe (hors undo). */
   focusResourceId: string | null;
+  /** Date de réunion active — frontière passé/futur dans le Gantt (hors undo). Null = aujourd'hui. */
+  reviewDate: IsoDate | null;
 }
 
 export interface AppActions {
@@ -31,6 +33,9 @@ export interface AppActions {
   /** Ouvre l'onglet Équipe et met en évidence la ressource `id`. */
   focusResource: (id: string) => void;
   clearFocusResource: () => void;
+  /** Pose la date de réunion comme frontière passé/futur. */
+  setReviewDate: (date: IsoDate) => void;
+  clearReviewDate: () => void;
 }
 
 export type AppStore = AppState & AppActions;
@@ -45,6 +50,7 @@ export const useAppStore = create<AppStore>()(
       activeTab: 'gantt',
       selectedTaskId: null,
       focusResourceId: null,
+      reviewDate: null,
 
       replaceFile: (file, fileName) =>
         set((s) => {
@@ -91,6 +97,16 @@ export const useAppStore = create<AppStore>()(
       clearFocusResource: () =>
         set((s) => {
           s.focusResourceId = null;
+        }),
+
+      setReviewDate: (date) =>
+        set((s) => {
+          s.reviewDate = date;
+        }),
+
+      clearReviewDate: () =>
+        set((s) => {
+          s.reviewDate = null;
         }),
     })),
     {

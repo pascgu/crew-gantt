@@ -14,7 +14,6 @@ import {
   setBlockAssignments,
   setBlockDates,
   setTaskEffort,
-  setTaskProgress,
   setTaskRemaining,
   updateLink,
   updateTask,
@@ -139,13 +138,8 @@ export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
               </span>
             </Field>
             <Field label={t('panel.progress')}>
-              <span className="w-16">
-                <EditableNumber
-                  value={progress}
-                  suffix=" %"
-                  max={100}
-                  onCommit={(v) => setTaskProgress(task.id, v ?? 0)}
-                />
+              <span className="w-16 text-right font-mono text-[12.5px] text-ink-soft">
+                {progress} %
               </span>
             </Field>
             {task.estimate !== null && (
