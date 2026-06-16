@@ -20,7 +20,8 @@ import {
   IconUndo,
   IconWarning,
 } from '@/ui/common/icons';
-import { downloadBlob } from '@/io/export';
+import { downloadBlob, exportGanttPng, exportTasksCsv } from '@/io/export';
+import { defaultFileName } from '@/io/fileAccess';
 import { exportGanttProjectXml, ganttProjectSlug, importGanttProjectXml } from '@/io/ganttproject';
 
 const TABS: { id: TabId; label: string }[] = [
@@ -50,6 +51,19 @@ export function TopBar() {
     const xml = exportGanttProjectXml(file, schedule);
     const blob = new Blob([xml], { type: 'application/xml' });
     downloadBlob(blob, `${ganttProjectSlug(file.team.name)}.gan`);
+  };
+
+  const baseName = () => defaultFileName(file.team.name).replace('.crewgantt.json', '');
+
+  const handleExportPng = () => {
+    setIoMenuOpen(false);
+    const svg = document.getElementById('gantt-chart-svg');
+    if (svg instanceof SVGSVGElement) void exportGanttPng(svg, `${baseName()}-gantt.png`);
+  };
+
+  const handleExportCsv = () => {
+    setIoMenuOpen(false);
+    exportTasksCsv(file, schedule, `${baseName()}-taches.csv`);
   };
 
   const handleImportGp = () => {
@@ -226,12 +240,12 @@ export function TopBar() {
         </button>
         <button
           className="rounded-md bg-accent p-1 text-white transition hover:bg-accent-deep"
-          onClick={() => void save()}
+          onClick={(e) => void save({ saveAs: e.ctrlKey || e.metaKey })}
           onContextMenu={(e) => {
             e.preventDefault();
             void save({ saveAs: true });
           }}
-          title={`${t('file.save')} (Ctrl+S) — clic droit : ${t('file.saveAs')}`}
+          title={`${t('file.save')} (Ctrl+S) — Ctrl+clic ou clic droit : ${t('file.saveAs')}`}
           aria-label={t('file.save')}
         >
           <IconSave size={14} />
@@ -253,15 +267,30 @@ export function TopBar() {
           >
             <button
               className="w-full rounded-md px-3 py-1.5 text-left text-ink hover:bg-paper-deep"
+              onClick={handleImportGp}
+            >
+              {t('io.importGp')}
+            </button>
+            <div className="my-1 h-px bg-line" />
+            <button
+              className="w-full rounded-md px-3 py-1.5 text-left text-ink hover:bg-paper-deep"
               onClick={handleExportGp}
             >
               {t('io.exportGp')}
             </button>
             <button
-              className="w-full rounded-md px-3 py-1.5 text-left text-ink hover:bg-paper-deep"
-              onClick={handleImportGp}
+              className="w-full rounded-md px-3 py-1.5 text-left text-ink hover:bg-paper-deep disabled:opacity-40"
+              onClick={handleExportPng}
+              disabled={activeTab !== 'gantt'}
+              title={activeTab !== 'gantt' ? t('io.pngNeedsGantt') : undefined}
             >
-              {t('io.importGp')}
+              {t('export.pngTitle')}
+            </button>
+            <button
+              className="w-full rounded-md px-3 py-1.5 text-left text-ink hover:bg-paper-deep"
+              onClick={handleExportCsv}
+            >
+              {t('export.csvTitle')}
             </button>
           </div>
         </>,

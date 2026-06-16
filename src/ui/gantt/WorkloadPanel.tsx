@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { eachDay, maxIso, minIso } from '@/core/calendar/dates';
 import type { Schedule } from '@/core/scheduler/schedule';
+import type { Resource } from '@/core/model/types';
 import { t } from '@/i18n/fr';
 import { Avatar } from '@/ui/common/Avatar';
 import { useAppStore } from '@/state/store';
@@ -14,11 +15,21 @@ interface WorkloadGaugesProps {
   /** Plage horizontale visible (virtualisation). */
   visibleFrom: string;
   visibleTo: string;
+  /** Sous-ensemble de ressources à afficher ; défaut = toutes. */
+  resources?: Resource[];
 }
 
 /** Noms des ressources en overlay pincé à gauche du bandeau de charge, non affectés par le translateX. */
-export function WorkloadNamesOverlay({ schedule, rowH }: { schedule: Schedule; rowH: number }) {
-  const persons = schedule.ctx.file.resources;
+export function WorkloadNamesOverlay({
+  schedule,
+  rowH,
+  resources,
+}: {
+  schedule: Schedule;
+  rowH: number;
+  resources?: Resource[];
+}) {
+  const persons = resources ?? schedule.ctx.file.resources;
   const focusResource = useAppStore((s) => s.focusResource);
   return (
     <div className="pointer-events-none absolute left-0 top-0 z-10 flex flex-col">
@@ -48,8 +59,8 @@ export function WorkloadNamesOverlay({ schedule, rowH }: { schedule: Schedule; r
  * empilée par projet (couleur projet). Trait = présence du jour (100 %) ;
  * au-delà du trait = sur-engagement ; surcharge projet en rouge ; absences hachurées.
  */
-export function WorkloadGauges({ schedule, scale, rowH, visibleFrom, visibleTo }: WorkloadGaugesProps) {
-  const persons = schedule.ctx.file.resources;
+export function WorkloadGauges({ schedule, scale, rowH, visibleFrom, visibleTo, resources }: WorkloadGaugesProps) {
+  const persons = resources ?? schedule.ctx.file.resources;
   const projects = schedule.ctx.file.projects;
   const colorOf = useMemo(() => new Map(projects.map((p) => [p.id, p.color])), [projects]);
 

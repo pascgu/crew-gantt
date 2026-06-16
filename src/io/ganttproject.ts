@@ -8,6 +8,9 @@
  *  - statut de tâche (remis à 'todo')
  *  - baselines
  *
+ * Le champ GanttProject `complete` (0–100 %) ↔ l'**Avancement** (`task.progress`) :
+ * importé tel quel et exporté depuis `task.progress`. Le reste à faire est calculé à part.
+ *
  * À l'export, un seul projet est utilisé (la couleur du projet de la tâche
  * racine, ou la première couleur rencontrée).
  */
@@ -20,6 +23,7 @@ import {
   createResource,
   createTask,
 } from '@/core/model/factory';
+import { taskProgress } from '@/core/scheduler/groups';
 import type { IsoDate, TeamFile, Weekday } from '@/core/model/types';
 import type { Schedule } from '@/core/scheduler/schedule';
 
@@ -89,10 +93,7 @@ export function exportGanttProjectXml(file: TeamFile, schedule: Schedule): strin
       attrs += ` meeting="false" duration="0" start="${new Date().toISOString().slice(0, 10)}" complete="0"`;
     } else {
       const duration = diffDays(span.start, span.end) + 1;
-      const complete =
-        task.type === 'task' && task.effort > 0
-          ? Math.round(((task.effort - task.remaining) / task.effort) * 100)
-          : 0;
+      const complete = Math.round(taskProgress(task) * 100);
       attrs += ` meeting="false" start="${span.start}" duration="${duration}" complete="${complete}"`;
     }
 
@@ -263,6 +264,7 @@ export function importGanttProjectXml(xml: string): TeamFile {
       scheduling: 'fixed',
       effort,
       remaining,
+      progress: complete,
       date: isMilestone ? (startAttr || null) : null,
     });
 

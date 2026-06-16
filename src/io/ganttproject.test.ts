@@ -97,6 +97,8 @@ describe('GanttProject import/export', () => {
     expect(imported.resources[0]!.name).toBe('Bob');
     // remaining calculé depuis complete=40% → remaining = effort*(1-0.4)
     expect(imported.tasks[0]!.remaining).toBeCloseTo(3, 1);
+    // avancement (complete=40%) → task.progress
+    expect(imported.tasks[0]!.progress).toBeCloseTo(0.4, 2);
     // affectation
     expect(imported.tasks[0]!.blocks[0]!.assignments[0]!.units).toBe(80);
   });

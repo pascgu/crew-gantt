@@ -16,8 +16,6 @@ interface GanttControlsProps {
   zoom: ZoomLevel;
   todayVisible: boolean;
   onToday: () => void;
-  onExportPng: () => void;
-  onExportCsv: () => void;
 }
 
 /**
@@ -25,7 +23,7 @@ interface GanttControlsProps {
  * ⚙ seul par défaut ; au clic : popover avec échelle, baseline, "…".
  * 🎯 s'affiche sous ⚙ uniquement si la ligne "aujourd'hui" est hors viewport.
  */
-export function GanttControls({ zoom, todayVisible, onToday, onExportPng, onExportCsv }: GanttControlsProps) {
+export function GanttControls({ zoom, todayVisible, onToday }: GanttControlsProps) {
   const baselines = useAppStore((s) => s.file.baselines);
   const activeBl = baselines.find((b) => b.active) ?? null;
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -61,8 +59,6 @@ export function GanttControls({ zoom, todayVisible, onToday, onExportPng, onExpo
   }
 
   const menuEntries: MenuEntry[] = [
-    { label: t('export.pngTitle'), onClick: onExportPng },
-    { label: t('export.csvTitle'), onClick: onExportCsv },
     {
       label: t('baseline.deleteActive'),
       danger: true,

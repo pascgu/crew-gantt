@@ -524,32 +524,8 @@ export function GanttChart({
           const y = (windowStart + i + 1) * ROW_HEIGHT;
           return <line key={i} x1={0} x2={scale.width} y1={y} y2={y} stroke="rgb(33 31 26 / 0.05)" />;
         })}
-        {/* Ligne aujourd'hui */}
-        <line
-          x1={scale.x(today) + scale.dayWidth / 2}
-          x2={scale.x(today) + scale.dayWidth / 2}
-          y1={0}
-          y2={height}
-          stroke="var(--color-accent)"
-          strokeWidth={1.5}
-          strokeDasharray="5 3"
-          opacity={0.65}
-        />
-        {/* Ligne date de réunion (rouge) — visible seulement si différente d'aujourd'hui */}
-        {schedule.ctx.today !== today && (
-          <line
-            x1={scale.x(schedule.ctx.today) + scale.dayWidth / 2}
-            x2={scale.x(schedule.ctx.today) + scale.dayWidth / 2}
-            y1={0}
-            y2={height}
-            stroke="var(--color-danger)"
-            strokeWidth={1.5}
-            strokeDasharray="5 3"
-            opacity={0.7}
-          >
-            <title>{t('gantt.reviewDateLine')}</title>
-          </line>
-        )}
+        {/* Lignes verticales (aujourd'hui / revue) : rendues plus bas, par-dessus les barres,
+            avec une bande de survol assez large pour afficher l'infobulle. */}
         {/* Chaîne contraignante du jalon sélectionné */}
         {chainTaskIds &&
           visible.map((row, i) =>
@@ -653,10 +629,46 @@ export function GanttChart({
               scale={scale}
             />
           ))}
-        {/* Tooltip Reste pendant resize en mode effort (resize-start et resize-end) */}
+        {/* Ligne aujourd'hui (bleue) — au début de la journée, par-dessus les barres.
+            Bande transparente plus large pour capter le survol (l'infobulle SVG ne s'affiche
+            que sur l'élément réellement survolé) ; les gestes (pan, double-clic) remontent au SVG. */}
+        <line
+          x1={scale.x(today)}
+          x2={scale.x(today)}
+          y1={0}
+          y2={height}
+          stroke="var(--color-accent)"
+          strokeWidth={1.5}
+          strokeDasharray="5 3"
+          opacity={0.65}
+          pointerEvents="none"
+        />
+        <rect x={scale.x(today) - 3} y={0} width={6} height={height} fill="transparent">
+          <title>{t('gantt.today')}</title>
+        </rect>
+        {/* Ligne date de réunion (rouge) — visible seulement si différente d'aujourd'hui */}
+        {schedule.ctx.today !== today && (
+          <>
+            <line
+              x1={scale.x(schedule.ctx.today)}
+              x2={scale.x(schedule.ctx.today)}
+              y1={0}
+              y2={height}
+              stroke="var(--color-danger)"
+              strokeWidth={1.5}
+              strokeDasharray="5 3"
+              opacity={0.7}
+              pointerEvents="none"
+            />
+            <rect x={scale.x(schedule.ctx.today) - 3} y={0} width={6} height={height} fill="transparent">
+              <title>{t('gantt.reviewDateLine')}</title>
+            </rect>
+          </>
+        )}
+        {/* Tooltip Reste pendant resize (effort ET dates fixées, resize-start et resize-end) */}
         {(drag?.kind === 'resize-end' || drag?.kind === 'resize-start') && (() => {
           const rt = schedule.ctx.file.tasks.find((t) => t.id === drag.taskId);
-          if (rt?.scheduling !== 'effort') return null;
+          if (!rt || rt.type !== 'task') return null;
           const rowIdx = rowIndexByTask.get(drag.taskId) ?? 0;
           const ty = rowIdx * ROW_HEIGHT + ROW_HEIGHT / 2;
           let remaining: number;
@@ -667,7 +679,7 @@ export function GanttChart({
             const from = drag.day <= drag.otherEdge ? drag.day : drag.otherEdge;
             remaining = remainingForEndDate(schedule.ctx, rt, drag.blockId, drag.otherEdge, from);
           }
-          const label = `${Math.round(remaining * 10) / 10} j`;
+          const label = t('gantt.remainingTooltip', { days: Math.round(remaining * 10) / 10 });
           const labelWidth = label.length * 6.5 + 8;
           const tx = drag.kind === 'resize-end'
             ? scale.xEnd(drag.day) + 6
@@ -990,7 +1002,7 @@ function RowBars({
             </rect>
             {/* teinte sombre = reste à faire/futur (après le trait de revue) — les DEUX types */}
             {task.status !== 'cancelled' && (() => {
-              const reviewX = scale.x(schedule.ctx.today) + scale.dayWidth / 2;
+              const reviewX = scale.x(schedule.ctx.today);
               const darkX = Math.max(x, reviewX);
               const darkW = (x + w) - darkX;
               if (darkW <= 0) return null;
@@ -1349,7 +1361,8 @@ function LinksLayer({
   rowIndexByTask: ReadonlyMap<string, number>;
   chainPairs?: ReadonlySet<string>;
 }) {
-  const paths: { d: string; violated: boolean; inChain: boolean; key: string }[] = [];
+  type Arrow = { x: number; y: number; dir: 'right' | 'down' };
+  const paths: { d: string; violated: boolean; inChain: boolean; key: string; arrow: Arrow }[] = [];
 
   for (const row of rows) {
     const task = row.task;
@@ -1380,11 +1393,19 @@ function LinksLayer({
       const ty = targetIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
       const violated = Boolean(earliest?.date && targetSpan.start < earliest.date);
       const bend = sx + 7;
+      // Lien « retour arrière » : la cible démarre à gauche du coude. On remonte le trait
+      // de retour en haut de la ligne cible (au-dessus de la barre/losange) puis on redescend
+      // vers la flèche, plutôt que de traverser la barre en son milieu.
+      const backward = tx - 4 < bend;
+      const d = backward
+        ? `M ${sx} ${sy} L ${bend} ${sy} L ${bend} ${targetIndex * ROW_HEIGHT + 3} L ${tx} ${targetIndex * ROW_HEIGHT + 3} L ${tx} ${ty}`
+        : `M ${sx} ${sy} L ${bend} ${sy} L ${bend} ${ty} L ${tx - 4} ${ty}`;
       paths.push({
         key: `${task.id}-${li}`,
         violated,
         inChain: chainPairs?.has(`${task.id}:${link.on}`) ?? false,
-        d: `M ${sx} ${sy} L ${bend} ${sy} L ${bend} ${ty} L ${tx - 4} ${ty}`,
+        d,
+        arrow: backward ? { x: tx, y: ty, dir: 'down' } : { x: tx - 4, y: ty, dir: 'right' },
       });
     }
   }
@@ -1406,7 +1427,7 @@ function LinksLayer({
               strokeWidth={p.violated || p.inChain ? 1.8 : 1.1}
               opacity={0.9}
             />
-            <ArrowHead d={p.d} color={stroke} />
+            <ArrowHead arrow={p.arrow} color={stroke} />
           </g>
         );
       })}
@@ -1414,13 +1435,18 @@ function LinksLayer({
   );
 }
 
-function ArrowHead({ d, color }: { d: string; color: string }) {
-  // pointe au bout du path (dernier point « L x y »)
-  const m = d.match(/L ([-\d.]+) ([-\d.]+)$/);
-  if (!m) return null;
-  const x = Number(m[1]);
-  const y = Number(m[2]);
-  return <path d={`M ${x} ${y} l -5 -3.5 v 7 Z`} fill={color} />;
+function ArrowHead({
+  arrow,
+  color,
+}: {
+  arrow: { x: number; y: number; dir: 'right' | 'down' };
+  color: string;
+}) {
+  const d =
+    arrow.dir === 'down'
+      ? `M ${arrow.x} ${arrow.y} l -3.5 -5 h 7 Z`
+      : `M ${arrow.x} ${arrow.y} l -5 -3.5 v 7 Z`;
+  return <path d={d} fill={color} />;
 }
 
 // ——— Popover d'affectation de bloc — sliders par personne/matériel ———

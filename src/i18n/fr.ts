@@ -16,6 +16,7 @@ export const fr = {
     open: 'Ouvrir…',
     save: 'Enregistrer',
     saveAs: 'Enregistrer sous…',
+    saveAsPrompt: "Nom du fichier à enregistrer :",
     unsaved: 'Modifications non enregistrées',
     saved: 'Enregistré',
     savedIn: 'Enregistré — {name}',
@@ -85,6 +86,8 @@ export const fr = {
     title: 'Charge par personne',
     show: 'Afficher la charge',
     hide: 'Masquer la charge',
+    filter: 'Filtrer les ressources affichées',
+    showAll: 'Tout afficher',
     resizeHint: 'Glisser pour ajuster la hauteur — clic droit : options',
     legendLine: 'trait = présence du jour (100 %)',
     legendOver: 'au-delà du trait = sur-engagement',
@@ -316,7 +319,7 @@ export const fr = {
     allClear: 'Rien à signaler. Plan sain.',
   },
   proposal: {
-    button: 'Proposition',
+    button: 'Plan proposé',
     banner: 'Réordonnancement proposé — {tasks} tâche(s), {milestones} jalon(s) impacté(s)',
     see: 'Voir les impacts',
     applyAll: 'Tout appliquer',
@@ -389,6 +392,7 @@ export const fr = {
     menu: 'Import / Export',
     exportGp: 'Exporter vers GanttProject (.gan)…',
     importGp: 'Importer depuis GanttProject (.gan)…',
+    pngNeedsGantt: "Ouvrez l’onglet Gantt pour exporter le PNG",
     importError: "Impossible de lire ce fichier (.gan). Vérifiez qu’il est bien au format GanttProject 3.",
   },
   columns: {

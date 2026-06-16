@@ -151,6 +151,7 @@ export function TaskRowCells({
     }));
 
   const addEntries: MenuEntry[] = [
+    ...convertEntries,
     { label: t('tasks.addAfter'), onClick: () => selectTask(addTask({ afterId: task.id })) },
     {
       label: t('tasks.addChild'),
@@ -165,7 +166,6 @@ export function TaskRowCells({
       label: t('tasks.addGroup'),
       onClick: () => selectTask(addTask({ afterId: task.id, type: 'group' })),
     },
-    ...convertEntries,
     {
       label: t('tasks.delete'),
       danger: true,

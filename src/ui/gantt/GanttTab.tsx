@@ -23,8 +23,6 @@ import {
   outdentTask,
   setZoom,
 } from '@/state/taskActions';
-import { exportGanttPng, exportTasksCsv } from '@/io/export';
-import { defaultFileName } from '@/io/fileAccess';
 import { useProposal } from '@/state/proposalActions';
 import { usePersistedState } from '@/ui/common/persist';
 import { IconChevronDown, IconChevronRight, IconFilter, IconPlus } from '@/ui/common/icons';
@@ -64,7 +62,6 @@ export function GanttTab() {
   const tasks = useAppStore((s) => s.file.tasks);
   const projects = useAppStore((s) => s.file.projects);
   const resources = useAppStore((s) => s.file.resources);
-  const teamName = useAppStore((s) => s.file.team.name);
 
   const tableColWidths = useTableStore((s) => s.widths);
   const tableColHidden = useTableStore((s) => s.hidden);
@@ -85,11 +82,22 @@ export function GanttTab() {
   const [viewportW, setViewportW] = useState(800);
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const [workloadMenu, setWorkloadMenu] = useState<{ x: number; y: number } | null>(null);
+  const [workloadFilter, setWorkloadFilter] = useState<DOMRect | null>(null);
 
   // Préférences d'affichage (hors fichier : ne marquent pas dirty)
   const [tableWidth, setTableWidth] = usePersistedState('crewgantt.ui.tableWidth', TABLE_WIDTH);
   const [workloadOpen, setWorkloadOpen] = usePersistedState('crewgantt.ui.workloadOpen', true);
   const [workloadRowH, setWorkloadRowH] = usePersistedState('crewgantt.ui.workloadRowH', 28);
+  const [workloadHidden, setWorkloadHidden] = usePersistedState(
+    'crewgantt.ui.workloadHidden',
+    [] as string[],
+  );
+
+  // Ressources réellement affichées dans le bandeau de charge (filtre utilisateur).
+  const visibleResources = useMemo(
+    () => resources.filter((r) => !workloadHidden.includes(r.id)),
+    [resources, workloadHidden],
+  );
 
   const proposal = useProposal();
   const baselines = useAppStore((s) => s.file.baselines);
@@ -237,6 +245,17 @@ export function GanttTab() {
     }
   }, [scale, today]);
 
+  // Le div interne du bandeau de charge est démonté quand replié : à sa réapparition,
+  // réappliquer le décalage horizontal courant (sinon les jauges virtualisées rendent
+  // hors écran jusqu'au prochain scroll).
+  useLayoutEffect(() => {
+    const inner = workloadInnerRef.current;
+    const el = scrollRef.current;
+    if (workloadOpen && inner && el) {
+      inner.style.transform = `translateX(${-el.scrollLeft}px)`;
+    }
+  }, [workloadOpen, scale]);
+
   // ——— Clavier : navigation, ALT+flèches, Entrée/Suppr/Échap ———
 
   useEffect(() => {
@@ -344,7 +363,7 @@ export function GanttTab() {
     e.preventDefault();
     const startY = e.clientY;
     const startH = workloadRowH;
-    const count = Math.max(1, resources.length);
+    const count = Math.max(1, visibleResources.length);
     const onMove = (ev: PointerEvent) => {
       setWorkloadRowH(
         Math.max(16, Math.min(48, Math.round(startH + (startY - ev.clientY) / count))),
@@ -358,21 +377,8 @@ export function GanttTab() {
     window.addEventListener('pointerup', onUp);
   };
 
-  const exportPng = () => {
-    const svg = document.getElementById('gantt-chart-svg');
-    if (svg instanceof SVGSVGElement) {
-      void exportGanttPng(svg, `${defaultFileName(teamName).replace('.crewgantt.json', '')}-gantt.png`);
-    }
-  };
-  const exportCsv = () =>
-    exportTasksCsv(
-      useAppStore.getState().file,
-      schedule,
-      `${defaultFileName(teamName).replace('.crewgantt.json', '')}-taches.csv`,
-    );
-
   const hasResources = resources.length > 0;
-  const workloadH = resources.length * workloadRowH;
+  const workloadH = visibleResources.length * workloadRowH;
 
   return (
     <div className="flex h-full min-h-0">
@@ -442,8 +448,6 @@ export function GanttTab() {
                 zoom={zoom}
                 todayVisible={todayVisible}
                 onToday={scrollToToday}
-                onExportPng={exportPng}
-                onExportCsv={exportCsv}
               />
               {/* En-tête timescale, synchronisé en translateX */}
               <div
@@ -488,17 +492,37 @@ export function GanttTab() {
                       }}
                     />
                   )}
-                  <button
-                    className="absolute -top-3 left-1/2 z-20 -translate-x-1/2 rounded-full border border-line bg-surface p-0.5 text-ink-soft shadow-sm transition hover:border-accent hover:text-accent"
-                    title={workloadOpen ? t('workload.hide') : t('workload.show')}
-                    aria-label={workloadOpen ? t('workload.hide') : t('workload.show')}
-                    onClick={() => setWorkloadOpen((v) => !v)}
-                  >
-                    <IconChevronDown size={12} className={workloadOpen ? '' : 'rotate-180'} />
-                  </button>
+                  <div className="absolute -top-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1">
+                    <button
+                      className="rounded-full border border-line bg-surface p-0.5 text-ink-soft shadow-sm transition hover:border-accent hover:text-accent"
+                      title={workloadOpen ? t('workload.hide') : t('workload.show')}
+                      aria-label={workloadOpen ? t('workload.hide') : t('workload.show')}
+                      onClick={() => setWorkloadOpen((v) => !v)}
+                    >
+                      <IconChevronDown size={12} className={workloadOpen ? '' : 'rotate-180'} />
+                    </button>
+                    {workloadOpen && (
+                      <button
+                        className={`rounded-full border bg-surface p-0.5 shadow-sm transition hover:border-accent hover:text-accent ${
+                          workloadHidden.length > 0
+                            ? 'border-accent text-accent'
+                            : 'border-line text-ink-soft'
+                        }`}
+                        title={t('workload.filter')}
+                        aria-label={t('workload.filter')}
+                        onClick={(e) =>
+                          setWorkloadFilter((prev) =>
+                            prev ? null : (e.currentTarget as HTMLElement).getBoundingClientRect(),
+                          )
+                        }
+                      >
+                        <IconFilter size={11} />
+                      </button>
+                    )}
+                  </div>
                   {workloadOpen ? (
                     <div className="relative overflow-hidden" style={{ height: workloadH }}>
-                      <WorkloadNamesOverlay schedule={schedule} rowH={workloadRowH} />
+                      <WorkloadNamesOverlay schedule={schedule} rowH={workloadRowH} resources={visibleResources} />
                       <div
                         ref={workloadInnerRef}
                         style={{ width: scale.width, willChange: 'transform' }}
@@ -507,6 +531,7 @@ export function GanttTab() {
                           schedule={schedule}
                           scale={scale}
                           rowH={workloadRowH}
+                          resources={visibleResources}
                           visibleFrom={scale.dateAt(Math.max(0, scrollLeft - 200))}
                           visibleTo={scale.dateAt(
                             Math.min(scale.width - 1, scrollLeft + window.innerWidth),
@@ -529,6 +554,46 @@ export function GanttTab() {
                       ]}
                       onClose={() => setWorkloadMenu(null)}
                     />
+                  )}
+                  {workloadFilter && createPortal(
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setWorkloadFilter(null)} />
+                      <div
+                        className="fixed z-50 flex max-h-72 min-w-44 flex-col gap-1 overflow-y-auto rounded-lg border border-line bg-surface p-2 shadow-float"
+                        style={{
+                          left: Math.min(workloadFilter.left, window.innerWidth - 200),
+                          // Le bandeau de charge est en bas de l'écran : ouvrir le popover vers le haut.
+                          bottom: window.innerHeight - workloadFilter.top + 4,
+                        }}
+                      >
+                        {resources.map((r) => {
+                          const shown = !workloadHidden.includes(r.id);
+                          return (
+                            <label key={r.id} className="flex cursor-pointer items-center gap-2 text-[12px]">
+                              <input
+                                type="checkbox"
+                                checked={shown}
+                                onChange={() =>
+                                  setWorkloadHidden((prev) =>
+                                    shown ? [...prev, r.id] : prev.filter((id) => id !== r.id),
+                                  )
+                                }
+                              />
+                              {r.name}
+                            </label>
+                          );
+                        })}
+                        {workloadHidden.length > 0 && (
+                          <button
+                            className="mt-1 text-left text-[11px] text-ink-faint hover:text-ink"
+                            onClick={() => setWorkloadHidden([])}
+                          >
+                            {t('workload.showAll')}
+                          </button>
+                        )}
+                      </div>
+                    </>,
+                    document.body,
                   )}
                 </div>
               )}

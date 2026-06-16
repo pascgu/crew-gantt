@@ -354,6 +354,12 @@ export function addBlockToTask(taskId: string, from: IsoDate): void {
     if (open) block.assignments = open.assignments.map((a) => ({ ...a }));
     task.blocks.push(block);
     task.blocks.sort((a, b) => a.from.localeCompare(b.from));
+    // Tâche effort encore vide (0 j-h) : un bloc sans affectation donne une barre nulle.
+    // Poser 1 j-h d'effort/reste par défaut pour qu'elle soit visible et ajustable.
+    if (task.scheduling === 'effort' && task.effort <= 0) {
+      task.effort = 1;
+      task.remaining = 1;
+    }
   });
 }
 

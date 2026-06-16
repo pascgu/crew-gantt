@@ -1,9 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { clearHistory, useAppStore } from '@/state/store';
 import { parseTeamFile } from '@/core/model/migrate';
 import { clearBackup, readBackup } from '@/io/backup';
 import { useNotifications } from '@/state/notifications';
 import { t } from '@/i18n/fr';
+
+// Garde au niveau module : StrictMode (dev) monte ce composant deux fois et
+// réinitialise les refs au remontage. Un flag module, posé synchronement avant
+// le `readBackup()` asynchrone, est vu par la seconde invocation et évite le double toast.
+let backupChecked = false;
 
 /**
  * Détecte au démarrage une sauvegarde de secours non écrite et pousse
@@ -12,13 +17,12 @@ import { t } from '@/i18n/fr';
 export function BackupPrompt() {
   const push = useNotifications((s) => s.push);
   const dismiss = useNotifications((s) => s.dismiss);
-  const notifiedRef = useRef(false);
 
   useEffect(() => {
-    if (notifiedRef.current) return;
+    if (backupChecked) return;
+    backupChecked = true;
     void readBackup().then((record) => {
       if (!record?.dirty) return;
-      notifiedRef.current = true;
       const when = new Date(record.savedAt).toLocaleString('fr-FR');
 
       const restore = () => {

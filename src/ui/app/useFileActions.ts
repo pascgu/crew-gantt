@@ -12,6 +12,7 @@ import {
   supportsFileSystemAccess,
   unlinkFile,
 } from '@/io/fileAccess';
+import type { SaveOutcome } from '@/io/fileAccess';
 import { clearBackup } from '@/io/backup';
 import type { OpenedFile } from '@/io/fileAccess';
 
@@ -69,8 +70,18 @@ export function useFileActions() {
 
   const save = useCallback(async (options: { saveAs?: boolean } = {}) => {
     const { file, fileName, markSaved, setFileName } = useAppStore.getState();
-    const suggested = fileName ?? defaultFileName(file.team.name);
-    const outcome = await saveTeamFile(file, suggested, options);
+    // « Enregistrer sous » : repartir du nom courant de l'équipe (pas du nom de fichier figé).
+    const suggested = options.saveAs
+      ? defaultFileName(file.team.name)
+      : (fileName ?? defaultFileName(file.team.name));
+    let name = suggested;
+    // Navigateur sans File System Access : pas de sélecteur natif → demander le nom soi-même.
+    if (options.saveAs && !supportsFileSystemAccess()) {
+      const chosen = window.prompt(t('file.saveAsPrompt'), suggested);
+      if (chosen === null) return;
+      name = chosen.trim() || suggested;
+    }
+    const outcome: SaveOutcome = await saveTeamFile(file, name, options);
     if (outcome.mode === 'cancelled') return;
     setFileName(outcome.name);
     markSaved();
