@@ -3,6 +3,7 @@ import { createCalcContext } from './context';
 import {
   closedBlockCapacity,
   effortCapacityOnDay,
+  realizedBeforeReview,
   remainingForEndDate,
   resolveBlocks,
   taskSpan,
@@ -14,6 +15,27 @@ function ctxWith(resources = [person('alice')], holidays: string[] = [], today =
   file.team.calendar.holidays = holidays;
   return createCalcContext(file, today);
 }
+
+describe('realizedBeforeReview — réalisé géométrique (passé figé)', () => {
+  it('somme les capacités des jours ouvrés strictement avant le trait de revue', () => {
+    // alice à 1 j-h/jour ouvré ; trait au jeudi 04 → lun/mar/mer = 3 j-h réalisés.
+    const t = task('t', {
+      remaining: 5,
+      effort: 5,
+      blocks: [block('b', '2026-06-01', null, [assign('alice')])],
+    });
+    expect(realizedBeforeReview(ctxWith([person('alice')], [], '2026-06-04'), t)).toBe(3);
+  });
+
+  it('tâche pas encore commencée → 0', () => {
+    const t = task('t', {
+      remaining: 3,
+      effort: 3,
+      blocks: [block('b', '2026-06-10', null, [assign('alice')])],
+    });
+    expect(realizedBeforeReview(ctxWith([person('alice')], [], '2026-06-04'), t)).toBe(0);
+  });
+});
 
 describe('bloc ouvert en mode effort — la fin absorbe le reste à faire', () => {
   it('plein temps : 5 j-h → lundi à vendredi', () => {

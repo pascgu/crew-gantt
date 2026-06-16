@@ -5,6 +5,7 @@ export const COLS = {
   scheduling: 64,
   estimate: 46,
   effort: 46,
+  realized: 46,
   remaining: 46,
   progress: 48,
   assignees: 80,

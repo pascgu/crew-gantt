@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { addDays, mondayOf, todayIso } from '@/core/calendar/dates';
-import { taskProgress } from '@/core/scheduler/groups';
 import type { IsoDate, JournalEntry, Resource, Task } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
 import { useSchedule } from '@/state/schedule';
@@ -10,10 +9,10 @@ import {
   quickAbsence,
   quickShareChange,
 } from '@/state/meetingActions';
-import { setTaskRemaining, setTaskStatus, updateTask } from '@/state/taskActions';
+import { resyncAllRemaining, setTaskProgress, setTaskRemaining, setTaskStatus, updateTask } from '@/state/taskActions';
 import { ProjectFilter } from '@/ui/app/ProjectFilter';
 import { EditableNumber } from '@/ui/common/inline';
-import { IconCheck, IconNote, IconWarning } from '@/ui/common/icons';
+import { IconCheck, IconNote, IconTarget, IconWarning } from '@/ui/common/icons';
 import { Avatar } from '@/ui/common/Avatar';
 import { TaskPanel } from '@/ui/gantt/TaskPanel';
 import { t } from '@/i18n/fr';
@@ -53,7 +52,6 @@ function categorize(schedule: Schedule, resourceId: string, date: IsoDate, filte
 }
 
 export function MeetingTab() {
-  const [date, setDate] = useState(todayIso());
   const [closedMsg, setClosedMsg] = useState<string | null>(null);
   const [meetingNote, setMeetingNote] = useState('');
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
@@ -63,21 +61,33 @@ export function MeetingTab() {
   const journal = useAppStore((s) => s.file.journal);
   const projectFilter = useAppStore((s) => s.file.ui.projectFilter);
   const filter = projectFilter ? new Set(projectFilter) : null;
+  const reviewDate = useAppStore((s) => s.reviewDate);
   const setReviewDate = useAppStore((s) => s.setReviewDate);
   const clearReviewDate = useAppStore((s) => s.clearReviewDate);
+  const today = todayIso();
+  const date = reviewDate ?? today;
 
   const detailTask = detailTaskId ? tasks.find((t) => t.id === detailTaskId) ?? null : null;
 
   useEffect(() => ensureMeetingSession(), []);
 
-  useEffect(() => {
-    setReviewDate(date);
-    return () => clearReviewDate();
-  }, [date]); // eslint-disable-line react-hooks/exhaustive-deps
+  // La date de réunion = trait de revue (store, persistant). La changer recale le reste de toutes
+  // les tâches effort (réalisé ↑, reste ↓, effort stable).
+  function changeDate(value: string) {
+    if (!value) return;
+    setReviewDate(value);
+    resyncAllRemaining();
+  }
+
+  function backToToday() {
+    clearReviewDate();
+    resyncAllRemaining();
+  }
 
   function handleClose() {
     if (!window.confirm(t('meeting.closeConfirm'))) return;
     const summary = closeMeeting(meetingNote, date);
+    clearReviewDate(); // la clôture remet la date du jour (trait masqué)
     setClosedMsg(t('meeting.closed', { count: summary.length }));
     setMeetingNote('');
   }
@@ -92,8 +102,18 @@ export function MeetingTab() {
               type="date"
               className="rounded-lg border border-line bg-surface px-2 py-1 font-mono text-sm outline-none focus:border-accent"
               value={date}
-              onChange={(e) => e.target.value && setDate(e.target.value)}
+              onChange={(e) => changeDate(e.target.value)}
             />
+            {reviewDate && reviewDate !== today && (
+              <button
+                className="rounded-lg border border-line p-1.5 text-ink-soft transition hover:border-accent hover:text-accent"
+                title={t('meeting.backToToday')}
+                aria-label={t('meeting.backToToday')}
+                onClick={backToToday}
+              >
+                <IconTarget size={14} />
+              </button>
+            )}
             <ProjectFilter />
             <span className="flex-1" />
             <button
@@ -258,7 +278,6 @@ function TaskLine({
   const projects = useAppStore((s) => s.file.projects);
   const color = projects.find((p) => p.id === task.projectId)?.color ?? '#888';
   const span = schedule.spanByTask.get(task.id);
-  const progress = Math.round(taskProgress(task) * 100);
 
   return (
     <div className="group/line flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-paper/70" onDoubleClick={() => onOpenDetail(task.id)}>
@@ -279,9 +298,13 @@ function TaskLine({
       <span className="w-[58px] shrink-0">
         <EditableNumber value={task.remaining} onCommit={(v) => setTaskRemaining(task.id, v ?? 0)} />
       </span>
-      {/* Avancement (dérivé, lecture seule) */}
-      <span className="w-[54px] shrink-0 text-center font-mono text-[11px] text-ink-faint">
-        {progress} %
+      {/* Avancement (saisi, indépendant du réalisé/reste) */}
+      <span className="w-[54px] shrink-0 text-center">
+        <EditableNumber
+          value={Math.round(task.progress * 100)}
+          onCommit={(v) => setTaskProgress(task.id, (v ?? 0) / 100)}
+          suffix="%"
+        />
       </span>
       {/* Actions (M8 : bouton Détail supprimé — double-clic sur la ligne ouvre le panneau) */}
       <span className="flex w-[40px] shrink-0 items-center gap-0.5 opacity-50 transition group-hover/line:opacity-100">

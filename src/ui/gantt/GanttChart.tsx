@@ -3,10 +3,11 @@ import { createPortal } from 'react-dom';
 import { diffDays, eachDay, todayIso } from '@/core/calendar/dates';
 import { progressBarDays, taskProgress } from '@/core/scheduler/groups';
 import { workedDaysReachedOn, workedDaysUpTo } from '@/core/scheduler/links';
-import { remainingForEndDate } from '@/core/scheduler/blocks';
+import { realizedOf, remainingForEndDate, scheduledEffort } from '@/core/scheduler/blocks';
 import type { Schedule } from '@/core/scheduler/schedule';
 import type { Assignment, IsoDate, Task } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
+import { reassignTask } from '@/state/meetingActions';
 import {
   addBlockToTask,
   addLink,
@@ -14,8 +15,10 @@ import {
   mergeOverlappingBlocks,
   mergeWithNextBlock,
   moveBlock,
+  resyncRemaining,
   setBlockAssignments,
   setBlockDates,
+  setTaskProgress,
   setTaskRemaining,
   splitBlock,
   updateTask,
@@ -342,10 +345,9 @@ export function GanttChart({
       const from = drag.day <= drag.otherEdge ? drag.day : drag.otherEdge;
       const startResizeTask = schedule.ctx.file.tasks.find((t) => t.id === drag.taskId);
       if (startResizeTask?.scheduling === 'effort') {
-        // Déplacer le début d'une tâche effort : garder la fin fixe, ajuster le reste
-        const remaining = remainingForEndDate(schedule.ctx, startResizeTask, drag.blockId, drag.otherEdge, from);
+        // Déplacer le début d'une tâche effort : le passé change → réalisé recalculé, effort conservé.
         setBlockDates(drag.taskId, drag.blockId, from, null);
-        setTaskRemaining(drag.taskId, Math.max(0, remaining));
+        resyncRemaining(drag.taskId);
       } else {
         // Mode fixed : toujours passer un `to` explicite (jamais null, même pour un bloc ouvert)
         setBlockDates(drag.taskId, drag.blockId, from, drag.otherEdge);
@@ -366,10 +368,8 @@ export function GanttChart({
         mergeOverlappingBlocks(drag.taskId);
       }
     } else if (drag.kind === 'progress') {
-      const progressTask = schedule.ctx.file.tasks.find((t) => t.id === drag.taskId);
-      if (progressTask?.scheduling === 'fixed') {
-        setTaskRemaining(drag.taskId, Math.max(0, (1 - drag.frac) * progressTask.effort));
-      }
+      // Avancement = % saisi, indépendant du réalisé/reste — pour les deux types de tâches.
+      setTaskProgress(drag.taskId, Math.max(0, Math.min(1, drag.frac)));
     } else if (drag.kind === 'link' && drag.targetTaskId) {
       if (drag.anchorDate) {
         const progressDays = workedDaysUpTo(schedule.linkInputs, drag.sourceTaskId, drag.anchorDate);
@@ -411,6 +411,13 @@ export function GanttChart({
       y: e.clientY,
       entries: [
         {
+          label: t('gantt.changeAssign'),
+          onClick: () => {
+            setMenu(null);
+            setAssignPopover({ x: e.clientX, y: e.clientY, taskId: task.id, blockId });
+          },
+        },
+        {
           label: `✂ ${t('gantt.cutHere')} (${cutDay.slice(8)}/${cutDay.slice(5, 7)})`,
           disabled: !r || cutDay <= r.from || cutDay > r.to,
           onClick: () => r && splitBlock(task.id, blockId, cutDay, r.to),
@@ -427,13 +434,6 @@ export function GanttChart({
             if (!earliestDate || !snapBlock) return;
             const delta = diffDays(snapBlock.from, earliestDate);
             if (delta !== 0) moveBlock(task.id, blockId, delta);
-          },
-        },
-        {
-          label: t('gantt.changeAssign'),
-          onClick: () => {
-            setMenu(null);
-            setAssignPopover({ x: e.clientX, y: e.clientY, taskId: task.id, blockId });
           },
         },
         {
@@ -909,6 +909,7 @@ function RowBars({
   }
   const span = { start: resolved[0]!.from, end: resolved[resolved.length - 1]!.to };
   const progress = taskProgress(task);
+  const realized = realizedOf(schedule.ctx, task);
   const xStart = scale.x(span.start);
   const xEnd = scale.xEnd(span.end);
   const activeFrac =
@@ -970,9 +971,9 @@ function RowBars({
               height={barH}
               rx={rx}
               fill={color}
-              opacity={task.scheduling === 'effort'
-                ? (task.status === 'cancelled' ? 0.4 : 0.28)
-                : (task.status === 'done' ? 0.55 : task.status === 'cancelled' ? 0.4 : 1)}
+              // Teinte claire = passé (réalisé). Proche du sombre : l'écart ne ressort que sur les
+              // tâches en cours (qui enjambent le trait de revue).
+              opacity={task.status === 'cancelled' ? 0.4 : task.status === 'done' ? 0.5 : 0.6}
               stroke={r.overflow || hasConflict ? 'var(--color-danger)' : darken(color, 0.3)}
               strokeWidth={r.overflow || hasConflict ? 1.6 : 0.5}
               className="cursor-grab active:cursor-grabbing"
@@ -982,11 +983,13 @@ function RowBars({
               <title>
                 {t('gantt.blockOf', { name: task.name })} — {from} → {to}
                 {who ? `\n${who}` : ''}
-                {`\n${t('panel.remaining')} : ${task.remaining} ${t('common.days')}`}
+                {`\n${t('panel.realized')} : ${Math.round(realized * 10) / 10} ${t('common.days')}`}
+                {`\n${t('panel.remaining')} : ${Math.round(task.remaining * 10) / 10} ${t('common.days')}`}
+                {`\n${t('gantt.progressTooltipIndep', { pct: Math.round(task.progress * 100) })}`}
               </title>
             </rect>
-            {/* barre sombre = reste à faire (tâche effort : délimitée par la date de réunion) */}
-            {task.scheduling === 'effort' && task.status !== 'cancelled' && (() => {
+            {/* teinte sombre = reste à faire/futur (après le trait de revue) — les DEUX types */}
+            {task.status !== 'cancelled' && (() => {
               const reviewX = scale.x(schedule.ctx.today) + scale.dayWidth / 2;
               const darkX = Math.max(x, reviewX);
               const darkW = (x + w) - darkX;
@@ -995,7 +998,7 @@ function RowBars({
                 <rect
                   x={darkX} y={barY} width={darkW} height={barH} rx={rx}
                   fill={color}
-                  opacity={task.status === 'done' ? 0.22 : 0.92}
+                  opacity={task.status === 'done' ? 0.3 : 0.9}
                   pointerEvents="none"
                 />
               );
@@ -1019,8 +1022,8 @@ function RowBars({
           </g>
         );
       })}
-      {/* avancement : barre noire centrée (tâches à dates fixées seulement) */}
-      {task.scheduling !== 'effort' && progressW > 0 && (
+      {/* avancement : barre noire centrée (saisi, indépendant du réalisé/reste) — les deux types */}
+      {progressW > 0 && (
         <rect
           x={xStart}
           y={mid - 1.25}
@@ -1032,8 +1035,8 @@ function RowBars({
           pointerEvents="none"
         />
       )}
-      {/* G1 : poignée d'avancement (tâches à dates fixées seulement) — règle le reste à faire */}
-      {task.scheduling !== 'effort' && task.status !== 'cancelled' && (barHovered || isDraggingProgress) && (
+      {/* poignée d'avancement (les deux types) — règle task.progress */}
+      {task.status !== 'cancelled' && (barHovered || isDraggingProgress) && (
         <rect
           x={handleX}
           y={barY - 2}
@@ -1163,7 +1166,11 @@ function cellText(task: Task, key: ColKey, schedule: Schedule): string {
     case 'scheduling':
       return task.type === 'task' ? (task.scheduling === 'effort' ? t('tasks.schedulingShort.effort') : t('tasks.schedulingShort.fixed')) : '';
     case 'estimate': return task.estimate != null ? `${task.estimate}j` : '';
-    case 'effort': return `${task.effort}j`;
+    case 'effort':
+      return task.scheduling === 'effort'
+        ? `${task.effort}j`
+        : `${Math.round(scheduledEffort(schedule.ctx, task, schedule.resolvedByTask.get(task.id) ?? []) * 10) / 10}j`;
+    case 'realized': return `${Math.round(realizedOf(schedule.ctx, task) * 10) / 10}j`;
     case 'remaining': return `${Math.round(task.remaining * 10) / 10}j`;
     case 'progress': return `${Math.round(taskProgress(task) * 100)}%`;
     case 'assignees': {
@@ -1434,10 +1441,12 @@ function BlockAssignPopover({
   onClose: () => void;
 }) {
   const file = schedule.ctx.file;
+  const reviewDate = useAppStore((s) => s.reviewDate);
   const block = file.tasks.find((t) => t.id === taskId)?.blocks.find((b) => b.id === blockId);
   const [assignments, setAssignmentsState] = useState<Assignment[]>(
     block?.assignments.map((a) => ({ ...a })) ?? [],
   );
+  const [splitHisto, setSplitHisto] = useState(false);
 
   const setUnits = (resourceId: string, units: number) => {
     const u = Math.max(0, Math.min(1000, units));
@@ -1456,7 +1465,13 @@ function BlockAssignPopover({
   };
 
   const handleSave = () => {
-    setBlockAssignments(taskId, blockId, assignments);
+    if (splitHisto) {
+      // Nouveau bloc à la date de revue : l'ancienne équipe reste figée dans le passé.
+      reassignTask(taskId, assignments, reviewDate ?? todayIso());
+    } else {
+      setBlockAssignments(taskId, blockId, assignments);
+    }
+    resyncRemaining(taskId);
     onClose();
   };
 
@@ -1473,7 +1488,7 @@ function BlockAssignPopover({
   }, []);
 
   const left = Math.min(x, window.innerWidth - 280);
-  const top = Math.min(y, window.innerHeight - 320);
+  const top = Math.min(y, window.innerHeight - 360);
 
   return createPortal(
     <div
@@ -1517,6 +1532,15 @@ function BlockAssignPopover({
           );
         })}
       </div>
+      <label className="flex items-center gap-2 border-t border-[var(--color-line)] px-3 py-2 text-[11.5px] text-[var(--color-ink-soft)]">
+        <input
+          type="checkbox"
+          checked={splitHisto}
+          onChange={(e) => setSplitHisto(e.target.checked)}
+          className="accent-[var(--color-accent)]"
+        />
+        {t('gantt.newBlockHisto')}
+      </label>
       <div className="flex gap-2 border-t border-[var(--color-line)] px-3 py-2">
         <button
           className="flex-1 rounded bg-[var(--color-accent)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90"

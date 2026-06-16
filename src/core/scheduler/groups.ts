@@ -34,7 +34,7 @@ export interface GroupAggregate {
   span: { start: IsoDate; end: IsoDate } | null;
   effortTotal: number;
   effortRealized: number;
-  /** Moyenne pondérée (par effort) de task.progress des descendants ; si effort nul, moyenne simple. */
+  /** Avancement agrégé = Σ(avancement × effort) / Σ effort (avancement = task.progress saisi). */
   progress: number;
 }
 
@@ -49,11 +49,13 @@ export function aggregateGroup(
   const intervals: Interval[] = [];
   let effortTotal = 0;
   let effortRealized = 0;
+  let avancementWeighted = 0;
   for (const task of descendants) {
     if (task.type === 'group') continue; // leurs efforts sont déjà portés par leurs feuilles
     if (task.status === 'cancelled') continue; // exclus des calculs
     effortTotal += task.effort;
     effortRealized += Math.max(0, task.effort - task.remaining);
+    avancementWeighted += taskProgress(task) * task.effort;
     for (const r of resolvedByTask.get(task.id) ?? []) {
       intervals.push({ from: r.from, to: r.to });
     }
@@ -63,7 +65,7 @@ export function aggregateGroup(
     union.length > 0
       ? { start: union[0]!.from, end: union[union.length - 1]!.to }
       : null;
-  const progress = effortTotal > 0 ? Math.min(1, effortRealized / effortTotal) : 0;
+  const progress = effortTotal > 0 ? Math.min(1, avancementWeighted / effortTotal) : 0;
   return {
     intervals: union,
     span,
@@ -85,8 +87,7 @@ export function progressBarDays(span: { start: IsoDate; end: IsoDate }, progress
   return Math.max(0, Math.min(1, progress)) * totalDays;
 }
 
-/** Avancement d'une tâche simple : dérivé de (effort − reste) / effort. */
-export function taskProgress(task: { effort: number; remaining: number }): number {
-  if (task.effort <= 0) return 0;
-  return Math.max(0, Math.min(1, (task.effort - task.remaining) / task.effort));
+/** Avancement d'une tâche = % saisi à la main (`task.progress`), indépendant du réalisé/reste. */
+export function taskProgress(task: { progress: number }): number {
+  return Math.max(0, Math.min(1, task.progress));
 }

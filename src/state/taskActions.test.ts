@@ -10,6 +10,10 @@ import {
   moveTaskDown,
   moveTaskUp,
   outdentTask,
+  setTaskEffort,
+  setTaskProgress,
+  setTaskRemaining,
+  setTaskStatus,
 } from './taskActions';
 
 const file = () => useAppStore.getState().file;
@@ -123,6 +127,65 @@ describe('convertTaskType', () => {
     expect(convertTaskType(m, 'task')).toBe(true);
     expect(taskOf(m).type).toBe('task');
     expect(taskOf(m).date).toBeNull();
+  });
+});
+
+describe('couplage effort = réalisé + reste', () => {
+  function effortTask(effort: number, remaining: number) {
+    const id = addTask({});
+    useAppStore.getState().mutate((f) => {
+      const t = f.tasks.find((x) => x.id === id)!;
+      t.scheduling = 'effort';
+      t.effort = effort;
+      t.remaining = remaining;
+      t.progress = 0;
+    });
+    return id;
+  }
+
+  it('setTaskEffort reporte la variation sur le reste, réalisé stable (ex2)', () => {
+    const id = effortTask(5, 1); // réalisé = 4
+    setTaskEffort(id, 8);
+    expect(taskOf(id).effort).toBe(8);
+    expect(taskOf(id).remaining).toBe(4); // réalisé 4 conservé
+  });
+
+  it('setTaskRemaining reporte la variation sur l’effort, réalisé stable (ex1)', () => {
+    const id = effortTask(5, 3); // réalisé = 2
+    setTaskRemaining(id, 0.5);
+    expect(taskOf(id).remaining).toBe(0.5);
+    expect(taskOf(id).effort).toBe(2.5); // réalisé 2 conservé
+  });
+
+  it('tâche fixed : effort et reste ne sont pas couplés', () => {
+    const id = addTask({});
+    useAppStore.getState().mutate((f) => {
+      const t = f.tasks.find((x) => x.id === id)!;
+      t.scheduling = 'fixed';
+      t.effort = 5;
+      t.remaining = 3;
+    });
+    setTaskEffort(id, 8);
+    expect(taskOf(id).effort).toBe(8);
+    expect(taskOf(id).remaining).toBe(3);
+  });
+
+  it('setTaskProgress clampe 0..1 sans toucher effort/reste', () => {
+    const id = effortTask(5, 2);
+    setTaskProgress(id, 1.5);
+    expect(taskOf(id).progress).toBe(1);
+    setTaskProgress(id, -0.2);
+    expect(taskOf(id).progress).toBe(0);
+    expect(taskOf(id).effort).toBe(5);
+    expect(taskOf(id).remaining).toBe(2);
+  });
+
+  it('done : reste 0 et avancement 100 %, effort intact', () => {
+    const id = effortTask(5, 2);
+    setTaskStatus(id, 'done');
+    expect(taskOf(id).remaining).toBe(0);
+    expect(taskOf(id).progress).toBe(1);
+    expect(taskOf(id).effort).toBe(5);
   });
 });
 

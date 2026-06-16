@@ -114,6 +114,39 @@ function consumeRemaining(
   return null;
 }
 
+/**
+ * Réalisé géométrique (j-h) = somme des capacités sur tous les jours de blocs **strictement avant
+ * le trait de revue** (`ctx.today`). C'est le passé figé : sert au resync du reste et à l'affichage
+ * du Réalisé. Tâche pas encore commencée → 0.
+ */
+export function realizedBeforeReview(ctx: CalcContext, task: Task): number {
+  let total = 0;
+  for (const block of task.blocks) {
+    let day = block.from;
+    while (day < ctx.today && (block.to === null || day <= block.to)) {
+      total += effortCapacityOnDay(ctx, task, block, day);
+      day = addDays(day, 1);
+    }
+  }
+  return total;
+}
+
+/**
+ * Réalisé affiché (j-h). Tâche effort : `effort − reste` (pivot maintenu, l'arithmétique
+ * Effort = Réalisé + Reste est exacte). Tâche fixed : réalisé géométrique des dates posées.
+ */
+export function realizedOf(ctx: CalcContext, task: Task): number {
+  if (task.scheduling === 'effort') return Math.max(0, task.effort - task.remaining);
+  return realizedBeforeReview(ctx, task);
+}
+
+/** Effort affiché d'une tâche fixed (j-h) = capacité totale des dates posées. */
+export function scheduledEffort(ctx: CalcContext, task: Task, resolved: ResolvedBlock[]): number {
+  let total = 0;
+  for (const r of resolved) total += closedBlockCapacity(ctx, task, r);
+  return total;
+}
+
 /** Capacité totale (j-h) d'un bloc fermé sur toute sa durée. */
 export function closedBlockCapacity(ctx: CalcContext, task: Task, resolved: ResolvedBlock): number {
   let total = 0;

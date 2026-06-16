@@ -1,5 +1,6 @@
 import { useState, type DragEvent } from 'react';
 import type { Schedule } from '@/core/scheduler/schedule';
+import { realizedOf, scheduledEffort } from '@/core/scheduler/blocks';
 import type { Conflict } from '@/core/conflicts/detect';
 import { useAppStore } from '@/state/store';
 import { useUiStore } from '@/state/uiStore';
@@ -10,6 +11,7 @@ import {
   deleteTask,
   moveTask,
   setTaskEffort,
+  setTaskProgress,
   setTaskProject,
   setTaskRemaining,
   setTaskScheduling,
@@ -366,7 +368,7 @@ export function TaskRowCells({
         )}
       </div>
       <div style={{ width: show('effort') ? cols.effort : 0, display: show('effort') ? undefined : 'none' }} className="overflow-hidden px-0.5">
-        {task.type === 'task' ? (
+        {task.type === 'task' && task.scheduling === 'effort' ? (
           <EditableNumber
             value={task.effort}
             onCommit={(v) => setTaskEffort(task.id, v ?? 0)}
@@ -374,6 +376,11 @@ export function TaskRowCells({
               task.estimate !== null && task.effort > task.estimate ? 'text-danger' : undefined
             }
           />
+        ) : task.type === 'task' ? (
+          // fixed : effort = capacité des dates posées (lecture seule)
+          <span className="block px-1 text-right font-mono text-ink-soft">
+            {fmtDays(scheduledEffort(schedule.ctx, task, resolved))}
+          </span>
         ) : task.type === 'group' && agg ? (
           <span className="block px-1 text-right font-mono text-ink-soft">
             {fmtDays(agg.effortTotal)}
@@ -382,9 +389,30 @@ export function TaskRowCells({
           <span className="block px-1 text-right font-mono text-ink-faint">—</span>
         )}
       </div>
-      <div style={{ width: show('remaining') ? cols.remaining : 0, display: show('remaining') ? undefined : 'none' }} className="overflow-hidden px-0.5">
+
+      {/* Réalisé (j-h) — lecture seule */}
+      <div style={{ width: show('realized') ? cols.realized : 0, display: show('realized') ? undefined : 'none' }} className="overflow-hidden px-0.5">
         {task.type === 'task' ? (
+          <span className="block px-1 text-right font-mono text-ink-soft">
+            {fmtDays(realizedOf(schedule.ctx, task))}
+          </span>
+        ) : task.type === 'group' && agg ? (
+          <span className="block px-1 text-right font-mono text-ink-soft">
+            {fmtDays(agg.effortRealized)}
+          </span>
+        ) : (
+          <span className="block px-1 text-right font-mono text-ink-faint">—</span>
+        )}
+      </div>
+
+      <div style={{ width: show('remaining') ? cols.remaining : 0, display: show('remaining') ? undefined : 'none' }} className="overflow-hidden px-0.5">
+        {task.type === 'task' && task.scheduling === 'effort' ? (
           <EditableNumber value={task.remaining} onCommit={(v) => setTaskRemaining(task.id, v ?? 0)} />
+        ) : task.type === 'task' ? (
+          // fixed : reste = effort − réalisé (lecture seule)
+          <span className="block px-1 text-right font-mono text-ink-soft">
+            {fmtDays(Math.max(0, scheduledEffort(schedule.ctx, task, resolved) - realizedOf(schedule.ctx, task)))}
+          </span>
         ) : task.type === 'group' && agg ? (
           <span className="block px-1 text-right font-mono text-ink-soft">
             {fmtDays(agg.effortTotal - agg.effortRealized)}
@@ -394,14 +422,20 @@ export function TaskRowCells({
         )}
       </div>
 
-      {/* % Avancement */}
-      <div style={{ width: show('progress') ? cols.progress : 0, display: show('progress') ? undefined : 'none' }} className="overflow-hidden px-1 text-right font-mono text-[11.5px] text-ink-soft">
-        {task.type === 'task' && task.effort > 0 ? (
-          `${Math.round(Math.max(0, Math.min(1, (task.effort - task.remaining) / task.effort)) * 100)} %`
+      {/* % Avancement — saisi, éditable pour tous les types */}
+      <div style={{ width: show('progress') ? cols.progress : 0, display: show('progress') ? undefined : 'none' }} className="overflow-hidden px-0.5">
+        {task.type === 'task' ? (
+          <EditableNumber
+            value={Math.round(task.progress * 100)}
+            onCommit={(v) => setTaskProgress(task.id, (v ?? 0) / 100)}
+            suffix="%"
+          />
         ) : task.type === 'group' && agg && agg.effortTotal > 0 ? (
-          `${Math.round(agg.progress * 100)} %`
+          <span className="block px-1 text-right font-mono text-[11.5px] text-ink-soft">
+            {Math.round(agg.progress * 100)} %
+          </span>
         ) : (
-          <span className="text-ink-faint">—</span>
+          <span className="block px-1 text-right font-mono text-[11.5px] text-ink-faint">—</span>
         )}
       </div>
 

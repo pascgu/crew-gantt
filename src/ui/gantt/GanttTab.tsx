@@ -564,6 +564,7 @@ function HeaderLeft() {
     { key: 'scheduling', label: t('tasks.columns.scheduling') },
     { key: 'estimate', label: t('tasks.columns.estimate') },
     { key: 'effort', label: t('tasks.columns.effort') },
+    { key: 'realized', label: t('tasks.columns.realized') },
     { key: 'remaining', label: t('tasks.columns.remaining') },
     { key: 'progress', label: t('tasks.columns.progress') },
     { key: 'assignees', label: t('tasks.columns.assignees'), filterable: true },

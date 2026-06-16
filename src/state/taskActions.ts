@@ -1,5 +1,7 @@
 import { createBlock, createTask, newId } from '@/core/model/factory';
 import { wouldCreateCycle } from '@/core/scheduler/links';
+import { createCalcContext } from '@/core/scheduler/context';
+import { realizedBeforeReview } from '@/core/scheduler/blocks';
 import { addDays, todayIso } from '@/core/calendar/dates';
 import { t } from '@/i18n/fr';
 import type { Assignment, IsoDate, Task, TaskLink, TaskType, TeamFile } from '@/core/model/types';
@@ -9,6 +11,44 @@ const mutate = (fn: (file: TeamFile) => void) => useAppStore.getState().mutate(f
 
 function taskById(file: TeamFile, id: string): Task | undefined {
   return file.tasks.find((t) => t.id === id);
+}
+
+/**
+ * Recale le reste sur le réalisé géométrique (passé figé) en gardant l'effort comme ancre :
+ * `remaining = max(0, effort − réaliséGéo)`. À appeler depuis un `mutate` après un geste qui change
+ * le passé (déplacement, bord gauche). Sans effet sur les tâches fixed.
+ */
+function resyncRemainingDraft(file: TeamFile, task: Task): void {
+  if (task.scheduling !== 'effort') return;
+  const reviewDate = useAppStore.getState().reviewDate ?? todayIso();
+  const ctx = createCalcContext(file, reviewDate);
+  const realized = realizedBeforeReview(ctx, task);
+  task.remaining = Math.max(0, task.effort - realized);
+}
+
+/** Resync explicite (changement du trait de revue, réaffectation). */
+export function resyncRemaining(id: string): void {
+  mutate((file) => {
+    const task = taskById(file, id);
+    if (task) resyncRemainingDraft(file, task);
+  });
+}
+
+/**
+ * Recale le reste de toutes les tâches effort sur le trait de revue courant (un seul contexte de
+ * calcul). Appelé quand la date de réunion change : le réalisé monte, le reste diminue, l'effort
+ * reste stable.
+ */
+export function resyncAllRemaining(): void {
+  const reviewDate = useAppStore.getState().reviewDate ?? todayIso();
+  mutate((file) => {
+    const ctx = createCalcContext(file, reviewDate);
+    for (const task of file.tasks) {
+      if (task.type === 'task' && task.scheduling === 'effort') {
+        task.remaining = Math.max(0, task.effort - realizedBeforeReview(ctx, task));
+      }
+    }
+  });
 }
 
 /** Réécrit les `order` d'une fratrie pour qu'ils suivent l'ordre du tableau donné. */
@@ -51,21 +91,44 @@ export function updateTask(id: string, patch: Partial<Task>): void {
   });
 }
 
-/** Effort = référence libre (estimation du total). Indépendant du reste à faire. */
+/**
+ * Effort = réalisé + reste. Le réalisé (= effort − reste) est le pivot : on le préserve en
+ * reportant la variation d'effort sur le reste. Tâche fixed : champ seul (le reste ne pilote rien).
+ */
 export function setTaskEffort(id: string, effort: number): void {
   mutate((file) => {
     const task = taskById(file, id);
     if (!task) return;
-    task.effort = Math.max(0, effort);
+    const next = Math.max(0, effort);
+    if (task.scheduling === 'effort') {
+      task.remaining = Math.max(0, task.remaining + (next - task.effort));
+    }
+    task.effort = next;
   });
 }
 
-/** Reste à faire = pilote la barre et la date de fin. Indépendant de l'effort. */
+/**
+ * Reste à faire = futur, pilote la barre et la date de fin. Préserve le réalisé en reportant la
+ * variation sur l'effort (effort = réalisé + reste). Tâche fixed : champ seul.
+ */
 export function setTaskRemaining(id: string, remaining: number): void {
   mutate((file) => {
     const task = taskById(file, id);
     if (!task) return;
-    task.remaining = Math.max(0, remaining);
+    const next = Math.max(0, remaining);
+    if (task.scheduling === 'effort') {
+      task.effort = Math.max(0, task.effort + (next - task.remaining));
+    }
+    task.remaining = next;
+  });
+}
+
+/** Avancement (0..1) = % de travail accompli, saisi à la main, indépendant du réalisé/reste. */
+export function setTaskProgress(id: string, progress: number): void {
+  mutate((file) => {
+    const task = taskById(file, id);
+    if (!task) return;
+    task.progress = Math.max(0, Math.min(1, progress));
   });
 }
 
@@ -92,6 +155,7 @@ export function setTaskStatus(id: string, status: Task['status']): void {
     task.status = status;
     if (status === 'done') {
       task.remaining = 0;
+      task.progress = 1; // terminé = 100 % d'avancement
       // Clore le bloc ouvert : le travail s'arrête là.
       const open = task.blocks.find((b) => b.to === null);
       if (open) open.to = open.from;
@@ -304,10 +368,13 @@ export function deleteBlock(taskId: string, blockId: string): void {
 export function moveBlock(taskId: string, blockId: string, deltaDays: number): void {
   if (deltaDays === 0) return;
   mutate((file) => {
-    const block = taskById(file, taskId)?.blocks.find((b) => b.id === blockId);
-    if (!block) return;
+    const task = taskById(file, taskId);
+    const block = task?.blocks.find((b) => b.id === blockId);
+    if (!task || !block) return;
     block.from = addDays(block.from, deltaDays);
     if (block.to !== null) block.to = addDays(block.to, deltaDays);
+    // Le passé a bougé → réalisé recalculé, effort conservé.
+    resyncRemainingDraft(file, task);
   });
 }
 
