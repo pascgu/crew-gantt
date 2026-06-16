@@ -1,0 +1,7 @@
+- liste taches : on doit pouvoir réordonner les colonnes dans le menu "..."
+- gantt : on doit pouvoir changer la couleur d'un jalon (dans le panneau), par défaut ça doit être la couleur du projet.
+- gantt : frise pour les jalons : Dans le panneau, on doit aussi pouvoir indiquer si on veut que ce jalon apparaissent dans une frise tout en haut du gantt dans les entetes où on affiche le mois ou trimestre. Si on coche ça, ça affiche le losange et le nom du jalon avec le texte de la couleur du jalon. Si pas la place entre 2 jalons, le texte est coupé et s'affiche en entier dans l'infobulle.
+- gantt : j'aimerai qu'on puisse faire un lien vers un bloc plutot qu'une tache, quels impacts ?
+- gantt : tache à effort, si on ajoute un bloc après un bloc en cours, ça change le passé et la taille du bloc (logique, il faudrait faire quoi ?)
+- liste taches : on doit pouvoir en sélectionner plusieures (avec ctrl) pour pouvoir les suppr ou les décaler de niveau (gauche/droite) ou les déplacer toutes (haut/bas). Impacts ?
+- gantt : il y a quelque chose de bizarre dans la proposition de plan pour les taches à effort, pour aujourd'hui il propose toujours un nouveau bloc de 1 alors que collé à 1 autre bloc et le 1er bloc recouvre plusieurs autres blocs. Et quand je les bouge, ça reforme 1 seul bloc, très étrange tout ça...
