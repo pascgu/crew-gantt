@@ -88,6 +88,8 @@ export function GanttTab() {
   const [scrollLeft, setScrollLeft] = useState(0);
   const [viewportH, setViewportH] = useState(800);
   const [viewportW, setViewportW] = useState(800);
+  /** Hauteur du corps de liste (pleine hauteur, sans bandeau de charge). */
+  const [tableViewportH, setTableViewportH] = useState(800);
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const [workloadMenu, setWorkloadMenu] = useState<{ x: number; y: number } | null>(null);
   const [workloadFilter, setWorkloadFilter] = useState<DOMRect | null>(null);
@@ -124,6 +126,7 @@ export function GanttTab() {
   const headerInnerRef = useRef<HTMLDivElement | null>(null);
   const workloadInnerRef = useRef<HTMLDivElement | null>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
+  const tableResizeObserver = useRef<ResizeObserver | null>(null);
   const hasAutoScrolled = useRef(false);
   const zoomAnchor = useRef<{ date: IsoDate; offsetX: number } | null>(null);
   const scrollAnchor = useRef<{ date: IsoDate; offsetX: number } | null>(null);
@@ -143,6 +146,19 @@ export function GanttTab() {
     }
   };
 
+  // Mesure du corps de liste : sert à calculer l'espace bas qui compense le bandeau de charge.
+  const attachTableBody = (el: HTMLDivElement | null) => {
+    tableBodyRef.current = el;
+    tableResizeObserver.current?.disconnect();
+    if (el) {
+      setTableViewportH(el.clientHeight);
+      tableResizeObserver.current = new ResizeObserver(() => {
+        setTableViewportH(el.clientHeight);
+      });
+      tableResizeObserver.current.observe(el);
+    }
+  };
+
   const today = todayIso();
   const scale = useMemo(
     () => buildTimeScale(schedule.planSpan, zoom, today, extend),
@@ -154,6 +170,10 @@ export function GanttTab() {
     rows.length,
     Math.ceil((scrollTop + viewportH) / ROW_HEIGHT) + OVERSCAN,
   );
+
+  // Espace bas de la liste = écart de viewport avec le Gantt (= hauteur du bandeau de charge),
+  // pour que la liste puisse scroller la même distance et rester alignée jusqu'à la dernière ligne.
+  const bottomSpacer = Math.max(0, tableViewportH - viewportH);
 
   const selectedTask = panelOpen ? tasks.find((tk) => tk.id === selectedTaskId) : undefined;
 
@@ -447,7 +467,7 @@ export function GanttTab() {
               >
                 <HeaderLeft />
               </div>
-              <div ref={tableBodyRef} className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+              <div ref={attachTableBody} className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
                 {rows.length === 0 ? (
                   <div className="p-6 text-sm text-ink-faint">
                     <p>{t('tasks.emptyPlan')}</p>
@@ -459,7 +479,7 @@ export function GanttTab() {
                     </button>
                   </div>
                 ) : (
-                  <div className="relative" style={{ height: rows.length * ROW_HEIGHT, width: tableInnerWidth }}>
+                  <div className="relative" style={{ height: rows.length * ROW_HEIGHT + bottomSpacer, width: tableInnerWidth }}>
                     <div style={{ transform: `translateY(${windowStart * ROW_HEIGHT}px)` }}>
                       {rows.slice(windowStart, windowEnd).map((row) => (
                         <TaskRowCells
