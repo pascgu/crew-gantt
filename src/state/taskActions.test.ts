@@ -5,11 +5,17 @@ import {
   addTask,
   collapseAll,
   convertTaskType,
+  deleteTasks,
   expandAll,
   indentTask,
+  indentTasks,
   moveTaskDown,
   moveTaskUp,
+  moveTasks,
+  moveTasksDown,
+  moveTasksUp,
   outdentTask,
+  outdentTasks,
   setTaskEffort,
   setTaskProgress,
   setTaskRemaining,
@@ -83,6 +89,100 @@ describe('indentTask / outdentTask', () => {
   it('refuse de désindenter une racine', () => {
     const a = addTask({});
     expect(outdentTask(a)).toBe(false);
+  });
+});
+
+describe('actions groupées (sélection multiple)', () => {
+  it('deleteTasks supprime parent + enfant sans erreur (descendance déjà incluse)', () => {
+    const g = addTask({ type: 'group' });
+    const child = addTask({ parentId: g });
+    const other = addTask({});
+    deleteTasks([g, child]);
+    expect(file().tasks.map((t) => t.id)).toEqual([other]);
+  });
+
+  it('deleteTasks supprime des tâches de parents différents', () => {
+    const a = addTask({});
+    const b = addTask({ afterId: a });
+    const c = addTask({ afterId: b });
+    deleteTasks([a, c]);
+    expect(rootOrder()).toEqual([b]);
+  });
+
+  it('indentTasks indente des tâches de parents différents', () => {
+    const a = addTask({});
+    const b = addTask({ afterId: a }); // indentable sous a
+    const c = addTask({}); // racine séparée…
+    const d = addTask({ afterId: c }); // …indentable sous c
+    indentTasks([b, d]);
+    expect(taskOf(b).parentId).toBe(a);
+    expect(taskOf(d).parentId).toBe(c);
+  });
+
+  it('outdentTasks désindente la sélection', () => {
+    const a = addTask({});
+    const b = addTask({ afterId: a });
+    indentTask(b);
+    expect(taskOf(b).parentId).toBe(a);
+    outdentTasks([b]);
+    expect(taskOf(b).parentId).toBeNull();
+  });
+
+  it('moveTasksUp déplace un groupe de même parent d’un cran', () => {
+    const a = addTask({});
+    const b = addTask({ afterId: a });
+    const c = addTask({ afterId: b });
+    const d = addTask({ afterId: c });
+    moveTasksUp([c, d]);
+    expect(rootOrder()).toEqual([a, c, d, b]);
+  });
+
+  it('moveTasksDown déplace un groupe de même parent d’un cran', () => {
+    const a = addTask({});
+    const b = addTask({ afterId: a });
+    const c = addTask({ afterId: b });
+    moveTasksDown([a, b]);
+    expect(rootOrder()).toEqual([c, a, b]);
+  });
+
+  it('moveTasksUp est un no-op si les parents diffèrent', () => {
+    const g = addTask({ type: 'group' });
+    const child = addTask({ parentId: g });
+    const root = addTask({});
+    const before = rootOrder();
+    moveTasksUp([child, root]);
+    expect(rootOrder()).toEqual(before);
+    expect(taskOf(child).parentId).toBe(g);
+  });
+
+  it('moveTasks dépose la sélection en conservant son ordre (after)', () => {
+    const a = addTask({});
+    const b = addTask({ afterId: a });
+    const c = addTask({ afterId: b });
+    const d = addTask({ afterId: c });
+    // déposer {a, c} après d → d, a, c (ordre relatif a avant c conservé)
+    moveTasks([a, c], d, 'after');
+    expect(rootOrder()).toEqual([b, d, a, c]);
+  });
+
+  it('moveTasks ré-indente toute la sélection sous une cible (child)', () => {
+    const g = addTask({ type: 'group' });
+    const a = addTask({});
+    const b = addTask({ afterId: a });
+    moveTasks([a, b], g, 'child');
+    expect(taskOf(a).parentId).toBe(g);
+    expect(taskOf(b).parentId).toBe(g);
+  });
+
+  it('un geste groupé = une seule étape d’undo', () => {
+    const a = addTask({});
+    const b = addTask({ afterId: a });
+    const c = addTask({ afterId: b });
+    clearHistory();
+    deleteTasks([a, b]);
+    expect(rootOrder()).toEqual([c]);
+    useAppStore.temporal.getState().undo();
+    expect(rootOrder()).toEqual([a, b, c]);
   });
 });
 

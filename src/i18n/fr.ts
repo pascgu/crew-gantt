@@ -140,6 +140,7 @@ export const fr = {
     expandAll: 'Tout déplier',
     delete: 'Supprimer',
     confirmDelete: 'Supprimer « {name} » et toutes ses sous-tâches ?',
+    confirmDeleteMany: 'Supprimer {count} tâches et toutes leurs sous-tâches ?',
     noProject: 'Aucun projet — créez-en un dans Paramètres.',
     emptyPlan: 'Plan vide. Ajoutez une première tâche ou un groupe.',
   },

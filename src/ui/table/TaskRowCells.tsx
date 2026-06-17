@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from 'react';
+import { useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import type { Schedule } from '@/core/scheduler/schedule';
 import { realizedOf, scheduledEffort } from '@/core/scheduler/blocks';
 import type { Conflict } from '@/core/conflicts/detect';
@@ -10,6 +10,7 @@ import {
   convertTaskType,
   deleteTask,
   moveTask,
+  moveTasks,
   setTaskEffort,
   setTaskProgress,
   setTaskProject,
@@ -57,6 +58,8 @@ interface TaskRowCellsProps {
   dropIndicator: DropIndicator | null;
   onDropIndicator: (ind: DropIndicator | null) => void;
   onOpenPanel: (taskId: string) => void;
+  /** Clic sur la ligne — gère sélection simple / Ctrl (toggle) / Maj (plage). */
+  onSelectRow: (taskId: string, e: ReactMouseEvent) => void;
   /** Survol synchronisé avec la timeline. */
   hovered: boolean;
   onHover: (taskId: string | null) => void;
@@ -69,12 +72,17 @@ export function TaskRowCells({
   dropIndicator,
   onDropIndicator,
   onOpenPanel,
+  onSelectRow,
   hovered,
   onHover,
 }: TaskRowCellsProps) {
   const { task, depth, hasChildren, collapsed } = row;
   const selectTask = useAppStore((s) => s.selectTask);
-  const selected = useAppStore((s) => s.selectedTaskId === task.id);
+  const selected = useAppStore((s) => s.selectedTaskIds.includes(task.id));
+  /** Ancre en sélection simple : seul cas où l'on montre les boutons « + niveau ». */
+  const isLoneAnchor = useAppStore(
+    (s) => s.selectedTaskId === task.id && s.selectedTaskIds.length === 1,
+  );
   const projects = useAppStore((s) => s.file.projects);
   const resources = useAppStore((s) => s.file.resources);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -132,7 +140,13 @@ export function TaskRowCells({
         }
         targetId = anchor.id;
       }
-      moveTask(sourceId, targetId, dropIndicator.position);
+      // Si on traîne une ligne de la sélection multiple, tout le groupe suit (comme Ctrl+↑/↓).
+      const selIds = useAppStore.getState().selectedTaskIds;
+      if (selIds.length > 1 && selIds.includes(sourceId)) {
+        moveTasks(selIds, targetId, dropIndicator.position);
+      } else {
+        moveTask(sourceId, targetId, dropIndicator.position);
+      }
     }
     onDropIndicator(null);
   }
@@ -202,7 +216,7 @@ export function TaskRowCells({
       className={`group/row relative flex h-[21px] items-center border-b border-line/60 ${
         selected ? 'bg-accent-wash/60' : hovered ? 'bg-ink/[0.03]' : 'bg-surface'
       } ${dropClass}`}
-      onClick={() => selectTask(task.id)}
+      onClick={(e) => onSelectRow(task.id, e)}
       onDoubleClick={() => onOpenPanel(task.id)}
       onMouseEnter={() => onHover(task.id)}
       onMouseLeave={() => onHover(null)}
@@ -278,7 +292,7 @@ export function TaskRowCells({
       </div>
 
       {/* « + » par niveau, sous la ligne sélectionnée : choisir directement la profondeur */}
-      {selected && (
+      {isLoneAnchor && (
         <div className="pointer-events-none absolute -bottom-[9px] left-0 z-20 h-[18px]">
           {Array.from({ length: depth + 2 }, (_, level) => {
             const isChild = level === depth + 1;

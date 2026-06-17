@@ -14,7 +14,10 @@ export interface AppState {
   dirty: boolean;
   lastSavedAt: string | null;
   activeTab: TabId;
+  /** Tâche ancre (panneau, boutons « + niveau », point d'ancrage des plages). */
   selectedTaskId: string | null;
+  /** Ensemble de la sélection multiple. Contient toujours `selectedTaskId` quand non-null. */
+  selectedTaskIds: string[];
   /** Ressource à mettre en évidence dans l'onglet Équipe (hors undo). */
   focusResourceId: string | null;
   /** Date de réunion active — frontière passé/futur dans le Gantt (hors undo). Null = aujourd'hui. */
@@ -29,7 +32,12 @@ export interface AppActions {
   setFileName: (name: string | null) => void;
   markSaved: () => void;
   setActiveTab: (tab: TabId) => void;
+  /** Sélection simple : remplace toute la sélection par cette tâche (ou la vide). */
   selectTask: (taskId: string | null) => void;
+  /** Ctrl-clic : ajoute/retire une tâche de la sélection ; déplace l'ancre. */
+  toggleTaskSelection: (taskId: string) => void;
+  /** Maj-clic / Maj-flèche : remplace la sélection par une plage, garde l'ancre. */
+  setSelectedRange: (taskIds: string[], anchorId: string | null) => void;
   /** Ouvre l'onglet Équipe et met en évidence la ressource `id`. */
   focusResource: (id: string) => void;
   clearFocusResource: () => void;
@@ -49,6 +57,7 @@ export const useAppStore = create<AppStore>()(
       lastSavedAt: null,
       activeTab: 'gantt',
       selectedTaskId: null,
+      selectedTaskIds: [],
       focusResourceId: null,
       reviewDate: null,
 
@@ -59,6 +68,7 @@ export const useAppStore = create<AppStore>()(
           s.dirty = false;
           s.lastSavedAt = null;
           s.selectedTaskId = null;
+          s.selectedTaskIds = [];
         }),
 
       mutate: (fn) =>
@@ -86,6 +96,27 @@ export const useAppStore = create<AppStore>()(
       selectTask: (taskId) =>
         set((s) => {
           s.selectedTaskId = taskId;
+          s.selectedTaskIds = taskId ? [taskId] : [];
+        }),
+
+      toggleTaskSelection: (taskId) =>
+        set((s) => {
+          const i = s.selectedTaskIds.indexOf(taskId);
+          if (i >= 0) {
+            s.selectedTaskIds.splice(i, 1);
+            if (s.selectedTaskId === taskId) {
+              s.selectedTaskId = s.selectedTaskIds[s.selectedTaskIds.length - 1] ?? null;
+            }
+          } else {
+            s.selectedTaskIds.push(taskId);
+            s.selectedTaskId = taskId;
+          }
+        }),
+
+      setSelectedRange: (taskIds, anchorId) =>
+        set((s) => {
+          s.selectedTaskIds = taskIds;
+          s.selectedTaskId = anchorId;
         }),
 
       focusResource: (id) =>

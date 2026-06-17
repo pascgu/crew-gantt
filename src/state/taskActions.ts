@@ -205,50 +205,89 @@ export function addTask(options: AddTaskOptions = {}): string {
 }
 
 export function deleteTask(id: string): void {
+  deleteTasks([id]);
+}
+
+/** Suppression groupée : un seul `mutate`. Gère parent+enfant tous deux sélectionnés. */
+export function deleteTasks(ids: string[]): void {
+  if (ids.length === 0) return;
   mutate((file) => {
-    const task = taskById(file, id);
-    if (!task) return;
-    const removed = descendantIds(file, id);
-    const parentId = task.parentId;
+    const removed = new Set<string>();
+    const parents = new Set<string | null>();
+    for (const id of ids) {
+      const task = taskById(file, id);
+      if (!task) continue;
+      parents.add(task.parentId);
+      for (const tid of descendantIds(file, id)) removed.add(tid);
+    }
+    if (removed.size === 0) return;
     file.tasks = file.tasks.filter((t) => !removed.has(t.id));
     for (const t of file.tasks) {
       t.links = t.links.filter((l) => !removed.has(l.on));
     }
     file.ui.collapsed = file.ui.collapsed.filter((c) => !removed.has(c));
-    renumberSiblings(file, parentId);
+    for (const parentId of parents) renumberSiblings(file, parentId);
   });
 }
 
 export type MovePosition = 'before' | 'after' | 'child';
 
+/** Cœur du déplacement, niveau-draft : réutilisé par `moveTask` et les variantes groupées. */
+function moveTaskDraft(file: TeamFile, id: string, targetId: string, position: MovePosition): boolean {
+  const task = taskById(file, id);
+  const target = taskById(file, targetId);
+  if (!task || !target || id === targetId) return false;
+  if (descendantIds(file, id).has(targetId)) return false;
+  const oldParent = task.parentId;
+  if (position === 'child') {
+    task.parentId = target.id;
+    task.order = Number.MAX_SAFE_INTEGER;
+  } else {
+    task.parentId = target.parentId;
+    task.order = position === 'before' ? target.order - 0.5 : target.order + 0.5;
+  }
+  // Une tâche racine porte son projet ; un enfant hérite du projet de son parent.
+  const newParent = task.parentId ? taskById(file, task.parentId) : undefined;
+  if (newParent) {
+    const inherited = newParent.projectId;
+    for (const tid of descendantIds(file, id)) {
+      const sub = taskById(file, tid);
+      if (sub) sub.projectId = inherited;
+    }
+  }
+  renumberSiblings(file, task.parentId);
+  if (oldParent !== task.parentId) renumberSiblings(file, oldParent);
+  return true;
+}
+
 /** Réordonner / ré-indenter par glisser-déposer. Refuse de se déplacer dans sa descendance. */
 export function moveTask(id: string, targetId: string, position: MovePosition): boolean {
   let ok = false;
   mutate((file) => {
-    const task = taskById(file, id);
-    const target = taskById(file, targetId);
-    if (!task || !target || id === targetId) return;
-    if (descendantIds(file, id).has(targetId)) return;
-    const oldParent = task.parentId;
-    if (position === 'child') {
-      task.parentId = target.id;
-      task.order = Number.MAX_SAFE_INTEGER;
-    } else {
-      task.parentId = target.parentId;
-      task.order = position === 'before' ? target.order - 0.5 : target.order + 0.5;
-    }
-    // Une tâche racine porte son projet ; un enfant hérite du projet de son parent.
-    const newParent = task.parentId ? taskById(file, task.parentId) : undefined;
-    if (newParent) {
-      const inherited = newParent.projectId;
-      for (const tid of descendantIds(file, id)) {
-        const sub = taskById(file, tid);
-        if (sub) sub.projectId = inherited;
+    ok = moveTaskDraft(file, id, targetId, position);
+  });
+  return ok;
+}
+
+/**
+ * Glisser-déposer groupé : place toute la sélection à la position visée en conservant son ordre
+ * d'affichage relatif. Le premier va à `position` de la cible ; les suivants s'enchaînent juste
+ * après. Un seul `mutate` = une seule étape d'undo.
+ */
+export function moveTasks(ids: string[], targetId: string, position: MovePosition): boolean {
+  if (ids.length === 0) return false;
+  let ok = false;
+  mutate((file) => {
+    const ordered = orderByPosition(file, ids).filter((id) => id !== targetId);
+    let anchorId = targetId;
+    let pos: MovePosition = position;
+    for (const id of ordered) {
+      if (moveTaskDraft(file, id, anchorId, pos)) {
+        ok = true;
+        anchorId = id;
+        pos = 'after';
       }
     }
-    renumberSiblings(file, task.parentId);
-    if (oldParent !== task.parentId) renumberSiblings(file, oldParent);
-    ok = true;
   });
   return ok;
 }
@@ -259,46 +298,132 @@ function sortedSiblings(file: TeamFile, parentId: string | null): Task[] {
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
 }
 
-/** ALT+↑ : échanger avec le sibling précédent. */
-export function moveTaskUp(id: string): boolean {
-  const file = useAppStore.getState().file;
+// ——— Helpers draft (réutilisés par les variantes mono et groupées) ———
+
+function moveUpDraft(file: TeamFile, id: string): boolean {
   const task = taskById(file, id);
   if (!task) return false;
   const siblings = sortedSiblings(file, task.parentId);
   const i = siblings.findIndex((s) => s.id === id);
   if (i <= 0) return false;
-  return moveTask(id, siblings[i - 1]!.id, 'before');
+  return moveTaskDraft(file, id, siblings[i - 1]!.id, 'before');
 }
 
-/** ALT+↓ : échanger avec le sibling suivant. */
-export function moveTaskDown(id: string): boolean {
-  const file = useAppStore.getState().file;
+function moveDownDraft(file: TeamFile, id: string): boolean {
   const task = taskById(file, id);
   if (!task) return false;
   const siblings = sortedSiblings(file, task.parentId);
   const i = siblings.findIndex((s) => s.id === id);
   if (i < 0 || i >= siblings.length - 1) return false;
-  return moveTask(id, siblings[i + 1]!.id, 'after');
+  return moveTaskDraft(file, id, siblings[i + 1]!.id, 'after');
 }
 
-/** ALT+→ : devenir enfant du sibling précédent. */
-export function indentTask(id: string): boolean {
-  const file = useAppStore.getState().file;
+function indentDraft(file: TeamFile, id: string): boolean {
   const task = taskById(file, id);
   if (!task) return false;
   const siblings = sortedSiblings(file, task.parentId);
   const i = siblings.findIndex((s) => s.id === id);
   const prev = i > 0 ? siblings[i - 1]! : undefined;
   if (!prev || prev.type === 'milestone') return false;
-  return moveTask(id, prev.id, 'child');
+  return moveTaskDraft(file, id, prev.id, 'child');
+}
+
+function outdentDraft(file: TeamFile, id: string): boolean {
+  const task = taskById(file, id);
+  if (!task?.parentId) return false;
+  return moveTaskDraft(file, id, task.parentId, 'after');
+}
+
+/** Ordonne les `ids` selon leur ordre d'affichage (parents puis frères triés). */
+function orderByPosition(file: TeamFile, ids: string[]): string[] {
+  const wanted = new Set(ids);
+  const out: string[] = [];
+  const walk = (parentId: string | null): void => {
+    for (const sib of sortedSiblings(file, parentId)) {
+      if (wanted.has(sib.id)) out.push(sib.id);
+      walk(sib.id);
+    }
+  };
+  walk(null);
+  return out;
+}
+
+/** ALT+↑ : échanger avec le sibling précédent. */
+export function moveTaskUp(id: string): boolean {
+  let ok = false;
+  mutate((file) => {
+    ok = moveUpDraft(file, id);
+  });
+  return ok;
+}
+
+/** ALT+↓ : échanger avec le sibling suivant. */
+export function moveTaskDown(id: string): boolean {
+  let ok = false;
+  mutate((file) => {
+    ok = moveDownDraft(file, id);
+  });
+  return ok;
+}
+
+/** ALT+→ : devenir enfant du sibling précédent. */
+export function indentTask(id: string): boolean {
+  let ok = false;
+  mutate((file) => {
+    ok = indentDraft(file, id);
+  });
+  return ok;
 }
 
 /** ALT+← : remonter d'un niveau (sibling après son parent). */
 export function outdentTask(id: string): boolean {
-  const file = useAppStore.getState().file;
-  const task = taskById(file, id);
-  if (!task?.parentId) return false;
-  return moveTask(id, task.parentId, 'after');
+  let ok = false;
+  mutate((file) => {
+    ok = outdentDraft(file, id);
+  });
+  return ok;
+}
+
+// ——— Variantes groupées (un seul mutate = une seule étape d'undo) ———
+
+/** Indenter toute la sélection (parents différents autorisés). Ordre haut→bas. */
+export function indentTasks(ids: string[]): void {
+  if (ids.length === 0) return;
+  mutate((file) => {
+    for (const id of orderByPosition(file, ids)) indentDraft(file, id);
+  });
+}
+
+/** Désindenter toute la sélection (parents différents autorisés). Ordre bas→haut. */
+export function outdentTasks(ids: string[]): void {
+  if (ids.length === 0) return;
+  mutate((file) => {
+    for (const id of orderByPosition(file, ids).reverse()) outdentDraft(file, id);
+  });
+}
+
+/** Vrai si toutes les tâches partagent le même parent (condition du déplacement groupé). */
+function shareSameParent(file: TeamFile, ids: string[]): boolean {
+  const parents = new Set(ids.map((id) => taskById(file, id)?.parentId ?? '∅'));
+  return parents.size === 1;
+}
+
+/** Déplacer le groupe d'un cran vers le haut. No-op si parents différents. */
+export function moveTasksUp(ids: string[]): void {
+  if (ids.length === 0) return;
+  mutate((file) => {
+    if (!shareSameParent(file, ids)) return;
+    for (const id of orderByPosition(file, ids)) moveUpDraft(file, id);
+  });
+}
+
+/** Déplacer le groupe d'un cran vers le bas. No-op si parents différents. */
+export function moveTasksDown(ids: string[]): void {
+  if (ids.length === 0) return;
+  mutate((file) => {
+    if (!shareSameParent(file, ids)) return;
+    for (const id of orderByPosition(file, ids).reverse()) moveDownDraft(file, id);
+  });
 }
 
 /**

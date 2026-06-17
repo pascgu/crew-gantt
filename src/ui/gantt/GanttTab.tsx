@@ -16,11 +16,16 @@ import {
   addTask,
   collapseAll,
   deleteTask,
+  deleteTasks,
   expandAll,
   indentTask,
+  indentTasks,
   moveTaskDown,
   moveTaskUp,
+  moveTasksDown,
+  moveTasksUp,
   outdentTask,
+  outdentTasks,
   setZoom,
 } from '@/state/taskActions';
 import { useProposal } from '@/state/proposalActions';
@@ -58,7 +63,10 @@ export function GanttTab() {
   const conflictsByTask = useConflictsByTask();
   const zoom = useAppStore((s) => s.file.ui.zoom);
   const selectedTaskId = useAppStore((s) => s.selectedTaskId);
+  const selectedTaskIds = useAppStore((s) => s.selectedTaskIds);
   const selectTask = useAppStore((s) => s.selectTask);
+  const toggleTaskSelection = useAppStore((s) => s.toggleTaskSelection);
+  const setSelectedRange = useAppStore((s) => s.setSelectedRange);
   const tasks = useAppStore((s) => s.file.tasks);
   const projects = useAppStore((s) => s.file.projects);
   const resources = useAppStore((s) => s.file.resources);
@@ -148,6 +156,27 @@ export function GanttTab() {
   );
 
   const selectedTask = panelOpen ? tasks.find((tk) => tk.id === selectedTaskId) : undefined;
+
+  /** Plage d'ids visibles entre deux lignes (inclus), dans l'ordre du tableau. */
+  const rangeBetween = (anchorId: string, targetId: string): string[] => {
+    const a = rows.findIndex((r) => r.task.id === anchorId);
+    const b = rows.findIndex((r) => r.task.id === targetId);
+    if (a < 0 || b < 0) return [targetId];
+    const [lo, hi] = a <= b ? [a, b] : [b, a];
+    return rows.slice(lo, hi + 1).map((r) => r.task.id);
+  };
+
+  /** Clic sur une ligne : simple / Ctrl (toggle) / Maj (plage depuis l'ancre). */
+  const handleSelectRow = (taskId: string, e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) => {
+    if (e.ctrlKey || e.metaKey) {
+      toggleTaskSelection(taskId);
+    } else if (e.shiftKey) {
+      const anchor = selectedTaskId ?? taskId;
+      setSelectedRange(rangeBetween(anchor, taskId), anchor);
+    } else {
+      selectTask(taskId);
+    }
+  };
 
   // Chaîne contraignante : sélectionner un jalon surligne ce qui détermine sa date.
   const chain = useMemo(() => {
@@ -268,33 +297,42 @@ export function GanttTab() {
         (target !== null && target.isContentEditable);
       if (typing) return;
       const sel = selectedTaskId;
+      const multi = selectedTaskIds.length > 1;
       // Ctrl+flèches : déplacer/indenter (ALT évité car Alt+←/→ = retour navigateur)
       if ((e.ctrlKey || e.metaKey) && sel) {
         if (e.key === 'ArrowUp') {
           e.preventDefault();
-          moveTaskUp(sel);
+          if (multi) moveTasksUp(selectedTaskIds);
+          else moveTaskUp(sel);
           return;
         } else if (e.key === 'ArrowDown') {
           e.preventDefault();
-          moveTaskDown(sel);
+          if (multi) moveTasksDown(selectedTaskIds);
+          else moveTaskDown(sel);
           return;
         } else if (e.key === 'ArrowRight') {
           e.preventDefault();
-          indentTask(sel);
+          if (multi) indentTasks(selectedTaskIds);
+          else indentTask(sel);
           return;
         } else if (e.key === 'ArrowLeft') {
           e.preventDefault();
-          outdentTask(sel);
+          if (multi) outdentTasks(selectedTaskIds);
+          else outdentTask(sel);
           return;
         }
       }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && rows.length > 0) {
         e.preventDefault();
-        const idx = rows.findIndex((r) => r.task.id === sel);
-        const nextIdx =
-          idx < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, idx + (e.key === 'ArrowDown' ? 1 : -1)));
-        selectTask(rows[nextIdx]!.task.id);
+        const dir = e.key === 'ArrowDown' ? 1 : -1;
+        // Maj+flèche : le curseur (dernière ligne sélectionnée) bouge, l'ancre reste fixe.
+        const cursorId = e.shiftKey ? (selectedTaskIds[selectedTaskIds.length - 1] ?? sel) : sel;
+        const idx = rows.findIndex((r) => r.task.id === cursorId);
+        const nextIdx = idx < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, idx + dir));
+        const nextId = rows[nextIdx]!.task.id;
+        if (e.shiftKey && sel) setSelectedRange(rangeBetween(sel, nextId), sel);
+        else selectTask(nextId);
         const el = scrollRef.current;
         if (el) {
           const y = nextIdx * ROW_HEIGHT;
@@ -327,8 +365,15 @@ export function GanttTab() {
         selectTask(newId);
         useUiStore.getState().setEditingTaskId(newId);
       } else if (e.key === 'Delete' && sel) {
-        const task = tasks.find((tk) => tk.id === sel);
-        if (task && window.confirm(t('tasks.confirmDelete', { name: task.name }))) deleteTask(sel);
+        if (multi) {
+          if (window.confirm(t('tasks.confirmDeleteMany', { count: selectedTaskIds.length }))) {
+            deleteTasks(selectedTaskIds);
+            selectTask(null);
+          }
+        } else {
+          const task = tasks.find((tk) => tk.id === sel);
+          if (task && window.confirm(t('tasks.confirmDelete', { name: task.name }))) deleteTask(sel);
+        }
       } else if (e.key === 'Escape') {
         if (panelOpen) setPanelOpen(false);
         else selectTask(null);
@@ -336,7 +381,7 @@ export function GanttTab() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rows, selectedTaskId, panelOpen, tasks]);
+  }, [rows, selectedTaskId, selectedTaskIds, panelOpen, tasks]);
 
   // ——— Splitter table ↔ gantt et poignée de hauteur de charge ———
 
@@ -425,6 +470,7 @@ export function GanttTab() {
                           dropIndicator={dropIndicator}
                           onDropIndicator={setDropIndicator}
                           onOpenPanel={openPanel}
+                          onSelectRow={handleSelectRow}
                           hovered={hoveredTaskId === row.task.id}
                           onHover={setHoveredTaskId}
                         />
