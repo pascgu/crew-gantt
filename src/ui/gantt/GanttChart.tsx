@@ -163,8 +163,29 @@ export function GanttChart({
   const selectedTaskId = useAppStore((s) => s.selectedTaskId);
   const selectedTaskIds = useAppStore((s) => s.selectedTaskIds);
   const selectTask = useAppStore((s) => s.selectTask);
+  const toggleTaskSelection = useAppStore((s) => s.toggleTaskSelection);
+  const setSelectedRange = useAppStore((s) => s.setSelectedRange);
   /** La ligne `id` fait-elle partie d'une sélection multiple (≥2) ? */
   const isMultiSel = (id: string) => selectedTaskIds.length > 1 && selectedTaskIds.includes(id);
+
+  const rangeBetween = (anchorId: string, targetId: string): string[] => {
+    const a = rows.findIndex((r) => r.task.id === anchorId);
+    const b = rows.findIndex((r) => r.task.id === targetId);
+    if (a < 0 || b < 0) return [targetId];
+    const [lo, hi] = a <= b ? [a, b] : [b, a];
+    return rows.slice(lo, hi + 1).map((r) => r.task.id);
+  };
+
+  function handleRowClick(taskId: string, e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) {
+    if (e.ctrlKey || e.metaKey) {
+      toggleTaskSelection(taskId);
+    } else if (e.shiftKey) {
+      const anchor = selectedTaskId ?? taskId;
+      setSelectedRange(rangeBetween(anchor, taskId), anchor);
+    } else {
+      selectTask(taskId);
+    }
+  }
   /** Démarre le décalage horizontal groupé des lignes sélectionnées (sans toucher la sélection). */
   function startSelectionDrag(e: ReactPointerEvent) {
     e.stopPropagation();
@@ -527,6 +548,13 @@ export function GanttChart({
             e.stopPropagation();
           }
         }}
+        onClick={(e) => {
+          const svgRect = svgRef.current!.getBoundingClientRect();
+          const y = e.clientY - svgRect.top;
+          const rowIndex = Math.floor(y / ROW_HEIGHT);
+          const row = rows[rowIndex];
+          if (row) handleRowClick(row.task.id, e);
+        }}
         onDoubleClick={(e) => {
           const svgRect = svgRef.current!.getBoundingClientRect();
           const x = e.clientX - svgRect.left;
@@ -636,7 +664,6 @@ export function GanttChart({
             key={row.task.id}
             transform={`translate(0, ${(windowStart + i) * ROW_HEIGHT})`}
             onContextMenu={(e) => rowMenu(e, row.task)}
-            onClick={() => selectTask(row.task.id)}
             onMouseEnter={() => onHoverTask(row.task.id)}
           >
             {/* zone cliquable de la ligne */}
