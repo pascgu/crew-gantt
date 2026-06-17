@@ -34,7 +34,7 @@ import { IconChevronDown, IconChevronRight, IconFilter, IconPlus } from '@/ui/co
 import { ContextMenu } from '@/ui/common/ContextMenu';
 import { TaskRowCells, type DropIndicator } from '@/ui/table/TaskRowCells';
 import { TABLE_WIDTH } from '@/ui/table/columns';
-import { useTableStore } from '@/ui/table/tableStore';
+import { useTableStore, type ColKey } from '@/ui/table/tableStore';
 import { useUiStore } from '@/state/uiStore';
 import { t } from '@/i18n/fr';
 import { GanttChart } from './GanttChart';
@@ -678,7 +678,7 @@ export function GanttTab() {
 }
 
 function HeaderLeft() {
-  const { widths, hidden, setWidth, toggleHidden, setStatusFilter, setAssigneeFilter, setNameQuery, statusFilter, assigneeFilter, nameQuery } = useTableStore();
+  const { widths, hidden, order, setWidth, toggleHidden, moveColumn, setColumnOrder, setStatusFilter, setAssigneeFilter, setNameQuery, statusFilter, assigneeFilter, nameQuery } = useTableStore();
   const projects = useAppStore((s) => s.file.projects);
   const resources = useAppStore((s) => s.file.resources);
   const projectFilter = useAppStore((s) => s.file.ui.projectFilter);
@@ -687,25 +687,40 @@ function HeaderLeft() {
   const [filterAnchor, setFilterAnchor] = useState<DOMRect | null>(null);
   const [visMenu, setVisMenu] = useState(false);
   const [visAnchor, setVisAnchor] = useState<DOMRect | null>(null);
+  /** Glisser-déposer de colonnes dans l'en-tête : cible + côté d'insertion. */
+  const [colDrop, setColDrop] = useState<{ key: ColKey; side: 'before' | 'after' } | null>(null);
 
-  type ColDef = { key: string; label: string; filterable?: boolean };
-  const labels: ColDef[] = [
-    { key: 'name', label: t('tasks.columns.name') },
-    { key: 'project', label: t('tasks.columns.project'), filterable: true },
-    { key: 'scheduling', label: t('tasks.columns.scheduling') },
-    { key: 'estimate', label: t('tasks.columns.estimate') },
-    { key: 'effort', label: t('tasks.columns.effort') },
-    { key: 'realized', label: t('tasks.columns.realized') },
-    { key: 'remaining', label: t('tasks.columns.remaining') },
-    { key: 'progress', label: t('tasks.columns.progress') },
-    { key: 'assignees', label: t('tasks.columns.assignees'), filterable: true },
-    { key: 'start', label: t('tasks.columns.start') },
-    { key: 'end', label: t('tasks.columns.end') },
-    { key: 'status', label: t('tasks.columns.status'), filterable: true },
-  ];
+  type ColDef = { key: ColKey; label: string; filterable?: boolean };
+  const labelByKey: Record<ColKey, ColDef> = {
+    name: { key: 'name', label: t('tasks.columns.name') },
+    project: { key: 'project', label: t('tasks.columns.project'), filterable: true },
+    scheduling: { key: 'scheduling', label: t('tasks.columns.scheduling') },
+    estimate: { key: 'estimate', label: t('tasks.columns.estimate') },
+    effort: { key: 'effort', label: t('tasks.columns.effort') },
+    realized: { key: 'realized', label: t('tasks.columns.realized') },
+    remaining: { key: 'remaining', label: t('tasks.columns.remaining') },
+    progress: { key: 'progress', label: t('tasks.columns.progress') },
+    assignees: { key: 'assignees', label: t('tasks.columns.assignees'), filterable: true },
+    start: { key: 'start', label: t('tasks.columns.start') },
+    end: { key: 'end', label: t('tasks.columns.end') },
+    status: { key: 'status', label: t('tasks.columns.status'), filterable: true },
+    // `group` n'est pas affiché dans la liste
+    group: { key: 'group', label: '' },
+  };
+  const orderedLabels = order.map((k) => labelByKey[k]).filter(Boolean);
 
-  const visibleLabels = labels.filter((l) => !hidden.includes(l.key as keyof typeof widths));
-  const totalWidth = visibleLabels.reduce((s, l) => s + widths[l.key as keyof typeof widths], 0);
+  const visibleLabels = orderedLabels.filter((l) => !hidden.includes(l.key));
+  const totalWidth = visibleLabels.reduce((s, l) => s + widths[l.key], 0);
+
+  /** Dépose la colonne tirée `src` avant/après la colonne cible `dst`. */
+  const dropColumn = (src: ColKey, dst: ColKey, side: 'before' | 'after') => {
+    if (src === dst || src === 'name' || dst === 'name') return;
+    const next = order.filter((k) => k !== src);
+    const at = next.indexOf(dst);
+    if (at < 0) return;
+    next.splice(side === 'before' ? at : at + 1, 0, src);
+    setColumnOrder(next);
+  };
 
   const startColResize = (e: ReactPointerEvent<HTMLDivElement>, col: string) => {
     e.stopPropagation();
@@ -816,18 +831,39 @@ function HeaderLeft() {
     document.body,
   ) : null;
 
+  const reorderable = orderedLabels.filter((l) => l.key !== 'name');
   const visPopover = visMenu && visAnchor ? createPortal(
     <>
       <div className="fixed inset-0 z-40" onClick={closeAll} />
       <div
-        className="fixed z-50 min-w-36 rounded-lg border border-line bg-surface p-2 shadow-float"
+        className="fixed z-50 min-w-44 rounded-lg border border-line bg-surface p-2 shadow-float"
         style={{ right: window.innerWidth - visAnchor.right, top: visAnchor.bottom + 2 }}
       >
-        {labels.filter((l) => l.key !== 'name').map(({ key, label }) => (
-          <label key={key} className="flex items-center gap-2 py-0.5 text-[12px] cursor-pointer">
-            <input type="checkbox" checked={!hidden.includes(key as keyof typeof widths)} onChange={() => toggleHidden(key as keyof typeof widths)} />
-            {label}
-          </label>
+        {reorderable.map(({ key, label }, i) => (
+          <div key={key} className="flex items-center gap-2 py-0.5 text-[12px]">
+            <label className="flex flex-1 items-center gap-2 cursor-pointer truncate">
+              <input type="checkbox" checked={!hidden.includes(key)} onChange={() => toggleHidden(key)} />
+              {label}
+            </label>
+            <button
+              className="shrink-0 rounded p-0.5 text-ink-faint transition hover:text-ink disabled:opacity-30 disabled:hover:text-ink-faint"
+              title={t('columns.moveUp')}
+              aria-label={t('columns.moveUp')}
+              disabled={i === 0}
+              onClick={() => moveColumn(key, 'up')}
+            >
+              <IconChevronDown size={11} className="rotate-180" />
+            </button>
+            <button
+              className="shrink-0 rounded p-0.5 text-ink-faint transition hover:text-ink disabled:opacity-30 disabled:hover:text-ink-faint"
+              title={t('columns.moveDown')}
+              aria-label={t('columns.moveDown')}
+              disabled={i === reorderable.length - 1}
+              onClick={() => moveColumn(key, 'down')}
+            >
+              <IconChevronDown size={11} />
+            </button>
+          </div>
         ))}
         <button className="mt-1 w-full text-left text-[11px] text-ink-faint hover:text-ink" onClick={() => { useTableStore.getState().resetWidths(); closeAll(); }}>{t('columns.resetWidths')}</button>
       </div>
@@ -840,15 +876,35 @@ function HeaderLeft() {
       {/* Colonnes : déborde à droite (clippé par le parent overflow-hidden) */}
       <div className="flex h-full items-end pb-1" style={{ width: totalWidth + 14 }}>
         {visibleLabels.map(({ key, label, filterable }) => {
-          const w = widths[key as keyof typeof widths];
+          const w = widths[key];
           const right = ['estimate', 'effort', 'remaining', 'start', 'end'].includes(key);
           const active = hasFilter(key);
+          const reorderable = key !== 'name';
           return (
             <div
               key={key}
               className="relative flex shrink-0 items-center overflow-hidden border-r border-line/40"
               style={{ width: w }}
+              onDragOver={(e) => {
+                if (!reorderable || !e.dataTransfer.types.includes('text/crewgantt-column')) return;
+                e.preventDefault();
+                const rect = e.currentTarget.getBoundingClientRect();
+                const side = e.clientX - rect.left < rect.width / 2 ? 'before' : 'after';
+                if (colDrop?.key !== key || colDrop.side !== side) setColDrop({ key, side });
+              }}
+              onDragLeave={() => setColDrop((d) => (d?.key === key ? null : d))}
+              onDrop={(e) => {
+                const src = e.dataTransfer.getData('text/crewgantt-column') as ColKey;
+                if (src && colDrop) dropColumn(src, key, colDrop.side);
+                setColDrop(null);
+              }}
             >
+              {/* Indicateur de drop colonne : trait vertical bleu */}
+              {colDrop?.key === key && (
+                <div
+                  className={`pointer-events-none absolute top-0 z-10 h-full w-0.5 bg-accent ${colDrop.side === 'before' ? 'left-0' : 'right-0'}`}
+                />
+              )}
               {key === 'name' ? (
                 <span className="flex items-center gap-0 pl-1 overflow-hidden w-full pr-4">
                   <button className="rounded p-0 text-ink-faint transition hover:text-ink shrink-0" title={t('tasks.expandAll')} onClick={expandAll}><IconChevronDown size={10} /></button>
@@ -865,7 +921,19 @@ function HeaderLeft() {
                   )}
                 </span>
               ) : (
-                <span className={`flex-1 truncate px-1.5 font-display text-[10px] font-semibold uppercase tracking-wide text-ink-faint ${right ? 'text-right' : ''}`}>
+                <span
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('text/crewgantt-column', key);
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  // Infobulle = nom complet, mais seulement si le libellé est tronqué.
+                  onMouseEnter={(e) => {
+                    const el = e.currentTarget;
+                    el.title = el.scrollWidth > el.clientWidth ? label : '';
+                  }}
+                  className={`flex-1 cursor-grab truncate px-1.5 font-display text-[10px] font-semibold uppercase tracking-wide text-ink-faint ${right ? 'text-right' : ''}`}
+                >
                   {label}
                 </span>
               )}

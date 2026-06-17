@@ -34,7 +34,7 @@ import { t } from '@/i18n/fr';
 import { fmtDay, fmtDays } from '@/ui/gantt/format';
 import { resourceAvatar } from '@/ui/common/Avatar';
 import type { GanttRow } from '@/ui/gantt/rows';
-import { useTableStore } from './tableStore';
+import { useTableStore, type ColKey } from './tableStore';
 
 const STATUS_COLOR: Record<string, string> = {
   todo: 'var(--color-ink-faint)',
@@ -88,6 +88,7 @@ export function TaskRowCells({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const cols = useTableStore((s) => s.widths);
   const hidden = useTableStore((s) => s.hidden);
+  const order = useTableStore((s) => s.order);
   const fontSize = useTableStore((s) => s.fontSize);
   const show = (col: string) => !hidden.includes(col as keyof typeof cols);
   const editingTaskId = useUiStore((s) => s.editingTaskId);
@@ -210,6 +211,281 @@ export function TaskRowCells({
   const dropLevelX = 6 + (dropIndicator?.level ?? depth) * 16;
   const dropClass = isDropTarget && dropIndicator?.position === 'child' ? 'bg-accent-wash' : '';
 
+  // Cellules rendues dans l'ordre stocké (`order`). `name` reste épinglé en première position.
+  function renderCell(key: ColKey) {
+    switch (key) {
+      case 'name':
+        return (
+          <div
+            key="name"
+            className="flex min-w-0 items-center gap-0.5 pr-1"
+            style={{ width: cols.name, paddingLeft: 6 + depth * 16 }}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData('text/crewgantt-task', task.id);
+              e.dataTransfer.effectAllowed = 'move';
+            }}
+          >
+            {hasChildren ? (
+              <button
+                className="shrink-0 rounded p-0.5 text-ink-faint hover:text-ink"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleCollapsed(task.id);
+                }}
+              >
+                {collapsed ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
+              </button>
+            ) : (
+              <span className="w-[17px] shrink-0" />
+            )}
+            {task.type === 'milestone' && (
+              <IconDiamond size={11} className="shrink-0 text-ink-soft" />
+            )}
+            <span className={`min-w-0 flex-1 ${task.type === 'group' ? 'font-semibold' : ''}`}>
+              <EditableText
+                value={task.name}
+                onCommit={(name) => updateTask(task.id, { name })}
+                autoEdit={editingTaskId === task.id}
+                onAutoEditConsumed={() => setEditingTaskId(null)}
+              />
+            </span>
+            {conflicts && conflicts.length > 0 && (
+              <button
+                className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-danger px-1 font-mono text-[10px] font-bold text-white cursor-pointer hover:bg-danger/80"
+                title={conflicts.map((c) => t(`conflicts.types.${c.type}`)).join(' · ')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  selectTask(task.id);
+                  useUiStore.getState().openConflicts(task.id);
+                }}
+              >
+                {conflicts.length}
+              </button>
+            )}
+            <button
+              className="shrink-0 rounded p-0.5 text-ink-faint opacity-0 transition hover:text-accent group-hover/row:opacity-100"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenu({ x: e.clientX, y: e.clientY });
+              }}
+              title={t('tasks.rowActions')}
+              aria-label={t('tasks.rowActions')}
+            >
+              <IconDots size={12} />
+            </button>
+          </div>
+        );
+      case 'project':
+        return (
+          <div key="project" className="flex items-center gap-1.5 overflow-hidden px-1" style={{ width: show('project') ? cols.project : 0, display: show('project') ? undefined : 'none' }}>
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
+              style={{ background: projects.find((p) => p.id === task.projectId)?.color ?? '#888' }}
+            />
+            {isChild ? (
+              <span className="truncate text-ink-faint">
+                {projects.find((p) => p.id === task.projectId)?.name ?? '—'}
+              </span>
+            ) : (
+              <select
+                className="w-full cursor-pointer truncate bg-transparent outline-none"
+                value={task.projectId}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  const newProjectId = e.target.value;
+                  setTaskProject(task.id, newProjectId);
+                  const newProject = projects.find((p) => p.id === newProjectId);
+                  const defaultScheduling = newProject?.defaultScheduling ?? 'fixed';
+                  if (task.scheduling !== defaultScheduling) {
+                    const modeLabel = defaultScheduling === 'effort' ? t('panel.schedulingEffort') : t('panel.schedulingFixed');
+                    if (window.confirm(t('tasks.switchScheduling', { mode: modeLabel }))) {
+                      setTaskScheduling(task.id, defaultScheduling);
+                    }
+                  }
+                }}
+              >
+                {projects
+                  .filter((p) => !p.archived || p.id === task.projectId)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+              </select>
+            )}
+          </div>
+        );
+      case 'scheduling':
+        return (
+          <div key="scheduling" style={{ width: show('scheduling') ? cols.scheduling : 0, display: show('scheduling') ? undefined : 'none' }} className="overflow-hidden px-0.5">
+            <span className="truncate text-ink-faint block">
+              {task.type === 'task'
+                ? task.scheduling === 'effort'
+                  ? t('tasks.schedulingShort.effort')
+                  : t('tasks.schedulingShort.fixed')
+                : '—'}
+            </span>
+          </div>
+        );
+      case 'estimate':
+        return (
+          <div key="estimate" style={{ width: show('estimate') ? cols.estimate : 0, display: show('estimate') ? undefined : 'none' }} className="overflow-hidden px-0.5">
+            {task.type === 'task' ? (
+              <EditableNumber
+                value={task.estimate}
+                nullable
+                onCommit={(v) => updateTask(task.id, { estimate: v })}
+              />
+            ) : (
+              <span className="block px-1 text-right font-mono text-ink-faint">—</span>
+            )}
+          </div>
+        );
+      case 'effort':
+        return (
+          <div key="effort" style={{ width: show('effort') ? cols.effort : 0, display: show('effort') ? undefined : 'none' }} className="overflow-hidden px-0.5">
+            {task.type === 'task' && task.scheduling === 'effort' ? (
+              <EditableNumber
+                value={task.effort}
+                onCommit={(v) => setTaskEffort(task.id, v ?? 0)}
+                className={
+                  task.estimate !== null && task.effort > task.estimate ? 'text-danger' : undefined
+                }
+              />
+            ) : task.type === 'task' ? (
+              // fixed : effort = capacité des dates posées (lecture seule)
+              <span className="block px-1 text-right font-mono text-ink-soft">
+                {fmtDays(scheduledEffort(schedule.ctx, task, resolved))}
+              </span>
+            ) : task.type === 'group' && agg ? (
+              <span className="block px-1 text-right font-mono text-ink-soft">
+                {fmtDays(agg.effortTotal)}
+              </span>
+            ) : (
+              <span className="block px-1 text-right font-mono text-ink-faint">—</span>
+            )}
+          </div>
+        );
+      case 'realized':
+        return (
+          <div key="realized" style={{ width: show('realized') ? cols.realized : 0, display: show('realized') ? undefined : 'none' }} className="overflow-hidden px-0.5">
+            {task.type === 'task' ? (
+              <span className="block px-1 text-right font-mono text-ink-soft">
+                {fmtDays(realizedOf(schedule.ctx, task))}
+              </span>
+            ) : task.type === 'group' && agg ? (
+              <span className="block px-1 text-right font-mono text-ink-soft">
+                {fmtDays(agg.effortRealized)}
+              </span>
+            ) : (
+              <span className="block px-1 text-right font-mono text-ink-faint">—</span>
+            )}
+          </div>
+        );
+      case 'remaining':
+        return (
+          <div key="remaining" style={{ width: show('remaining') ? cols.remaining : 0, display: show('remaining') ? undefined : 'none' }} className="overflow-hidden px-0.5">
+            {task.type === 'task' && task.scheduling === 'effort' ? (
+              <EditableNumber value={task.remaining} onCommit={(v) => setTaskRemaining(task.id, v ?? 0)} />
+            ) : task.type === 'task' ? (
+              // fixed : reste = effort − réalisé (lecture seule)
+              <span className="block px-1 text-right font-mono text-ink-soft">
+                {fmtDays(Math.max(0, scheduledEffort(schedule.ctx, task, resolved) - realizedOf(schedule.ctx, task)))}
+              </span>
+            ) : task.type === 'group' && agg ? (
+              <span className="block px-1 text-right font-mono text-ink-soft">
+                {fmtDays(agg.effortTotal - agg.effortRealized)}
+              </span>
+            ) : (
+              <span className="block px-1 text-right font-mono text-ink-faint">—</span>
+            )}
+          </div>
+        );
+      case 'progress':
+        return (
+          <div key="progress" style={{ width: show('progress') ? cols.progress : 0, display: show('progress') ? undefined : 'none' }} className="overflow-hidden px-0.5">
+            {task.type === 'task' ? (
+              <EditableNumber
+                value={Math.round(task.progress * 100)}
+                onCommit={(v) => setTaskProgress(task.id, (v ?? 0) / 100)}
+                suffix="%"
+              />
+            ) : task.type === 'group' && agg && agg.effortTotal > 0 ? (
+              <span className="block px-1 text-right font-mono text-[11.5px] text-ink-soft">
+                {Math.round(agg.progress * 100)} %
+              </span>
+            ) : (
+              <span className="block px-1 text-right font-mono text-[11.5px] text-ink-faint">—</span>
+            )}
+          </div>
+        );
+      case 'assignees':
+        return (
+          <div key="assignees" className="flex items-center gap-0.5 overflow-hidden px-1" style={{ width: show('assignees') ? cols.assignees : 0, display: show('assignees') ? undefined : 'none' }}>
+            {assigneeResources.length > 0 ? (
+              assigneeResources.map((r, i) => {
+                const { color, label } = resourceAvatar(r!);
+                return (
+                  <span
+                    key={i}
+                    className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full font-display text-[9px] font-bold text-white"
+                    style={{ background: color }}
+                    title={r!.name}
+                  >
+                    {label}
+                  </span>
+                );
+              })
+            ) : (
+              <span className="text-ink-faint">—</span>
+            )}
+          </div>
+        );
+      case 'start':
+        return (
+          <div key="start" style={{ width: show('start') ? cols.start : 0, display: show('start') ? undefined : 'none' }} className="overflow-hidden px-1 text-right font-mono text-[11.5px] text-ink-soft">
+            {fmtDay(span?.start)}
+          </div>
+        );
+      case 'end':
+        return (
+          <div key="end" style={{ width: show('end') ? cols.end : 0, display: show('end') ? undefined : 'none' }} className="overflow-hidden px-1 text-right font-mono text-[11.5px] text-ink-soft">
+            {fmtDay(span?.end)}
+          </div>
+        );
+      case 'status':
+        return (
+          <div key="status" className="flex items-center gap-1.5 overflow-hidden px-1.5" style={{ width: show('status') ? cols.status : 0, display: show('status') ? undefined : 'none' }}>
+            {task.type !== 'group' ? (
+              <>
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: STATUS_COLOR[task.status] }}
+                />
+                <select
+                  className="w-full cursor-pointer bg-transparent text-[12px] outline-none"
+                  value={task.status}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setTaskStatus(task.id, e.target.value as typeof task.status)}
+                >
+                  <option value="todo">{t('tasks.status.todo')}</option>
+                  <option value="in_progress">{t('tasks.status.in_progress')}</option>
+                  <option value="done">{t('tasks.status.done')}</option>
+                  <option value="blocked">{t('tasks.status.blocked')}</option>
+                  <option value="cancelled">{t('tasks.status.cancelled')}</option>
+                </select>
+              </>
+            ) : (
+              <span className="text-ink-faint">—</span>
+            )}
+          </div>
+        );
+      default:
+        return null;
+    }
+  }
+
   return (
     <div
       style={{ fontSize }}
@@ -231,65 +507,8 @@ export function TaskRowCells({
           style={{ left: dropLevelX }}
         />
       )}
-      {/* Nom (indentation, pli, type) */}
-      <div
-        className="flex min-w-0 items-center gap-0.5 pr-1"
-        style={{ width: cols.name, paddingLeft: 6 + depth * 16 }}
-        draggable
-        onDragStart={(e) => {
-          e.dataTransfer.setData('text/crewgantt-task', task.id);
-          e.dataTransfer.effectAllowed = 'move';
-        }}
-      >
-        {hasChildren ? (
-          <button
-            className="shrink-0 rounded p-0.5 text-ink-faint hover:text-ink"
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleCollapsed(task.id);
-            }}
-          >
-            {collapsed ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
-          </button>
-        ) : (
-          <span className="w-[17px] shrink-0" />
-        )}
-        {task.type === 'milestone' && (
-          <IconDiamond size={11} className="shrink-0 text-ink-soft" />
-        )}
-        <span className={`min-w-0 flex-1 ${task.type === 'group' ? 'font-semibold' : ''}`}>
-          <EditableText
-            value={task.name}
-            onCommit={(name) => updateTask(task.id, { name })}
-            autoEdit={editingTaskId === task.id}
-            onAutoEditConsumed={() => setEditingTaskId(null)}
-          />
-        </span>
-        {conflicts && conflicts.length > 0 && (
-          <button
-            className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-danger px-1 font-mono text-[10px] font-bold text-white cursor-pointer hover:bg-danger/80"
-            title={conflicts.map((c) => t(`conflicts.types.${c.type}`)).join(' · ')}
-            onClick={(e) => {
-              e.stopPropagation();
-              selectTask(task.id);
-              useUiStore.getState().openConflicts(task.id);
-            }}
-          >
-            {conflicts.length}
-          </button>
-        )}
-        <button
-          className="shrink-0 rounded p-0.5 text-ink-faint opacity-0 transition hover:text-accent group-hover/row:opacity-100"
-          onClick={(e) => {
-            e.stopPropagation();
-            setMenu({ x: e.clientX, y: e.clientY });
-          }}
-          title={t('tasks.rowActions')}
-          aria-label={t('tasks.rowActions')}
-        >
-          <IconDots size={12} />
-        </button>
-      </div>
+      {/* Cellules dans l'ordre stocké (`name` épinglé en tête) */}
+      {order.map((key) => renderCell(key))}
 
       {/* « + » par niveau, sous la ligne sélectionnée : choisir directement la profondeur */}
       {isLoneAnchor && (
@@ -318,195 +537,6 @@ export function TaskRowCells({
           })}
         </div>
       )}
-
-      {/* Projet */}
-      <div className="flex items-center gap-1.5 overflow-hidden px-1" style={{ width: show('project') ? cols.project : 0, display: show('project') ? undefined : 'none' }}>
-        <span
-          className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
-          style={{ background: projects.find((p) => p.id === task.projectId)?.color ?? '#888' }}
-        />
-        {isChild ? (
-          <span className="truncate text-ink-faint">
-            {projects.find((p) => p.id === task.projectId)?.name ?? '—'}
-          </span>
-        ) : (
-          <select
-            className="w-full cursor-pointer truncate bg-transparent outline-none"
-            value={task.projectId}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => {
-              const newProjectId = e.target.value;
-              setTaskProject(task.id, newProjectId);
-              const newProject = projects.find((p) => p.id === newProjectId);
-              const defaultScheduling = newProject?.defaultScheduling ?? 'fixed';
-              if (task.scheduling !== defaultScheduling) {
-                const modeLabel = defaultScheduling === 'effort' ? t('panel.schedulingEffort') : t('panel.schedulingFixed');
-                if (window.confirm(t('tasks.switchScheduling', { mode: modeLabel }))) {
-                  setTaskScheduling(task.id, defaultScheduling);
-                }
-              }
-            }}
-          >
-            {projects
-              .filter((p) => !p.archived || p.id === task.projectId)
-              .map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-          </select>
-        )}
-      </div>
-
-      {/* Planification */}
-      <div style={{ width: show('scheduling') ? cols.scheduling : 0, display: show('scheduling') ? undefined : 'none' }} className="overflow-hidden px-0.5">
-        <span className="truncate text-ink-faint block">
-          {task.type === 'task'
-            ? task.scheduling === 'effort'
-              ? t('tasks.schedulingShort.effort')
-              : t('tasks.schedulingShort.fixed')
-            : '—'}
-        </span>
-      </div>
-
-      {/* Estim / Effort / Reste */}
-      <div style={{ width: show('estimate') ? cols.estimate : 0, display: show('estimate') ? undefined : 'none' }} className="overflow-hidden px-0.5">
-        {task.type === 'task' ? (
-          <EditableNumber
-            value={task.estimate}
-            nullable
-            onCommit={(v) => updateTask(task.id, { estimate: v })}
-          />
-        ) : (
-          <span className="block px-1 text-right font-mono text-ink-faint">—</span>
-        )}
-      </div>
-      <div style={{ width: show('effort') ? cols.effort : 0, display: show('effort') ? undefined : 'none' }} className="overflow-hidden px-0.5">
-        {task.type === 'task' && task.scheduling === 'effort' ? (
-          <EditableNumber
-            value={task.effort}
-            onCommit={(v) => setTaskEffort(task.id, v ?? 0)}
-            className={
-              task.estimate !== null && task.effort > task.estimate ? 'text-danger' : undefined
-            }
-          />
-        ) : task.type === 'task' ? (
-          // fixed : effort = capacité des dates posées (lecture seule)
-          <span className="block px-1 text-right font-mono text-ink-soft">
-            {fmtDays(scheduledEffort(schedule.ctx, task, resolved))}
-          </span>
-        ) : task.type === 'group' && agg ? (
-          <span className="block px-1 text-right font-mono text-ink-soft">
-            {fmtDays(agg.effortTotal)}
-          </span>
-        ) : (
-          <span className="block px-1 text-right font-mono text-ink-faint">—</span>
-        )}
-      </div>
-
-      {/* Réalisé (j-h) — lecture seule */}
-      <div style={{ width: show('realized') ? cols.realized : 0, display: show('realized') ? undefined : 'none' }} className="overflow-hidden px-0.5">
-        {task.type === 'task' ? (
-          <span className="block px-1 text-right font-mono text-ink-soft">
-            {fmtDays(realizedOf(schedule.ctx, task))}
-          </span>
-        ) : task.type === 'group' && agg ? (
-          <span className="block px-1 text-right font-mono text-ink-soft">
-            {fmtDays(agg.effortRealized)}
-          </span>
-        ) : (
-          <span className="block px-1 text-right font-mono text-ink-faint">—</span>
-        )}
-      </div>
-
-      <div style={{ width: show('remaining') ? cols.remaining : 0, display: show('remaining') ? undefined : 'none' }} className="overflow-hidden px-0.5">
-        {task.type === 'task' && task.scheduling === 'effort' ? (
-          <EditableNumber value={task.remaining} onCommit={(v) => setTaskRemaining(task.id, v ?? 0)} />
-        ) : task.type === 'task' ? (
-          // fixed : reste = effort − réalisé (lecture seule)
-          <span className="block px-1 text-right font-mono text-ink-soft">
-            {fmtDays(Math.max(0, scheduledEffort(schedule.ctx, task, resolved) - realizedOf(schedule.ctx, task)))}
-          </span>
-        ) : task.type === 'group' && agg ? (
-          <span className="block px-1 text-right font-mono text-ink-soft">
-            {fmtDays(agg.effortTotal - agg.effortRealized)}
-          </span>
-        ) : (
-          <span className="block px-1 text-right font-mono text-ink-faint">—</span>
-        )}
-      </div>
-
-      {/* % Avancement — saisi, éditable pour tous les types */}
-      <div style={{ width: show('progress') ? cols.progress : 0, display: show('progress') ? undefined : 'none' }} className="overflow-hidden px-0.5">
-        {task.type === 'task' ? (
-          <EditableNumber
-            value={Math.round(task.progress * 100)}
-            onCommit={(v) => setTaskProgress(task.id, (v ?? 0) / 100)}
-            suffix="%"
-          />
-        ) : task.type === 'group' && agg && agg.effortTotal > 0 ? (
-          <span className="block px-1 text-right font-mono text-[11.5px] text-ink-soft">
-            {Math.round(agg.progress * 100)} %
-          </span>
-        ) : (
-          <span className="block px-1 text-right font-mono text-[11.5px] text-ink-faint">—</span>
-        )}
-      </div>
-
-      {/* Affectés */}
-      <div className="flex items-center gap-0.5 overflow-hidden px-1" style={{ width: show('assignees') ? cols.assignees : 0, display: show('assignees') ? undefined : 'none' }}>
-        {assigneeResources.length > 0 ? (
-          assigneeResources.map((r, i) => {
-            const { color, label } = resourceAvatar(r!);
-            return (
-              <span
-                key={i}
-                className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full font-display text-[9px] font-bold text-white"
-                style={{ background: color }}
-                title={r!.name}
-              >
-                {label}
-              </span>
-            );
-          })
-        ) : (
-          <span className="text-ink-faint">—</span>
-        )}
-      </div>
-
-      {/* Début / Fin */}
-      <div style={{ width: show('start') ? cols.start : 0, display: show('start') ? undefined : 'none' }} className="overflow-hidden px-1 text-right font-mono text-[11.5px] text-ink-soft">
-        {fmtDay(span?.start)}
-      </div>
-      <div style={{ width: show('end') ? cols.end : 0, display: show('end') ? undefined : 'none' }} className="overflow-hidden px-1 text-right font-mono text-[11.5px] text-ink-soft">
-        {fmtDay(span?.end)}
-      </div>
-
-      {/* Statut */}
-      <div className="flex items-center gap-1.5 overflow-hidden px-1.5" style={{ width: show('status') ? cols.status : 0, display: show('status') ? undefined : 'none' }}>
-        {task.type !== 'group' ? (
-          <>
-            <span
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{ background: STATUS_COLOR[task.status] }}
-            />
-            <select
-              className="w-full cursor-pointer bg-transparent text-[12px] outline-none"
-              value={task.status}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) => setTaskStatus(task.id, e.target.value as typeof task.status)}
-            >
-              <option value="todo">{t('tasks.status.todo')}</option>
-              <option value="in_progress">{t('tasks.status.in_progress')}</option>
-              <option value="done">{t('tasks.status.done')}</option>
-              <option value="blocked">{t('tasks.status.blocked')}</option>
-              <option value="cancelled">{t('tasks.status.cancelled')}</option>
-            </select>
-          </>
-        ) : (
-          <span className="text-ink-faint">—</span>
-        )}
-      </div>
 
       {menu && <ContextMenu x={menu.x} y={menu.y} entries={addEntries} onClose={() => setMenu(null)} />}
     </div>

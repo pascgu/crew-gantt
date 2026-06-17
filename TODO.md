@@ -1,4 +1,3 @@
-- liste taches : on doit pouvoir réordonner les colonnes dans le menu "..."
 - gantt : on doit pouvoir changer la couleur d'un jalon (dans le panneau), par défaut ça doit être la couleur du projet.
 - gantt : frise pour les jalons : Dans le panneau, on doit aussi pouvoir indiquer si on veut que ce jalon apparaissent dans une frise tout en haut du gantt dans les entetes où on affiche le mois ou trimestre. Si on coche ça, ça affiche le losange et le nom du jalon avec le texte de la couleur du jalon. Si pas la place entre 2 jalons, le texte est coupé et s'affiche en entier dans l'infobulle.
 - gantt : j'aimerai qu'on puisse faire un lien vers un bloc plutot qu'une tache, quels impacts ?
