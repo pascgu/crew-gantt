@@ -132,6 +132,10 @@ export interface Task {
   deadline: IsoDate | null;
   /** Date posée d'un jalon. */
   date: IsoDate | null;
+  /** Couleur propre d'un jalon ; `undefined` = couleur du projet. */
+  color?: string;
+  /** Afficher ce jalon dans la frise en haut du Gantt. */
+  frieze?: boolean;
   blocks: Block[];
   notes: TaskNote[];
 }

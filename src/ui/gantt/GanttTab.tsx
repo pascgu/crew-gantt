@@ -39,6 +39,7 @@ import { useUiStore } from '@/state/uiStore';
 import { t } from '@/i18n/fr';
 import { GanttChart } from './GanttChart';
 import { GanttControls } from './GanttControls';
+import { buildFriezeLayout, MilestoneFrieze } from './MilestoneFrieze';
 import { TaskPanel } from './TaskPanel';
 import { WorkloadGauges, WorkloadNamesOverlay } from './WorkloadPanel';
 import { useGanttRows } from './rows';
@@ -97,6 +98,7 @@ export function GanttTab() {
   // Préférences d'affichage (hors fichier : ne marquent pas dirty)
   const [tableWidth, setTableWidth] = usePersistedState('crewgantt.ui.tableWidth', TABLE_WIDTH);
   const [workloadOpen, setWorkloadOpen] = usePersistedState('crewgantt.ui.workloadOpen', true);
+  const [friezeOpen, setFriezeOpen] = usePersistedState('crewgantt.ui.friezeOpen', true);
   const [workloadRowH, setWorkloadRowH] = usePersistedState('crewgantt.ui.workloadRowH', 28);
   const [workloadHidden, setWorkloadHidden] = usePersistedState(
     'crewgantt.ui.workloadHidden',
@@ -164,6 +166,16 @@ export function GanttTab() {
     () => buildTimeScale(schedule.planSpan, zoom, today, extend),
     [schedule.planSpan, zoom, today, extend],
   );
+
+  // Frise des jalons (en haut de l'en-tête) : disposition sur lanes + hauteur.
+  const friezeLayout = useMemo(
+    () =>
+      friezeOpen
+        ? buildFriezeLayout(tasks, projects, (date) => scale.x(date) + scale.dayWidth / 2)
+        : { markers: [], height: 0 },
+    [friezeOpen, tasks, projects, scale],
+  );
+  const friezeH = friezeLayout.height;
 
   const windowStart = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const windowEnd = Math.min(
@@ -463,7 +475,7 @@ export function GanttTab() {
             >
               <div
                 className="shrink-0 overflow-hidden border-b border-line"
-                style={{ height: HEADER_HEIGHT }}
+                style={{ height: HEADER_HEIGHT + friezeH }}
               >
                 <HeaderLeft />
               </div>
@@ -514,13 +526,16 @@ export function GanttTab() {
                 zoom={zoom}
                 todayVisible={todayVisible}
                 onToday={scrollToToday}
+                friezeOpen={friezeOpen}
+                onToggleFrieze={() => setFriezeOpen((v) => !v)}
               />
               {/* En-tête timescale, synchronisé en translateX */}
               <div
                 className="shrink-0 overflow-hidden border-b border-line bg-surface"
-                style={{ height: HEADER_HEIGHT }}
+                style={{ height: HEADER_HEIGHT + friezeH }}
               >
                 <div ref={headerInnerRef} style={{ width: scale.width, willChange: 'transform' }}>
+                  {friezeH > 0 && <MilestoneFrieze layout={friezeLayout} />}
                   <HeaderTimescale scale={scale} visibleLeft={scrollLeft} visibleRight={scrollLeft + viewportW} />
                 </div>
               </div>
@@ -958,7 +973,7 @@ function HeaderLeft() {
         <div style={{ width: 14, flexShrink: 0 }} />
       </div>
       {/* Bouton « … » sticky — toujours visible hors du flux des colonnes */}
-      <div className="absolute right-0 top-0 h-full flex items-center bg-surface pl-0.5 z-10">
+      <div className="absolute right-0 bottom-0 flex items-end bg-surface pb-1 pl-0.5 z-10" style={{ height: HEADER_HEIGHT }}>
         <button
           className="rounded px-1 py-0.5 text-[10px] text-ink-faint transition hover:text-ink"
           title={t('columns.choose')}

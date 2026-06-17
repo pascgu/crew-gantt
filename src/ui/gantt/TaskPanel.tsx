@@ -24,7 +24,7 @@ import { DateInput, EditableNumber, EditableText } from '@/ui/common/inline';
 import { IconClose, IconPlus } from '@/ui/common/icons';
 import { AssignmentAssistant } from '@/ui/team/AssignmentAssistant';
 import { t } from '@/i18n/fr';
-import { fmtDayFull, weeklyEquivalent } from './format';
+import { fmtDayFull, taskColor, weeklyEquivalent } from './format';
 
 interface TaskPanelProps {
   task: Task;
@@ -55,6 +55,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
   const resources = useAppStore((s) => s.file.resources);
   const tasks = useAppStore((s) => s.file.tasks);
+  const projects = useAppStore((s) => s.file.projects);
   const [newNote, setNewNote] = useState('');
   const [linkTarget, setLinkTarget] = useState('');
 
@@ -188,6 +189,29 @@ export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
           <Section title={t('panel.milestoneDate')}>
             <Field label={t('panel.milestoneDate')}>
               <DateInput value={task.date} onCommit={(date) => updateTask(task.id, { date })} />
+            </Field>
+            <Field label={t('panel.milestoneColor')}>
+              {task.color !== undefined && (
+                <button
+                  className="text-[11px] text-ink-faint hover:text-ink"
+                  onClick={() => updateTask(task.id, { color: undefined })}
+                >
+                  {t('panel.milestoneColorReset')}
+                </button>
+              )}
+              <input
+                type="color"
+                className="h-6 w-8 cursor-pointer rounded border-none bg-transparent"
+                value={taskColor(task, projects)}
+                onChange={(e) => updateTask(task.id, { color: e.target.value })}
+              />
+            </Field>
+            <Field label={t('panel.milestoneFrieze')}>
+              <input
+                type="checkbox"
+                checked={task.frieze ?? false}
+                onChange={(e) => updateTask(task.id, { frieze: e.target.checked })}
+              />
             </Field>
             {earliest?.date && (
               <div className="mt-1 flex items-center justify-between rounded bg-accent-wash px-2 py-1.5 text-[12px] text-accent-deep">

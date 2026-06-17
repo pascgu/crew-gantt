@@ -6,6 +6,9 @@ import { t } from '@/i18n/fr';
 
 export const ROW_HEIGHT = 21;
 export const HEADER_HEIGHT = 34;
+/** Hauteur d'une ligne (lane) de la frise des jalons, en haut de l'en-tête.
+ *  Minimum serré : le losange (carré 6px tourné ≈ 8,5px) et le texte 9px dictent la borne basse. */
+export const FRIEZE_LANE_H = 10;
 
 export const DAY_WIDTH: Record<ZoomLevel, number> = {
   day: 34,

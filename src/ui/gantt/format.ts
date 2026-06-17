@@ -1,7 +1,12 @@
 import { format } from 'date-fns';
 import { toDate } from '@/core/calendar/dates';
 import type { CalcContext } from '@/core/scheduler/context';
-import type { IsoDate } from '@/core/model/types';
+import type { IsoDate, Project, Task } from '@/core/model/types';
+
+/** Couleur d'affichage d'une tâche/jalon : couleur propre sinon couleur du projet. */
+export function taskColor(task: Pick<Task, 'color' | 'projectId'>, projects: Project[]): string {
+  return task.color ?? projects.find((p) => p.id === task.projectId)?.color ?? '#888888';
+}
 
 export function fmtDay(iso: IsoDate | null | undefined): string {
   if (!iso) return '—';

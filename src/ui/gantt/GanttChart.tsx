@@ -503,6 +503,13 @@ export function GanttChart({
           const rowIndex = Math.floor(y / ROW_HEIGHT);
           const row = rows[rowIndex];
           if (!row) return;
+          if (row.task.type === 'milestone') {
+            // Double-clic sur le losange → détail ; dans le vide → (re)poser la date du jalon.
+            const cx = row.task.date ? scale.x(row.task.date) + scale.dayWidth / 2 : null;
+            if (cx !== null && Math.abs(x - cx) <= 8) onOpenPanel(row.task.id);
+            else updateTask(row.task.id, { date: scale.dateAt(x) });
+            return;
+          }
           if (row.task.type !== 'task') { onOpenPanel(row.task.id); return; }
           const resolved = schedule.resolvedByTask.get(row.task.id) ?? [];
           const clickedOnBlock = resolved.some((r) => x >= scale.x(r.from) && x <= scale.xEnd(r.to));
@@ -779,12 +786,13 @@ function RowBars({
     const isMsDrag = drag?.kind === 'move-milestone' && drag.taskId === task.id;
     const msDay = isMsDrag ? (drag as DragMoveMilestone).day : task.date;
     const cx = scale.x(msDay) + scale.dayWidth / 2;
+    const msColor = task.color ?? color;
     return (
       <g
         className="cursor-pointer"
         onPointerDown={(e) => onMilestonePointerDown(e, task)}
       >
-        <Diamond cx={cx} cy={mid} size={6} color={color} conflict={hasConflict} />
+        <Diamond cx={cx} cy={mid} size={6} color={msColor} conflict={hasConflict} />
         <text x={cx + 10} y={mid + 3.5} fontSize={10.5} fill="var(--color-ink-soft)">
           {task.name}
         </text>
@@ -903,7 +911,7 @@ function RowBars({
                 cx={scale.x(m.date) + scale.dayWidth / 2}
                 cy={mid}
                 size={5}
-                color={color}
+                color={m.color ?? color}
               />
             ),
         )}

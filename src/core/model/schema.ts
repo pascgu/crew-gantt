@@ -96,6 +96,8 @@ const taskSchema = z.object({
   links: z.array(taskLinkSchema).default([]),
   deadline: isoDate.nullable().default(null),
   date: isoDate.nullable().default(null),
+  color: z.string().optional(),
+  frieze: z.boolean().optional(),
   blocks: z.array(blockSchema).default([]),
   notes: z.array(taskNoteSchema).default([]),
 });

@@ -16,6 +16,8 @@ interface GanttControlsProps {
   zoom: ZoomLevel;
   todayVisible: boolean;
   onToday: () => void;
+  friezeOpen: boolean;
+  onToggleFrieze: () => void;
 }
 
 /**
@@ -23,7 +25,7 @@ interface GanttControlsProps {
  * ⚙ seul par défaut ; au clic : popover avec échelle, baseline, "…".
  * 🎯 s'affiche sous ⚙ uniquement si la ligne "aujourd'hui" est hors viewport.
  */
-export function GanttControls({ zoom, todayVisible, onToday }: GanttControlsProps) {
+export function GanttControls({ zoom, todayVisible, onToday, friezeOpen, onToggleFrieze }: GanttControlsProps) {
   const baselines = useAppStore((s) => s.file.baselines);
   const activeBl = baselines.find((b) => b.active) ?? null;
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -59,6 +61,10 @@ export function GanttControls({ zoom, todayVisible, onToday }: GanttControlsProp
   }
 
   const menuEntries: MenuEntry[] = [
+    {
+      label: friezeOpen ? t('gantt.friezeHide') : t('gantt.friezeShow'),
+      onClick: onToggleFrieze,
+    },
     {
       label: t('baseline.deleteActive'),
       danger: true,
