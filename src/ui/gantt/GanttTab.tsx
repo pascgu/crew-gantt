@@ -388,6 +388,9 @@ export function GanttTab() {
             }
           }
         }
+      } else if (e.key === 'F2' && sel) {
+        e.preventDefault();
+        useUiStore.getState().setEditingTaskId(sel);
       } else if (e.key === 'Enter' && sel) {
         e.preventDefault();
         openPanel(sel);
@@ -491,7 +494,7 @@ export function GanttTab() {
                     </button>
                   </div>
                 ) : (
-                  <div className="relative" style={{ height: rows.length * ROW_HEIGHT + bottomSpacer, width: tableInnerWidth }}>
+                  <div className="relative" style={{ height: rows.length * ROW_HEIGHT + bottomSpacer + 8, width: tableInnerWidth }}>
                     <div style={{ transform: `translateY(${windowStart * ROW_HEIGHT}px)` }}>
                       {rows.slice(windowStart, windowEnd).map((row) => (
                         <TaskRowCells
@@ -554,6 +557,7 @@ export function GanttTab() {
                   chainPairs={chain?.pairs}
                   onOpenPanel={openPanel}
                   onPanBy={panBy}
+                  onAreaClick={() => setPanelOpen(false)}
                   hoveredTaskId={hoveredTaskId}
                   onHoverTask={setHoveredTaskId}
                   minHeight={viewportH}

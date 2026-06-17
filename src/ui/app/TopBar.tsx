@@ -111,6 +111,7 @@ export function TopBar() {
         <span className="font-display text-[16px] font-bold tracking-tight text-ink">
           Crew<span className="text-accent">Gantt</span>
         </span>
+        <span className="font-mono text-[10px] text-ink-faint">v{__APP_VERSION__}</span>
       </div>
 
       <span className="h-5 w-px bg-line" />

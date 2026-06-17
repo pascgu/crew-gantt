@@ -1,7 +1,3 @@
 - gantt : j'aimerai qu'on puisse faire un lien vers un bloc plutot qu'une tache, quels impacts ?
 - gantt : tache à effort, si on ajoute un bloc après un bloc en cours, ça change le passé et la taille du bloc (logique, il faudrait faire quoi ?)
 - gantt : il y a quelque chose de bizarre dans la proposition de plan pour les taches à effort, pour aujourd'hui il propose toujours un nouveau bloc de 1 alors que collé à 1 autre bloc et le 1er bloc recouvre plusieurs autres blocs. Et quand je les bouge, ça reforme 1 seul bloc, très étrange tout ça...
-- paramètres->centre, par bloc->si texte ne tiens pas=Après, ça ne fonctionne pas si on choisi Groupe (en plus de taches) mais ça fonctionne pour tache.
-- ajouter le numéro de version à coté de du logo CrewGantt et démarrer à v1.0
-- F2 pour renommer une tache
-- gantt : quand détail d'une tache affiché, si on fait un simple clic dans le gantt n'importe où mais en dehors du detail, ça devrait fermer le détail de la tache.

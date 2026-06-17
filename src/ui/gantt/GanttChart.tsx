@@ -121,6 +121,8 @@ interface GanttChartProps {
   onOpenPanel: (taskId: string) => void;
   /** Pan au clic gauche sur le fond : décale le conteneur de scroll. */
   onPanBy: (dx: number, dy: number) => void;
+  /** Clic simple dans le SVG (hors drag/pan) — permet de fermer le panneau latéral. */
+  onAreaClick?: () => void;
   hoveredTaskId: string | null;
   onHoverTask: (taskId: string | null) => void;
   /** Hauteur minimale du SVG (= hauteur du viewport) pour rendre le fond pnable. */
@@ -140,6 +142,7 @@ export function GanttChart({
   chainPairs,
   onOpenPanel,
   onPanBy,
+  onAreaClick,
   hoveredTaskId,
   onHoverTask,
   minHeight,
@@ -204,7 +207,7 @@ export function GanttChart({
     return map;
   }, [rows]);
 
-  const height = Math.max(rows.length * ROW_HEIGHT, minHeight ?? 0);
+  const height = Math.max(rows.length * ROW_HEIGHT + 8, minHeight ?? 0);
   const today = todayIso();
 
   function svgPoint(e: ReactPointerEvent): { x: number; y: number } {
@@ -554,6 +557,7 @@ export function GanttChart({
           const rowIndex = Math.floor(y / ROW_HEIGHT);
           const row = rows[rowIndex];
           if (row) handleRowClick(row.task.id, e);
+          onAreaClick?.();
         }}
         onDoubleClick={(e) => {
           const svgRect = svgRef.current!.getBoundingClientRect();
@@ -934,7 +938,10 @@ function RowBars({
           const barW = gx1 - gx0;
           const estW = groupCenterTxt.length * (ganttFontSize * 0.55) + 4;
           const fits = estW <= barW;
-          const ov = !fits && centerOverflow !== 'none' ? centerOverflow : null;
+          const someIntervalFits = centerMode === 'perBlock'
+            ? agg.intervals.some((itv) => (scale.xEnd(itv.to) - scale.x(itv.from)) >= estW)
+            : fits;
+          const ov = !someIntervalFits && centerOverflow !== 'none' ? centerOverflow : null;
           if (ov === 'before' && groupCenterTxt) groupBeforeParts.unshift(groupCenterTxt);
           if (ov === 'after' && groupCenterTxt) groupAfterParts.unshift(groupCenterTxt);
           return (
@@ -1159,7 +1166,10 @@ function RowBars({
         const estW = centerTxt.length * (ganttFontSize * 0.55) + 4;
         const fitsInBar = estW <= barW;
         // P6 : repli si texte centre ne tient pas
-        const overflow = !fitsInBar && centerOverflow !== 'none' ? centerOverflow : null;
+        const someBlockFits = centerMode === 'perBlock'
+          ? resolved.some((r) => Math.max(4, scale.xEnd(r.to) - scale.x(r.from)) >= estW)
+          : fitsInBar;
+        const overflow = !someBlockFits && centerOverflow !== 'none' ? centerOverflow : null;
         const beforeParts = colsBefore.map((k) => cellText(task, k, schedule)).filter(Boolean);
         const afterParts = colsAfter.map((k) => cellText(task, k, schedule)).filter(Boolean);
         if (overflow === 'before' && centerTxt) beforeParts.unshift(centerTxt);
@@ -1246,7 +1256,7 @@ function RowBars({
 
 function cellText(task: Task, key: ColKey, schedule: Schedule): string {
   switch (key) {
-    case 'name': return task.type === 'task' ? task.name : '';
+    case 'name': return task.name;
     case 'group': return task.type === 'group' ? task.name : '';
     case 'project': {
       const p = schedule.ctx.file.projects.find((x) => x.id === task.projectId);
