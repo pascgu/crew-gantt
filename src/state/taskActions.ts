@@ -509,6 +509,29 @@ export function moveBlock(taskId: string, blockId: string, deltaDays: number): v
   });
 }
 
+/**
+ * Décale dans le temps les barres/jalons de plusieurs tâches d'un coup (glisser groupé du Gantt).
+ * Un seul `mutate` = une étape d'undo. Les groupes (sans blocs propres) sont ignorés.
+ */
+export function shiftTasksDates(ids: string[], deltaDays: number): void {
+  if (deltaDays === 0) return;
+  mutate((file) => {
+    for (const id of ids) {
+      const task = taskById(file, id);
+      if (!task) continue;
+      if (task.type === 'milestone') {
+        if (task.date) task.date = addDays(task.date, deltaDays);
+      } else if (task.type === 'task') {
+        for (const block of task.blocks) {
+          block.from = addDays(block.from, deltaDays);
+          if (block.to !== null) block.to = addDays(block.to, deltaDays);
+        }
+        resyncRemainingDraft(file, task);
+      }
+    }
+  });
+}
+
 export function setBlockDates(
   taskId: string,
   blockId: string,

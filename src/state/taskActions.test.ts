@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createEmptyTeamFile } from '@/core/model/factory';
+import { addDays } from '@/core/calendar/dates';
 import { clearHistory, useAppStore } from './store';
 import {
   addTask,
@@ -20,6 +21,7 @@ import {
   setTaskProgress,
   setTaskRemaining,
   setTaskStatus,
+  shiftTasksDates,
 } from './taskActions';
 
 const file = () => useAppStore.getState().file;
@@ -172,6 +174,31 @@ describe('actions groupées (sélection multiple)', () => {
     moveTasks([a, b], g, 'child');
     expect(taskOf(a).parentId).toBe(g);
     expect(taskOf(b).parentId).toBe(g);
+  });
+
+  it('shiftTasksDates décale jalon + blocs et ignore les groupes (une étape d’undo)', () => {
+    const m = addTask({ type: 'milestone' });
+    useAppStore.getState().mutate((f) => {
+      f.tasks.find((t) => t.id === m)!.date = '2026-06-10';
+    });
+    const tk = addTask({});
+    useAppStore.getState().mutate((f) => {
+      const t = f.tasks.find((x) => x.id === tk)!;
+      t.scheduling = 'fixed';
+      t.blocks = [{ id: 'b1', from: '2026-06-10', to: '2026-06-12', assignments: [] }];
+    });
+    const g = addTask({ type: 'group' });
+    clearHistory();
+
+    shiftTasksDates([m, tk, g], 3);
+    expect(taskOf(m).date).toBe(addDays('2026-06-10', 3));
+    expect(taskOf(tk).blocks[0]!.from).toBe(addDays('2026-06-10', 3));
+    expect(taskOf(tk).blocks[0]!.to).toBe(addDays('2026-06-12', 3));
+    expect(taskOf(g).blocks).toHaveLength(0);
+
+    useAppStore.temporal.getState().undo();
+    expect(taskOf(m).date).toBe('2026-06-10');
+    expect(taskOf(tk).blocks[0]!.from).toBe('2026-06-10');
   });
 
   it('un geste groupé = une seule étape d’undo', () => {

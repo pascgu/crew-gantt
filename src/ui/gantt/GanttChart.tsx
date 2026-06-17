@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { diffDays, eachDay, todayIso } from '@/core/calendar/dates';
+import { addDays, diffDays, eachDay, todayIso } from '@/core/calendar/dates';
 import { progressBarDays, taskProgress } from '@/core/scheduler/groups';
 import { workedDaysReachedOn, workedDaysUpTo } from '@/core/scheduler/links';
 import { realizedOf, remainingForEndDate, scheduledEffort } from '@/core/scheduler/blocks';
@@ -20,6 +20,7 @@ import {
   setBlockDates,
   setTaskProgress,
   setTaskRemaining,
+  shiftTasksDates,
   splitBlock,
   updateTask,
 } from '@/state/taskActions';
@@ -75,7 +76,19 @@ interface DragMoveMilestone {
   taskId: string;
   day: IsoDate;
 }
-type Drag = DragMove | DragResize | DragLink | DragProgress | DragMoveMilestone;
+interface DragMoveSelection {
+  kind: 'move-selection';
+  taskIds: string[];
+  startX: number;
+  deltaDays: number;
+}
+type Drag =
+  | DragMove
+  | DragResize
+  | DragLink
+  | DragProgress
+  | DragMoveMilestone
+  | DragMoveSelection;
 
 interface MenuState {
   x: number;
@@ -148,7 +161,16 @@ export function GanttChart({
   const panRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const suppressClickRef = useRef(false);
   const selectedTaskId = useAppStore((s) => s.selectedTaskId);
+  const selectedTaskIds = useAppStore((s) => s.selectedTaskIds);
   const selectTask = useAppStore((s) => s.selectTask);
+  /** La ligne `id` fait-elle partie d'une sélection multiple (≥2) ? */
+  const isMultiSel = (id: string) => selectedTaskIds.length > 1 && selectedTaskIds.includes(id);
+  /** Démarre le décalage horizontal groupé des lignes sélectionnées (sans toucher la sélection). */
+  function startSelectionDrag(e: ReactPointerEvent) {
+    e.stopPropagation();
+    setDrag({ kind: 'move-selection', taskIds: selectedTaskIds, startX: e.clientX, deltaDays: 0 });
+    (e.target as Element).setPointerCapture(e.pointerId);
+  }
   const projectColor = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of schedule.ctx.file.projects) map.set(p.id, p.color);
@@ -173,6 +195,7 @@ export function GanttChart({
 
   function startMove(e: ReactPointerEvent, task: Task, blockId: string) {
     if (e.button !== 0) return;
+    if (!e.shiftKey && isMultiSel(task.id)) return startSelectionDrag(e);
     e.stopPropagation();
     selectTask(task.id);
     if (e.shiftKey) {
@@ -205,6 +228,7 @@ export function GanttChart({
     openEnd: boolean,
   ) {
     if (e.button !== 0) return;
+    if (!e.shiftKey && isMultiSel(task.id)) return startSelectionDrag(e);
     e.stopPropagation();
     selectTask(task.id);
     if (e.ctrlKey) {
@@ -247,6 +271,7 @@ export function GanttChart({
     xEnd: number,
   ) {
     if (e.button !== 0) return;
+    if (!e.shiftKey && isMultiSel(task.id)) return startSelectionDrag(e);
     e.stopPropagation();
     if (e.ctrlKey) {
       // Ctrl = forcer le déplacement du premier bloc
@@ -266,7 +291,9 @@ export function GanttChart({
   }
 
   function startMilestoneDrag(e: ReactPointerEvent, task: Task) {
-    if (e.button !== 0 || !e.ctrlKey || !task.date) return;
+    if (e.button !== 0) return;
+    if (!e.shiftKey && isMultiSel(task.id)) return startSelectionDrag(e);
+    if (!e.ctrlKey || !task.date) return;
     e.stopPropagation();
     selectTask(task.id);
     setDrag({ kind: 'move-milestone', taskId: task.id, day: task.date });
@@ -297,7 +324,7 @@ export function GanttChart({
       return;
     }
     if (!drag) return;
-    if (drag.kind === 'move') {
+    if (drag.kind === 'move' || drag.kind === 'move-selection') {
       const deltaDays = Math.round((e.clientX - drag.startX) / scale.dayWidth);
       if (deltaDays !== drag.deltaDays) setDrag({ ...drag, deltaDays });
     } else if (drag.kind === 'link') {
@@ -339,6 +366,10 @@ export function GanttChart({
         moveBlock(drag.taskId, drag.blockId, drag.deltaDays);
         mergeOverlappingBlocks(drag.taskId);
       }
+    } else if (drag.kind === 'move-selection') {
+      if (drag.deltaDays !== 0) shiftTasksDates(drag.taskIds, drag.deltaDays);
+      // éviter que le clic suivant ne réduise la sélection à une seule ligne
+      suppressClickRef.current = true;
     } else if (drag.kind === 'move-milestone') {
       updateTask(drag.taskId, { date: drag.day });
     } else if (drag.kind === 'resize-start') {
@@ -562,16 +593,19 @@ export function GanttChart({
               pointerEvents="none"
             />
           )}
-        {/* Sélection */}
-        {selectedTaskId !== null && rowIndexByTask.has(selectedTaskId) && (
-          <rect
-            x={0}
-            y={rowIndexByTask.get(selectedTaskId)! * ROW_HEIGHT}
-            width={scale.width}
-            height={ROW_HEIGHT}
-            fill="var(--color-accent)"
-            opacity={0.06}
-          />
+        {/* Sélection (simple ou multiple) */}
+        {visible.map((row, i) =>
+          selectedTaskIds.includes(row.task.id) ? (
+            <rect
+              key={`sel-${row.task.id}`}
+              x={0}
+              y={(windowStart + i) * ROW_HEIGHT}
+              width={scale.width}
+              height={ROW_HEIGHT}
+              fill="var(--color-accent)"
+              opacity={0.06}
+            />
+          ) : null,
         )}
         {/* Liens */}
         <LinksLayer
@@ -784,7 +818,12 @@ function RowBars({
   if (task.type === 'milestone') {
     if (!task.date) return null;
     const isMsDrag = drag?.kind === 'move-milestone' && drag.taskId === task.id;
-    const msDay = isMsDrag ? (drag as DragMoveMilestone).day : task.date;
+    const isSelDrag = drag?.kind === 'move-selection' && drag.taskIds.includes(task.id);
+    const msDay = isMsDrag
+      ? (drag as DragMoveMilestone).day
+      : isSelDrag
+        ? addDays(task.date, (drag as DragMoveSelection).deltaDays)
+        : task.date;
     const cx = scale.x(msDay) + scale.dayWidth / 2;
     const msColor = task.color ?? color;
     return (
@@ -939,10 +978,13 @@ function RowBars({
   const handleW = 5;
   const rawHandleX = xStart + activeFrac * (xEnd - xStart) - handleW / 2;
   const handleX = Math.max(xStart, Math.min(xEnd - handleW, rawHandleX));
-  const dragOffset = (blockId: string) =>
-    drag?.kind === 'move' && drag.taskId === task.id && drag.blockId === blockId
-      ? drag.deltaDays * scale.dayWidth
-      : 0;
+  const dragOffset = (blockId: string) => {
+    if (drag?.kind === 'move' && drag.taskId === task.id && drag.blockId === blockId)
+      return drag.deltaDays * scale.dayWidth;
+    if (drag?.kind === 'move-selection' && drag.taskIds.includes(task.id))
+      return drag.deltaDays * scale.dayWidth;
+    return 0;
+  };
 
   return (
     <g className="group">

@@ -1,4 +1,4 @@
-- gantt+multi-sélection : on a ajouté la sélection multiple de ligne. Et on peut déplacer les lignes dans la liste des taches. J'aimerai aussi qu'on puisse déplacer ces lignes dans le gantt. De haut en bas exactement comme dans les taches. Mais aussi de gauche à droite et là ça doit déplacer les barres (ou les jalons) de toutes les lignes sélectionnées d'un coup.
+- gantt+selection : quand on clique dans le vide d'une ligne, ça devrait sélectionner la ligne. Et si on a Ctrl ou Maj de pressé, ça devrait gérer la sélection de plusieurs lignes comme c'est fait pour la liste.
 - gantt : j'aimerai qu'on puisse faire un lien vers un bloc plutot qu'une tache, quels impacts ?
 - gantt : tache à effort, si on ajoute un bloc après un bloc en cours, ça change le passé et la taille du bloc (logique, il faudrait faire quoi ?)
 - gantt : il y a quelque chose de bizarre dans la proposition de plan pour les taches à effort, pour aujourd'hui il propose toujours un nouveau bloc de 1 alors que collé à 1 autre bloc et le 1er bloc recouvre plusieurs autres blocs. Et quand je les bouge, ça reforme 1 seul bloc, très étrange tout ça...
