@@ -4,9 +4,13 @@ import { addDays } from '@/core/calendar/dates';
 import { clearHistory, useAppStore } from './store';
 import {
   addTask,
+  canEncloseInGroup,
   collapseAll,
   convertTaskType,
+  createEnclosingGroup,
+  createSubtaskFromPoint,
   deleteTasks,
+  dissolveGroup,
   expandAll,
   indentTask,
   indentTasks,
@@ -17,6 +21,8 @@ import {
   moveTasksUp,
   outdentTask,
   outdentTasks,
+  resolveCycleBySplit,
+  setBlockDates,
   setTaskEffort,
   setTaskProgress,
   setTaskRemaining,
@@ -210,6 +216,192 @@ describe('actions groupées (sélection multiple)', () => {
     expect(rootOrder()).toEqual([c]);
     useAppStore.temporal.getState().undo();
     expect(rootOrder()).toEqual([a, b, c]);
+  });
+});
+
+describe('createEnclosingGroup', () => {
+  const childrenOf = (parentId: string) =>
+    file()
+      .tasks.filter((t) => t.parentId === parentId)
+      .sort((a, b) => a.order - b.order)
+      .map((t) => t.id);
+
+  it('enveloppe des siblings dans un groupe à leur position', () => {
+    const a = addTask({});
+    const b = addTask({ afterId: a });
+    const c = addTask({ afterId: b });
+    expect(rootOrder()).toEqual([a, b, c]);
+
+    const g = createEnclosingGroup([a, b]);
+    expect(g).not.toBeNull();
+    expect(rootOrder()).toEqual([g, c]);
+    expect(taskOf(g!).type).toBe('group');
+    expect(childrenOf(g!)).toEqual([a, b]);
+  });
+
+  it('refuse une sélection de niveaux différents', () => {
+    const g = addTask({ type: 'group' });
+    const child = addTask({ parentId: g });
+    const root = addTask({});
+    expect(canEncloseInGroup(file(), [child, root])).toBe(false);
+    expect(createEnclosingGroup([child, root])).toBeNull();
+    expect(taskOf(child).parentId).toBe(g);
+  });
+
+  it('hérite du projet et est annulable en une étape', () => {
+    const a = addTask({});
+    const b = addTask({ afterId: a });
+    clearHistory();
+    const g = createEnclosingGroup([a, b]);
+    expect(taskOf(g!).projectId).toBe(taskOf(a).projectId);
+    useAppStore.temporal.getState().undo();
+    expect(rootOrder()).toEqual([a, b]);
+    expect(taskOf(a).parentId).toBe(null);
+  });
+
+  it('dissolveGroup remonte les enfants et supprime le groupe (undo en une étape)', () => {
+    const a = addTask({});
+    const b = addTask({ afterId: a });
+    const c = addTask({ afterId: b });
+    const g = createEnclosingGroup([a, b])!;
+    expect(rootOrder()).toEqual([g, c]);
+    clearHistory();
+    expect(dissolveGroup(g)).toBe(true);
+    expect(file().tasks.find((t) => t.id === g)).toBeUndefined();
+    expect(taskOf(a).parentId).toBe(null);
+    expect(rootOrder()).toEqual([a, b, c]);
+    useAppStore.temporal.getState().undo();
+    expect(rootOrder()).toEqual([g, c]);
+  });
+});
+
+describe('createSubtaskFromPoint', () => {
+  const childrenOf = (parentId: string) =>
+    file()
+      .tasks.filter((t) => t.parentId === parentId)
+      .sort((a, b) => a.order - b.order);
+
+  const setupTask = (id: string) =>
+    useAppStore.getState().mutate((f) => {
+      const t = f.tasks.find((x) => x.id === id)!;
+      t.scheduling = 'effort';
+      t.effort = 5;
+      t.remaining = 5;
+      t.blocks = [{ id: 'bb', from: '2026-07-01', to: null, assignments: [] }];
+    });
+
+  it('découpe en groupe { tête, insérée, queue } avec effort conservé et liens', () => {
+    const a = addTask({});
+    setupTask(a);
+    // Jul 1 = mer ; 2 jours ouvrés (Jul 1, 2) avant le 3
+    const inserted = createSubtaskFromPoint(a, '2026-07-03', { effort: 1 });
+    expect(inserted).not.toBeNull();
+
+    expect(taskOf(a).type).toBe('group');
+    const kids = childrenOf(a);
+    expect(kids.map((k) => k.name)).toEqual([
+      'Nouvelle tâche (1)',
+      'Nouvelle tâche',
+      'Nouvelle tâche (2)',
+    ]);
+    const [head, ins, tail] = kids;
+    expect(head!.effort).toBe(2);
+    expect(ins!.effort).toBe(1);
+    expect(tail!.effort).toBe(2); // l'insérée est prise SUR la queue (5 = 2 + 1 + 2)
+    // total conservé : on ne passe pas de 5 à 6 j-h en insérant une sous-tâche
+    expect(head!.effort + ins!.effort + tail!.effort).toBe(5);
+    expect(ins!.id).toBe(inserted);
+    expect(ins!.links).toEqual([{ on: head!.id, type: 'after-end', lag: 0 }]);
+    expect(tail!.links).toEqual([{ on: ins!.id, type: 'after-end', lag: 0 }]);
+    // la tête ferme son bloc, la queue garde le bloc ouvert
+    expect(head!.blocks.every((b) => b.to !== null)).toBe(true);
+    expect(tail!.blocks.some((b) => b.to === null)).toBe(true);
+  });
+
+  it('refuse si `at` tombe hors de la tâche', () => {
+    const a = addTask({});
+    setupTask(a);
+    expect(createSubtaskFromPoint(a, '2026-07-01', {})).toBeNull(); // = début du span
+    expect(taskOf(a).type).toBe('task');
+  });
+
+  it('un seul mutate = une étape d’undo', () => {
+    const a = addTask({});
+    setupTask(a);
+    clearHistory();
+    createSubtaskFromPoint(a, '2026-07-03', {});
+    expect(file().tasks.length).toBe(4); // groupe + 3 feuilles
+    useAppStore.temporal.getState().undo();
+    expect(file().tasks.length).toBe(1);
+    expect(taskOf(a).type).toBe('task');
+  });
+
+  it('la sous-tâche insérée hérite du mode de planification (fixed → bloc fermé)', () => {
+    const a = addTask({});
+    useAppStore.getState().mutate((f) => {
+      const t = f.tasks.find((x) => x.id === a)!;
+      t.scheduling = 'fixed';
+      t.blocks = [{ id: 'bb', from: '2026-07-01', to: '2026-07-10', assignments: [] }];
+    });
+    const inserted = createSubtaskFromPoint(a, '2026-07-03', { effort: 1 })!;
+    const ins = taskOf(inserted);
+    expect(ins.scheduling).toBe('fixed');
+    expect(ins.blocks[0]!.to).not.toBeNull(); // bloc fermé (dates explicites)
+  });
+
+  it('la queue démarre après la fin de l’insérée (pas de chevauchement)', () => {
+    const a = addTask({});
+    setupTask(a);
+    const inserted = createSubtaskFromPoint(a, '2026-07-03', { effort: 1 })!;
+    const kids = childrenOf(a);
+    const insFrom = taskOf(inserted).blocks[0]!.from;
+    const tailFrom = kids[2]!.blocks[0]!.from;
+    expect(tailFrom > insFrom).toBe(true);
+  });
+
+  it('resolveCycleBySplit est un no-op (null) si le successeur n’est pas une tâche', () => {
+    const g = addTask({ type: 'group' });
+    const b = addTask({});
+    expect(resolveCycleBySplit(g, b)).toBeNull();
+    expect(taskOf(g).type).toBe('group');
+  });
+
+  it('resolveCycleBySplit casse un cycle direct A↔B', () => {
+    const a = addTask({});
+    const b = addTask({ afterId: a });
+    setupTask(a);
+    // B dépend de A
+    useAppStore.getState().mutate((f) => {
+      f.tasks.find((x) => x.id === b)!.links = [{ on: a, type: 'after-end', lag: 0 }];
+    });
+    const tail = resolveCycleBySplit(a, b);
+    expect(tail).not.toBeNull();
+    expect(taskOf(a).type).toBe('group');
+    const head = childrenOf(a)[0]!;
+    // la dépendance de B est re-pointée sur la tête (plus sur le groupe)
+    expect(taskOf(b).links[0]!.on).toBe(head.id);
+    // la queue dépend désormais de B
+    expect(taskOf(tail!).links.some((l) => l.on === b)).toBe(true);
+  });
+});
+
+describe('setBlockDates — bloc 0 jour', () => {
+  it('to < from → bloc 0 jour (to = from, zero) ; revenir à ≥ from efface zero', () => {
+    const a = addTask({});
+    useAppStore.getState().mutate((f) => {
+      const t = f.tasks.find((x) => x.id === a)!;
+      t.scheduling = 'fixed';
+      t.blocks = [{ id: 'b', from: '2026-07-06', to: '2026-07-10', assignments: [] }];
+    });
+    // tirer la fin avant le début → 0 jour
+    setBlockDates(a, 'b', '2026-07-06', '2026-07-03');
+    const blk = () => taskOf(a).blocks[0]!;
+    expect(blk().to).toBe('2026-07-06');
+    expect(blk().zero).toBe(true);
+    // re-tirer la fin après le début → bloc normal, drapeau effacé
+    setBlockDates(a, 'b', '2026-07-06', '2026-07-09');
+    expect(blk().to).toBe('2026-07-09');
+    expect(blk().zero).toBeUndefined();
   });
 });
 

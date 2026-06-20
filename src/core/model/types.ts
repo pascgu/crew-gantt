@@ -79,6 +79,11 @@ export interface TaskLink {
   lag: number;
   /** Pour `after-progress` : ancre en jours travaillés du prédécesseur. */
   progressDays?: number;
+  /**
+   * Ancre côté successeur : la contrainte s'applique au point « N jours travaillés » de la tâche
+   * porteuse du lien (et non à son début). Robuste au redécoupage. Sans valeur : contraint le début.
+   */
+  targetDays?: number;
 }
 
 export interface Assignment {
@@ -96,6 +101,8 @@ export interface Block {
   from: IsoDate;
   to: IsoDate | null;
   assignments: Assignment[];
+  /** Bloc « 0 jour » (note/micro-rappel) : `to === from` mais compte 0 j-h de capacité. */
+  zero?: boolean;
 }
 
 export type TaskType = 'task' | 'milestone' | 'group';

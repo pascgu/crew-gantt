@@ -15,9 +15,13 @@ export function EditableText({ value, onCommit, className, placeholder, bold, au
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLInputElement>(null);
+  // Tout sélectionner uniquement quand l'édition vient d'un renommage (autoEdit/F2), pas d'un clic :
+  // un clic doit poser le curseur à l'endroit cliqué sans avaler la saisie suivante.
+  const selectAllOnEdit = useRef(false);
 
   useEffect(() => {
     if (autoEdit && !editing) {
+      selectAllOnEdit.current = true;
       setEditing(true);
       onAutoEditConsumed?.();
     }
@@ -27,7 +31,8 @@ export function EditableText({ value, onCommit, className, placeholder, bold, au
     if (editing) {
       setDraft(value);
       ref.current?.focus();
-      ref.current?.select();
+      if (selectAllOnEdit.current) ref.current?.select();
+      selectAllOnEdit.current = false;
     }
   }, [editing, value]);
 
@@ -44,6 +49,11 @@ export function EditableText({ value, onCommit, className, placeholder, bold, au
   return (
     <input
       ref={ref}
+      draggable={false}
+      // Empêche l'ancêtre draggable (ligne du tableau) de capturer le clic : sans ça, le clic ne
+      // repositionne pas le curseur et la sélection « tout » persiste.
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
       className={`block w-full rounded border border-accent bg-surface px-1 py-px outline-none ${className ?? ''}`}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}

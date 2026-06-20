@@ -7,14 +7,20 @@ import { realizedOf, remainingForEndDate, scheduledEffort } from '@/core/schedul
 import type { Schedule } from '@/core/scheduler/schedule';
 import type { Assignment, IsoDate, Task } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
+import { useUiStore } from '@/state/uiStore';
 import { reassignTask } from '@/state/meetingActions';
 import {
   addBlockToTask,
   addLink,
+  canEncloseInGroup,
+  createEnclosingGroup,
+  createSubtaskFromPoint,
   deleteBlock,
+  dissolveGroup,
   mergeOverlappingBlocks,
   mergeWithNextBlock,
   moveBlock,
+  resolveCycleBySplit,
   resyncRemaining,
   setBlockAssignments,
   setBlockDates,
@@ -170,6 +176,31 @@ export function GanttChart({
   const setSelectedRange = useAppStore((s) => s.setSelectedRange);
   /** La ligne `id` fait-elle partie d'une sélection multiple (≥2) ? */
   const isMultiSel = (id: string) => selectedTaskIds.length > 1 && selectedTaskIds.includes(id);
+
+  // Shift tenu : curseur « lien ancré » (indice du geste « depuis / vers N jours »).
+  const [shiftHeld, setShiftHeld] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setShiftHeld(e.type === 'keydown');
+    };
+    // La perte de focus (ex. un window.confirm) avale le keyup de Shift → on réinitialise.
+    const onBlur = () => setShiftHeld(false);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKey);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKey);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, []);
+
+  /** Sélectionne une nouvelle ligne et ouvre l'édition de son nom. */
+  const focusNew = (id: string | null) => {
+    if (!id) return;
+    selectTask(id);
+    useUiStore.getState().setEditingTaskId(id);
+  };
 
   const rangeBetween = (anchorId: string, targetId: string): string[] => {
     const a = rows.findIndex((r) => r.task.id === anchorId);
@@ -333,6 +364,8 @@ export function GanttChart({
   }
 
   function onPointerMove(e: ReactPointerEvent) {
+    // Resynchronise l'état Shift (au cas où un keyup aurait été manqué : dialog, perte de focus…).
+    if (e.shiftKey !== shiftHeld) setShiftHeld(e.shiftKey);
     const pan = panRef.current;
     if (pan && !drag) {
       const dx = e.clientX - pan.x;
@@ -397,19 +430,28 @@ export function GanttChart({
     } else if (drag.kind === 'move-milestone') {
       updateTask(drag.taskId, { date: drag.day });
     } else if (drag.kind === 'resize-start') {
-      const from = drag.day <= drag.otherEdge ? drag.day : drag.otherEdge;
+      const from = drag.day; // pas de borne : croiser la fin encode un bloc « 0 jour »
       const startResizeTask = schedule.ctx.file.tasks.find((t) => t.id === drag.taskId);
       if (startResizeTask?.scheduling === 'effort') {
-        // Déplacer le début d'une tâche effort : le passé change → réalisé recalculé, effort conservé.
+        // Poignée de début : on garde la FIN fixe et on ajuste le reste (≡ ce que montre l'infobulle).
+        // Tirer le début vers la gauche allonge (plus de reste), vers la droite raccourcit ; croiser la
+        // fin → reste 0 (tâche à 0 j). `drag.otherEdge` = la fin du bloc.
+        const remaining = remainingForEndDate(
+          schedule.ctx,
+          startResizeTask,
+          drag.blockId,
+          drag.otherEdge,
+          from,
+        );
         setBlockDates(drag.taskId, drag.blockId, from, null);
-        resyncRemaining(drag.taskId);
+        setTaskRemaining(drag.taskId, Math.max(0, remaining));
       } else {
         // Mode fixed : toujours passer un `to` explicite (jamais null, même pour un bloc ouvert)
         setBlockDates(drag.taskId, drag.blockId, from, drag.otherEdge);
         mergeOverlappingBlocks(drag.taskId);
       }
     } else if (drag.kind === 'resize-end') {
-      const to = drag.day >= drag.otherEdge ? drag.day : drag.otherEdge;
+      const to = drag.day; // pas de borne : croiser le début → reste 0 (effort) ou bloc « 0 jour » (fixed)
       const resizeTask = schedule.ctx.file.tasks.find((t) => t.id === drag.taskId);
       if (resizeTask?.scheduling === 'effort') {
         // Poignée de fin (ou bloc fermé converti) : ajuster le reste, ouvrir le bloc si nécessaire
@@ -426,22 +468,28 @@ export function GanttChart({
       // Avancement = % saisi, indépendant du réalisé/reste — pour les deux types de tâches.
       setTaskProgress(drag.taskId, Math.max(0, Math.min(1, drag.frac)));
     } else if (drag.kind === 'link' && drag.targetTaskId) {
-      if (drag.anchorDate) {
-        const progressDays = workedDaysUpTo(schedule.linkInputs, drag.sourceTaskId, drag.anchorDate);
-        const error = addLink(drag.targetTaskId, {
-          on: drag.sourceTaskId,
-          type: 'after-progress',
-          progressDays: Math.max(0.5, progressDays),
-          lag: 0,
-        });
-        if (error) window.alert(error);
-      } else {
-        const error = addLink(drag.targetTaskId, {
-          on: drag.sourceTaskId,
-          type: 'after-end',
-          lag: 0,
-        });
-        if (error) window.alert(error);
+      const targetId = drag.targetTaskId;
+      const sourceId = drag.sourceTaskId;
+      // Ancre prédécesseur : Shift au départ → « après N j » (anchorDate), sinon « après la fin ».
+      const link: Parameters<typeof addLink>[1] = drag.anchorDate
+        ? {
+            on: sourceId,
+            type: 'after-progress',
+            progressDays: Math.max(0.5, workedDaysUpTo(schedule.linkInputs, sourceId, drag.anchorDate)),
+            lag: 0,
+          }
+        : { on: sourceId, type: 'after-end', lag: 0 };
+      // Ancre successeur : Shift au relâchement → « vers N j » au point de drop, sinon au début.
+      if (shiftHeld) {
+        const td = workedDaysUpTo(schedule.linkInputs, targetId, scale.dateAt(drag.toX));
+        if (td > 0) link.targetDays = Math.max(0.5, td);
+      }
+      const error = addLink(targetId, link);
+      // Cycle refusé : proposer de scinder le successeur (sa fin devient une sous-tâche dépendante).
+      if (error && window.confirm(t('links.cycleSplitPrompt'))) {
+        if (!resolveCycleBySplit(targetId, sourceId)) window.alert(t('links.cycleSplitImpossible'));
+      } else if (error) {
+        window.alert(error);
       }
     }
     setDrag(null);
@@ -461,10 +509,20 @@ export function GanttChart({
     const earliestResult = schedule.earliestByTask.get(task.id);
     const earliestDate = earliestResult?.date ?? null;
     const snapBlock = task.blocks.find((b) => b.id === blockId);
+    const multiGroup =
+      isMultiSel(task.id) && canEncloseInGroup(schedule.ctx.file, selectedTaskIds);
     setMenu({
       x: e.clientX,
       y: e.clientY,
       entries: [
+        ...(multiGroup
+          ? [
+              {
+                label: t('tasks.createEnclosingGroup'),
+                onClick: () => focusNew(createEnclosingGroup(selectedTaskIds)),
+              },
+            ]
+          : []),
         {
           label: t('gantt.changeAssign'),
           onClick: () => {
@@ -476,6 +534,11 @@ export function GanttChart({
           label: `✂ ${t('gantt.cutHere')} (${cutDay.slice(8)}/${cutDay.slice(5, 7)})`,
           disabled: !r || cutDay <= r.from || cutDay > r.to,
           onClick: () => r && splitBlock(task.id, blockId, cutDay, r.to),
+        },
+        {
+          label: t('gantt.subtaskFromHere'),
+          disabled: task.type !== 'task',
+          onClick: () => focusNew(createSubtaskFromPoint(task.id, cutDay)),
         },
         {
           label: t('gantt.mergeNext'),
@@ -504,12 +567,29 @@ export function GanttChart({
     e.preventDefault();
     const rect = svgRef.current!.getBoundingClientRect();
     const day = scale.dateAt(e.clientX - rect.left);
-    if (task.type !== 'task') return;
-    setMenu({
-      x: e.clientX,
-      y: e.clientY,
-      entries: [{ label: t('gantt.addBlock'), onClick: () => addBlockToTask(task.id, day) }],
-    });
+    // « Groupe englobant » : sur la sélection si la ligne en fait partie, sinon la ligne seule (≥ 1).
+    const groupIds =
+      selectedTaskIds.includes(task.id) && selectedTaskIds.length > 0 ? selectedTaskIds : [task.id];
+    const canGroup = canEncloseInGroup(schedule.ctx.file, groupIds);
+    const entries: MenuEntry[] = [
+      {
+        label: t('tasks.createEnclosingGroup'),
+        disabled: !canGroup,
+        title: canGroup ? undefined : t('tasks.createEnclosingGroupHint'),
+        onClick: () => focusNew(createEnclosingGroup(groupIds)),
+      },
+    ];
+    if (task.type === 'group') {
+      entries.push({ label: t('tasks.ungroup'), onClick: () => dissolveGroup(task.id) });
+    }
+    if (task.type === 'task') {
+      entries.push({ label: t('gantt.addBlock'), onClick: () => addBlockToTask(task.id, day) });
+      entries.push({
+        label: t('gantt.subtaskFromHere'),
+        onClick: () => focusNew(createSubtaskFromPoint(task.id, day)),
+      });
+    }
+    setMenu({ x: e.clientX, y: e.clientY, entries });
   }
 
   // ——— Couches ———
@@ -641,7 +721,6 @@ export function GanttChart({
         )}
         {/* Liens */}
         <LinksLayer
-          rows={rows}
           schedule={schedule}
           scale={scale}
           rowIndexByTask={rowIndexByTask}
@@ -680,6 +759,7 @@ export function GanttChart({
               hasConflict={conflictTaskIds.has(row.task.id)}
               drag={drag}
               ctrlHeld={ctrlHeld}
+              shiftHeld={shiftHeld}
               isLinkTarget={drag?.kind === 'link' && drag.targetTaskId === row.task.id}
               onBlockPointerDown={startMove}
               onResizePointerDown={startResize}
@@ -745,11 +825,9 @@ export function GanttChart({
           const ty = rowIdx * ROW_HEIGHT + ROW_HEIGHT / 2;
           let remaining: number;
           if (drag.kind === 'resize-end') {
-            const to = drag.day >= drag.otherEdge ? drag.day : drag.otherEdge;
-            remaining = remainingForEndDate(schedule.ctx, rt, drag.blockId, to);
+            remaining = remainingForEndDate(schedule.ctx, rt, drag.blockId, drag.day);
           } else {
-            const from = drag.day <= drag.otherEdge ? drag.day : drag.otherEdge;
-            remaining = remainingForEndDate(schedule.ctx, rt, drag.blockId, drag.otherEdge, from);
+            remaining = remainingForEndDate(schedule.ctx, rt, drag.blockId, drag.otherEdge, drag.day);
           }
           const label = t('gantt.remainingTooltip', { days: Math.round(remaining * 10) / 10 });
           const labelWidth = label.length * 6.5 + 8;
@@ -805,6 +883,7 @@ interface RowBarsProps {
   hasConflict: boolean;
   drag: Drag | null;
   ctrlHeld: boolean;
+  shiftHeld: boolean;
   isLinkTarget: boolean;
   onBlockPointerDown: (e: ReactPointerEvent, task: Task, blockId: string) => void;
   onResizePointerDown: (
@@ -830,6 +909,7 @@ function RowBars({
   hasConflict,
   drag,
   ctrlHeld,
+  shiftHeld,
   isLinkTarget,
   onBlockPointerDown,
   onResizePointerDown,
@@ -872,7 +952,51 @@ function RowBars({
 
   if (task.type === 'group') {
     const agg = schedule.groupAggByTask.get(task.id);
-    if (!agg || !agg.span) return null;
+    if (!agg || !agg.span) {
+      // Groupe sans barre (ex. ne contient que des jalons) : afficher le nom + une fine liaison +
+      // les losanges, ANCRÉS sur les jalons descendants (pas à x=0, sinon invisibles si on a défilé).
+      const msDates = schedule.hierarchy
+        .descendantsOf(task.id)
+        .filter((d) => d.type === 'milestone' && d.date)
+        .map((d) => d.date!)
+        .sort();
+      const firstX = msDates.length ? scale.x(msDates[0]!) : 4;
+      const lastX = msDates.length ? scale.x(msDates[msDates.length - 1]!) + scale.dayWidth : firstX;
+      const lineColor = darken(color, 0.45); // teinte « jalon », plus sombre
+      // Côté du nom selon le réglage « si le texte ne tient pas » (la barre est inexistante ici).
+      const nameBefore = centerOverflow === 'before';
+      return (
+        <g>
+          {msDates.length > 1 && (
+            <rect x={firstX} y={mid - 1} width={lastX - firstX} height={2} fill={lineColor} />
+          )}
+          {row.collapsedMilestones.map(
+            (m) =>
+              m.date && (
+                <Diamond
+                  key={m.id}
+                  cx={scale.x(m.date) + scale.dayWidth / 2}
+                  cy={mid}
+                  size={5}
+                  color={m.color ?? color}
+                />
+              ),
+          )}
+          <text
+            x={nameBefore ? firstX - 4 : lastX + 4}
+            y={mid + ganttFontSize / 2 - 1}
+            fontSize={ganttFontSize}
+            fontWeight="bold"
+            textAnchor={nameBefore ? 'end' : 'start'}
+            fill="var(--color-ink-soft)"
+            pointerEvents="none"
+          >
+            {task.name}
+          </text>
+          {isLinkTarget && <TargetHalo width={scale.width} />}
+        </g>
+      );
+    }
     const border = darken(color, 0.45);
     const progressW = progressBarDays(agg.span, agg.progress) * scale.dayWidth;
     const gx0 = scale.x(agg.span.start);
@@ -1001,6 +1125,9 @@ function RowBars({
     return isLinkTarget ? <TargetHalo width={scale.width} /> : null;
   }
   const span = { start: resolved[0]!.from, end: resolved[resolved.length - 1]!.to };
+  // Tâche à 0 j-h (volontaire : note / micro-rappel) → petit marqueur au lieu d'une barre d'un jour.
+  const zeroEffort =
+    (task.scheduling === 'effort' ? task.effort : scheduledEffort(schedule.ctx, task, resolved)) <= 1e-9;
   const progress = taskProgress(task);
   const realized = realizedOf(schedule.ctx, task);
   const xStart = scale.x(span.start);
@@ -1041,13 +1168,13 @@ function RowBars({
         let from = r.from;
         let to = r.to;
         if (drag?.kind === 'resize-start' && drag.taskId === task.id && drag.blockId === r.block.id) {
-          from = drag.day <= drag.otherEdge ? drag.day : drag.otherEdge;
+          from = drag.day;
         }
         if (drag?.kind === 'resize-end' && drag.taskId === task.id && drag.blockId === r.block.id) {
-          to = drag.day >= drag.otherEdge ? drag.day : drag.otherEdge;
+          to = drag.day;
         }
         const x = scale.x(from) + dragOffset(r.block.id);
-        const w = Math.max(4, scale.xEnd(to) - scale.x(from));
+        const w = zeroEffort ? 5 : Math.max(4, scale.xEnd(to) - scale.x(from));
         const openEnd = r.block.to === null;
         // effort = coins arrondis (fin calculée, souple) ; fixed = coins carrés (dates posées)
         const rx = task.scheduling === 'effort' ? 3 : 0;
@@ -1073,6 +1200,7 @@ function RowBars({
               stroke={r.overflow || hasConflict ? 'var(--color-danger)' : darken(color, 0.3)}
               strokeWidth={r.overflow || hasConflict ? 1.6 : 0.5}
               className="cursor-grab active:cursor-grabbing"
+              style={shiftHeld ? { cursor: 'crosshair' } : undefined}
               onPointerDown={(e) => onBlockPointerDown(e, task, r.block.id)}
               onContextMenu={(e) => onBlockContextMenu(e, task, r.block.id)}
             >
@@ -1227,13 +1355,13 @@ function RowBars({
         let from = r.from;
         let to = r.to;
         if (drag?.kind === 'resize-start' && drag.taskId === task.id && drag.blockId === r.block.id) {
-          from = drag.day <= drag.otherEdge ? drag.day : drag.otherEdge;
+          from = drag.day;
         }
         if (drag?.kind === 'resize-end' && drag.taskId === task.id && drag.blockId === r.block.id) {
-          to = drag.day >= drag.otherEdge ? drag.day : drag.otherEdge;
+          to = drag.day;
         }
         const bx = scale.x(from) + dragOff;
-        const bw = Math.max(4, scale.xEnd(to) - scale.x(from));
+        const bw = zeroEffort ? 5 : Math.max(4, scale.xEnd(to) - scale.x(from));
         return (
           <rect
             key={`end-${r.block.id}`}
@@ -1257,7 +1385,12 @@ function RowBars({
 function cellText(task: Task, key: ColKey, schedule: Schedule): string {
   switch (key) {
     case 'name': return task.name;
-    case 'group': return task.type === 'group' ? task.name : '';
+    case 'group': {
+      // Colonne « Groupe » = nom du groupe parent (utile sur une feuille). Pour un groupe, vide :
+      // son nom est déjà porté par la colonne « Tâche » → évite le doublon dans les barres.
+      const parent = task.parentId ? schedule.hierarchy.tasksById.get(task.parentId) : null;
+      return parent && parent.type === 'group' ? parent.name : '';
+    }
     case 'project': {
       const p = schedule.ctx.file.projects.find((x) => x.id === task.projectId);
       return p?.name ?? '';
@@ -1436,13 +1569,11 @@ function ProposalGhost({
 // ——— Liens entre tâches ———
 
 function LinksLayer({
-  rows,
   schedule,
   scale,
   rowIndexByTask,
   chainPairs,
 }: {
-  rows: GanttRow[];
   schedule: Schedule;
   scale: TimeScale;
   rowIndexByTask: ReadonlyMap<string, number>;
@@ -1451,18 +1582,29 @@ function LinksLayer({
   type Arrow = { x: number; y: number; dir: 'right' | 'down' };
   const paths: { d: string; violated: boolean; inChain: boolean; key: string; arrow: Arrow }[] = [];
 
-  for (const row of rows) {
-    const task = row.task;
+  // Une feuille repliée (cachée) reporte son lien sur la ligne de son ancêtre visible le plus proche.
+  const resolveRow = (taskId: string): number | undefined => {
+    let id: string | null | undefined = taskId;
+    while (id != null) {
+      const idx = rowIndexByTask.get(id);
+      if (idx !== undefined) return idx;
+      id = schedule.hierarchy.tasksById.get(id)?.parentId ?? null;
+    }
+    return undefined;
+  };
+
+  for (const task of schedule.ctx.file.tasks) {
     if (task.links.length === 0) continue;
-    const targetIndex = rowIndexByTask.get(task.id);
+    const targetIndex = resolveRow(task.id);
     if (targetIndex === undefined) continue;
     const targetSpan = schedule.spanByTask.get(task.id);
     if (!targetSpan) continue;
     const earliest = schedule.earliestByTask.get(task.id);
 
     for (const [li, link] of task.links.entries()) {
-      const sourceIndex = rowIndexByTask.get(link.on);
-      if (sourceIndex === undefined) continue;
+      const sourceIndex = resolveRow(link.on);
+      // Lien entièrement interne à un groupe replié (deux feuilles cachées) : rien à tracer.
+      if (sourceIndex === undefined || sourceIndex === targetIndex) continue;
       const sourceSpan = schedule.spanByTask.get(link.on);
       if (!sourceSpan) continue;
 
@@ -1476,9 +1618,20 @@ function LinksLayer({
         sx = scale.xEnd(sourceSpan.end);
       }
       const sy = sourceIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
-      const tx = scale.x(targetSpan.start);
+
+      // Ancre cible : point interne « N jours » (targetDays) si défini, sinon le début de la tâche.
+      let targetAnchor = targetSpan.start;
+      let violated: boolean;
+      if (link.targetDays != null) {
+        const reached = workedDaysReachedOn(schedule.linkInputs, task.id, link.targetDays);
+        if (reached) targetAnchor = reached;
+        const required = earliest?.perLink.find((p) => p.link === link)?.date ?? null;
+        violated = Boolean(required && targetAnchor < required);
+      } else {
+        violated = Boolean(earliest?.date && targetSpan.start < earliest.date);
+      }
+      const tx = scale.x(targetAnchor);
       const ty = targetIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
-      const violated = Boolean(earliest?.date && targetSpan.start < earliest.date);
       const bend = sx + 7;
       // Lien « retour arrière » : la cible démarre à gauche du coude. On remonte le trait
       // de retour en haut de la ligne cible (au-dessus de la barre/losange) puis on redescend

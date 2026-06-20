@@ -64,14 +64,14 @@ export function proposePlan(file: TeamFile, today: IsoDate): Proposal | null {
   const groupAggByTask = new Map(
     file.tasks
       .filter((t) => t.type === 'group')
-      .map((t) => [t.id, aggregateGroup(hierarchy.descendantsOf(t.id), resolvedByTask)] as const),
+      .map((t) => [t.id, aggregateGroup(ctx, hierarchy.descendantsOf(t.id), resolvedByTask)] as const),
   );
   const inputs: LinkInputs = { ctx, hierarchy, resolvedByTask, groupAggByTask };
 
   const refreshGroups = () => {
     for (const t of file.tasks) {
       if (t.type === 'group') {
-        groupAggByTask.set(t.id, aggregateGroup(hierarchy.descendantsOf(t.id), resolvedByTask));
+        groupAggByTask.set(t.id, aggregateGroup(ctx, hierarchy.descendantsOf(t.id), resolvedByTask));
       }
     }
   };

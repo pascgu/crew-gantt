@@ -59,6 +59,7 @@ const taskLinkSchema = z.object({
   type: z.enum(['after-end', 'with-start', 'after-progress']),
   lag: z.number().int().default(0),
   progressDays: z.number().min(0).optional(),
+  targetDays: z.number().min(0).optional(),
 });
 
 const assignmentSchema = z.object({
@@ -71,6 +72,7 @@ const blockSchema = z.object({
   from: isoDate,
   to: isoDate.nullable().default(null),
   assignments: z.array(assignmentSchema).default([]),
+  zero: z.boolean().optional(),
 });
 
 const taskNoteSchema = z.object({

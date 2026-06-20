@@ -25,6 +25,7 @@ export function blockCapacityOnDay(
   block: Block,
   day: IsoDate,
 ): number {
+  if (block.zero) return 0; // bloc « 0 jour » : aucune capacité
   let total = 0;
   for (const a of block.assignments) {
     total += ctx.assignmentCapacity(a.resourceId, task.projectId, a.units, day);
@@ -43,6 +44,7 @@ export function effortCapacityOnDay(
   block: Block,
   day: IsoDate,
 ): number {
+  if (block.zero) return 0; // bloc « 0 jour » : aucune capacité
   if (block.assignments.length > 0) return blockCapacityOnDay(ctx, task, block, day);
   return ctx.isGlobalWorkingDay(day) ? 1 : 0;
 }

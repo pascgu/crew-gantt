@@ -95,6 +95,7 @@ export const fr = {
   },
   tasks: {
     newName: 'Nouvelle tâche',
+    newGroupName: 'Nouveau groupe',
     columns: {
       name: 'Tâche',
       project: 'Projet',
@@ -129,6 +130,12 @@ export const fr = {
     addChild: 'Ajouter une sous-tâche',
     addAfter: 'Insérer une tâche après',
     addAtLevel: 'Ajouter une tâche au niveau {level}',
+    createEnclosingGroup: 'Créer un groupe englobant',
+    createEnclosingGroupHint: 'Les lignes sélectionnées doivent être au même niveau.',
+    ungroup: 'Dégrouper',
+    subtaskFromHere: 'Créer une sous-tâche à partir d’ici',
+    subtaskFromHereHint: 'Disponible sur une tâche datée (découpe son travail en deux).',
+    effortBreakdown: 'Effort : propre {own} · sous-tâches {sub} · total {total} (j-h)',
     rowActions: 'Actions',
     convertTo: {
       task: 'Convertir en tâche',
@@ -155,6 +162,7 @@ export const fr = {
     friezeMore: '+{count} jalons',
     allProjects: 'Tous les projets',
     cutHere: 'Couper ici',
+    subtaskFromHere: 'Créer une sous-tâche à partir d’ici',
     mergeNext: 'Fusionner avec le bloc suivant',
     addBlock: 'Ajouter un bloc de travail ici',
     deleteBlock: 'Supprimer ce bloc',
@@ -187,10 +195,17 @@ export const fr = {
     remove: 'Retirer ce lien',
     cycleRefused:
       'Lien refusé : il créerait un cycle de dépendances (A attend B qui attend A). Réorganisez les liens existants d’abord.',
+    cycleSplitPrompt:
+      'Ce lien créerait un cycle (A attend B qui attend A). Scinder la tâche pour le résoudre ? Sa fin devient une sous-tâche dépendante.',
+    cycleSplitImpossible:
+      'Ce cycle ne peut pas être résolu par un simple découpage (dépendances indirectes). Réorganisez d’abord les liens existants.',
     earliest: 'Au plus tôt : {date}',
+    targetDays: 'Sur le successeur, à N jours',
+    targetDaysHint: 'La contrainte s’applique à ce point de la tâche, pas à son début.',
   },
   panel: {
     edit: 'Édition',
+    effortBreakdownTitle: 'Effort (avec sous-tâches)',
     description: 'Description',
     requirements: 'Prérequis (compétences, conditions…)',
     requirementsHint: 'Affiché au moment d’affecter.',
@@ -446,10 +461,13 @@ export const fr = {
       dragBar: 'Glisser une barre — déplacer le bloc de travail',
       dragEdge: 'Glisser un bord de barre — avancer/retarder le début ou la fin',
       progressDrag: "Glisser l'encoche noire — régler l'avancement (% saisi, indépendant du réalisé/reste)",
-      linkHandle: 'Poignée ronde en bout de barre — créer un lien vers une autre tâche',
-      shiftDrag: 'Shift + glisser depuis une barre — lien « après N jours de travail »',
-      rightClickBar: 'Clic droit sur un bloc — couper / fusionner / supprimer',
-      rightClickRow: 'Clic droit sur une ligne vide — ajouter un bloc de travail ici',
+      linkHandle: 'Poignée ronde en bout de barre — créer un lien (« après la fin », vers le début de la cible)',
+      shiftDrag: 'Shift + glisser depuis une barre — ancrer le lien « après N jours » sur le prédécesseur',
+      shiftDrop: 'Shift en relâchant sur la cible — ancrer « après N jours » sur le successeur (sinon : à son début)',
+      rightClickBar: 'Clic droit sur un bloc — couper / fusionner / créer une sous-tâche ici / supprimer',
+      rightClickRow: 'Clic droit sur une ligne — groupe englobant / dégrouper / ajouter un bloc / sous-tâche',
+      enclosingGroup: 'Clic droit sur une sélection (≥ 1 ligne) — créer un groupe englobant (ou dégrouper)',
+      cycleSplit: 'Lien qui boucle — proposition de « scinder » la tâche pour résoudre le cycle',
       panDrag: 'Glisser le fond du Gantt (clic gauche) — se déplacer dans le plan',
       middleClick: 'Clic milieu — défilement automatique',
       ctrlWheel: 'Ctrl + molette — zoomer (jour ↔ trimestre)',
@@ -470,7 +488,7 @@ export const fr = {
         "Une tâche est une suite de blocs de travail datés. Clic droit sur sa ligne dans le Gantt pour poser un premier bloc, puis glissez-le ou étirez ses bords. Le dernier bloc peut rester « à fin calculée » : il absorbe le reste à faire selon les affectations.",
       s3Title: '3. Lier les tâches',
       s3Body:
-        "Attrapez la poignée ronde en bout de barre et relâchez sur la tâche qui doit attendre. Shift + glisser depuis un point du bloc crée un lien « après N jours de travail ». Les liens sont des bornes au plus tôt : rien ne bouge sans votre accord.",
+        "Attrapez la poignée ronde en bout de barre et relâchez sur la tâche qui doit attendre. Les deux extrémités s'ancrent au choix : tenir Shift AU DÉPART ancre « après N jours de travail » du prédécesseur (sinon « après sa fin ») ; tenir Shift EN RELÂCHANT ancre « après N jours » du successeur (sinon à son début). Les liens sont des bornes au plus tôt : rien ne bouge sans votre accord. Un lien qui boucle est refusé — l'outil propose alors de « scinder » la tâche pour le résoudre.",
       s4Title: '4. Affecter les personnes',
       s4Body:
         "Double-clic sur une tâche pour ouvrir son panneau : chaque bloc porte ses affectations (% du temps projet). L'onglet Équipe gère calendriers personnels et parts projet ; le bandeau de charge en bas du Gantt montre qui est chargé ou libre.",
@@ -480,6 +498,9 @@ export const fr = {
       s6Title: '6. Suivre chaque semaine',
       s6Body:
         "L'onglet Réunion sert au rituel hebdo : mettre à jour les restes à faire, saisir les absences, réaffecter. L'outil signale les conflits et propose un réordonnancement — vous l'appliquez, l'ajustez ou l'ignorez.",
+      s7Title: '7. Grouper & interrompre',
+      s7Body:
+        "Clic droit sur une sélection (même une seule ligne) → « Créer un groupe englobant » ; « Dégrouper » fait l'inverse. Pour interrompre une tâche par un travail inséré (ex. un écran à faire au milieu), clic droit sur sa barre → « Créer une sous-tâche à partir d'ici » : la tâche devient un groupe { (1), insérée, (2) }, l'effort propre est conservé et réparti. L'effort « propre · sous-tâches · total » d'un parent s'affiche en infobulle (colonne Effort) et dans le panneau de détail.",
     },
   },
   common: {

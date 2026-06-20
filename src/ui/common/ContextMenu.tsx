@@ -6,6 +6,8 @@ export interface MenuEntry {
   onClick: () => void;
   disabled?: boolean;
   danger?: boolean;
+  /** Infobulle (ex. explication d'une entrée grisée). */
+  title?: string;
 }
 
 interface ContextMenuProps {
@@ -50,6 +52,7 @@ export function ContextMenu({ x, y, entries, onClose }: ContextMenuProps) {
         <button
           key={i}
           disabled={entry.disabled}
+          title={entry.title}
           className={`block w-full px-3 py-1.5 text-left text-[13px] transition disabled:opacity-40 ${
             entry.danger ? 'text-danger hover:bg-danger-wash' : 'text-ink hover:bg-paper-deep'
           }`}

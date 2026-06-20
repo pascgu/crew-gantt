@@ -12,6 +12,7 @@ import {
   deleteTask,
   initEffortFromEstimate,
   removeLink,
+  resolveCycleBySplit,
   setBlockAssignments,
   setBlockDates,
   setTaskEffort,
@@ -24,7 +25,7 @@ import { DateInput, EditableNumber, EditableText } from '@/ui/common/inline';
 import { IconClose, IconPlus } from '@/ui/common/icons';
 import { AssignmentAssistant } from '@/ui/team/AssignmentAssistant';
 import { t } from '@/i18n/fr';
-import { fmtDayFull, taskColor, weeklyEquivalent } from './format';
+import { fmtDayFull, fmtDays, taskColor, weeklyEquivalent } from './format';
 
 interface TaskPanelProps {
   task: Task;
@@ -68,6 +69,21 @@ export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
     (other) => other.id !== task.id && !task.links.some((l) => l.on === other.id),
   );
 
+  // Récap effort « propre · sous-tâches · total » d'un parent (groupe ou tâche avec enfants).
+  const hasChildren = tasks.some((tk) => tk.parentId === task.id);
+  const effortOf = (tk: Task): number =>
+    tk.type !== 'task'
+      ? 0
+      : tk.scheduling === 'effort'
+        ? tk.effort
+        : scheduledEffort(schedule.ctx, tk, schedule.resolvedByTask.get(tk.id) ?? []);
+  const ownEffort = effortOf(task);
+  const subtreeEffort = hasChildren
+    ? schedule.hierarchy
+        .descendantsOf(task.id)
+        .reduce((s, d) => (d.type === 'task' && d.status !== 'cancelled' ? s + effortOf(d) : s), 0)
+    : 0;
+
   return (
     <aside className="flex w-[380px] shrink-0 flex-col overflow-hidden border-l border-line bg-surface shadow-panel">
       <header className="flex items-center gap-2 border-b border-line px-4 py-2.5">
@@ -102,6 +118,19 @@ export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
             onChange={(e) => updateTask(task.id, { requirements: e.target.value })}
           />
         </Section>
+
+        {/* Récap effort propre / sous-arbre (parent : groupe ou tâche avec sous-tâches) */}
+        {hasChildren && (
+          <Section title={t('panel.effortBreakdownTitle')}>
+            <p className="text-[12.5px] text-ink-soft">
+              {t('tasks.effortBreakdown', {
+                own: fmtDays(ownEffort),
+                sub: fmtDays(subtreeEffort),
+                total: fmtDays(ownEffort + subtreeEffort),
+              })}
+            </p>
+          </Section>
+        )}
 
         {/* Effort */}
         {isTask && (
@@ -395,6 +424,20 @@ export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
                           />
                         </span>
                       </label>
+                      <label
+                        className="flex items-center gap-1 text-ink-soft"
+                        title={t('links.targetDaysHint')}
+                      >
+                        {t('links.targetDays')}
+                        <span className="w-12">
+                          <EditableNumber
+                            value={link.targetDays ?? 0}
+                            onCommit={(v) =>
+                              updateLink(task.id, li, { targetDays: v && v > 0 ? v : undefined })
+                            }
+                          />
+                        </span>
+                      </label>
                     </div>
                   </div>
                 );
@@ -417,7 +460,12 @@ export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
                   disabled={!linkTarget}
                   onClick={() => {
                     const error = addLink(task.id, { on: linkTarget, type: 'after-end', lag: 0 });
-                    if (error) window.alert(error);
+                    if (error && window.confirm(t('links.cycleSplitPrompt'))) {
+                      if (!resolveCycleBySplit(task.id, linkTarget))
+                        window.alert(t('links.cycleSplitImpossible'));
+                    } else if (error) {
+                      window.alert(error);
+                    }
                     setLinkTarget('');
                   }}
                 >

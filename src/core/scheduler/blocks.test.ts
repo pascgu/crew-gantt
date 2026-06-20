@@ -6,6 +6,7 @@ import {
   realizedBeforeReview,
   remainingForEndDate,
   resolveBlocks,
+  scheduledEffort,
   taskSpan,
 } from './blocks';
 import { assign, block, person, task, team } from '../testkit';
@@ -218,6 +219,18 @@ describe('effortCapacityOnDay', () => {
     const t = task('t', { blocks: [block('b', '2026-06-01', null)] });
     expect(effortCapacityOnDay(ctx, t, t.blocks[0]!, '2026-06-01')).toBe(1); // lundi
     expect(effortCapacityOnDay(ctx, t, t.blocks[0]!, '2026-06-06')).toBe(0); // samedi
+  });
+
+  it('bloc « 0 jour » (zero) : capacité 0, mais span reste un point valide', () => {
+    const ctx = ctxWith();
+    const t = task('t', {
+      scheduling: 'fixed',
+      blocks: [{ id: 'b', from: '2026-06-01', to: '2026-06-01', assignments: [], zero: true }],
+    });
+    expect(effortCapacityOnDay(ctx, t, t.blocks[0]!, '2026-06-01')).toBe(0);
+    const resolved = resolveBlocks(ctx, t);
+    expect(scheduledEffort(ctx, t, resolved)).toBe(0);
+    expect(taskSpan(resolved)).toEqual({ start: '2026-06-01', end: '2026-06-01' });
   });
 });
 

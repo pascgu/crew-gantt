@@ -41,6 +41,36 @@ describe('1 — lien violé', () => {
     ]);
     expect(conflictsOf(f).filter((c) => c.type === 'link-violated')).toEqual([]);
   });
+
+  it('lien ancré sur le successeur (targetDays) : viole si le point « N jours » est avant le point autorisé', () => {
+    const f = file([
+      task('pred', { remaining: 5, effort: 5, blocks: [block('b1', '2026-06-01', null, [assign('alice')])] }),
+      task('succ', {
+        remaining: 6,
+        effort: 6,
+        links: [{ on: 'pred', type: 'after-end', lag: 0, targetDays: 2 }],
+        blocks: [block('b2', '2026-06-01', null, [assign('bob')])],
+      }),
+    ]);
+    // pred fin = 05/06 → after-end = 08/06 ; succ atteint 2 j travaillés le 02/06 → 02 < 08 = conflit
+    const links = conflictsOf(f).filter((c) => c.type === 'link-violated');
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({ taskId: 'succ', date: '2026-06-08' });
+  });
+
+  it('lien ancré : le DÉBUT du successeur peut être avant le point autorisé (seul le point ancré compte)', () => {
+    const f = file([
+      task('pred', { remaining: 5, effort: 5, blocks: [block('b1', '2026-06-01', null, [assign('alice')])] }),
+      task('succ', {
+        remaining: 6,
+        effort: 6,
+        links: [{ on: 'pred', type: 'after-end', lag: 0, targetDays: 2 }],
+        blocks: [block('b2', '2026-06-10', null, [assign('bob')])],
+      }),
+    ]);
+    // succ atteint 2 j travaillés le 11/06 ≥ 08/06 → aucun conflit, même si son début est tôt
+    expect(conflictsOf(f).filter((c) => c.type === 'link-violated')).toEqual([]);
+  });
 });
 
 describe('2 — surcharge projet', () => {

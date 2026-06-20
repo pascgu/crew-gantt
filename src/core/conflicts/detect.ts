@@ -1,6 +1,7 @@
 import type { IsoDate } from '../model/types';
 import { diffDays, eachDay, isBetween } from '../calendar/dates';
 import { plannedFutureCapacity } from '../scheduler/blocks';
+import { workedDaysReachedOn } from '../scheduler/links';
 import type { Schedule } from '../scheduler/schedule';
 
 export type ConflictType =
@@ -64,6 +65,24 @@ export function detectConflicts(schedule: Schedule): Conflict[] {
           date: earliest.date,
           amount: diffDays(span.start, earliest.date),
         });
+      }
+    }
+
+    // 1bis — Lien ancré sur un point interne du successeur (`targetDays`) : la contrainte porte sur
+    // le jour où la tâche atteint ses N jours travaillés, pas sur son début.
+    if (earliest && task.type === 'task') {
+      for (const { link, date } of earliest.perLink) {
+        if (link.targetDays == null || date == null) continue;
+        const anchor = workedDaysReachedOn(schedule.linkInputs, task.id, link.targetDays);
+        if (anchor && anchor < date) {
+          out.push({
+            id: conflictId('link-violated', task.id, undefined, link.on),
+            type: 'link-violated',
+            taskId: task.id,
+            date,
+            amount: diffDays(anchor, date),
+          });
+        }
       }
     }
 

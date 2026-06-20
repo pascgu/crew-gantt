@@ -36,8 +36,11 @@ describe('unionIntervals', () => {
   });
 });
 
+const ctxOf = (tasks: Task[]) =>
+  createCalcContext(team({ resources: [person('alice')], tasks }), '2026-06-01');
+
 function resolveAll(tasks: Task[]): Map<string, ResolvedBlock[]> {
-  const ctx = createCalcContext(team({ resources: [person('alice')], tasks }), '2026-06-01');
+  const ctx = ctxOf(tasks);
   const map = new Map<string, ResolvedBlock[]>();
   for (const t of tasks) if (t.type === 'task') map.set(t.id, resolveBlocks(ctx, t));
   return map;
@@ -54,7 +57,7 @@ describe('agrégats de groupe (exemples chiffrés du GDD)', () => {
       task('t4', { parentId: 'g', effort: 1, remaining: 1, blocks: [block('b4', '2026-06-03', '2026-06-03')] }),
     ];
     const h = buildHierarchy(tasks);
-    const agg = aggregateGroup(h.descendantsOf('g'), resolveAll(tasks));
+    const agg = aggregateGroup(ctxOf(tasks), h.descendantsOf('g'), resolveAll(tasks));
     expect(agg.effortTotal).toBe(6);
     expect(agg.effortRealized).toBe(2);
     expect(agg.progress).toBeCloseTo(1 / 3, 10);
@@ -85,7 +88,7 @@ describe('agrégats de groupe (exemples chiffrés du GDD)', () => {
       task('t2', { parentId: 'g', effort: 5, remaining: 5, blocks: [block('b2', '2026-06-22', '2026-06-26')] }),
     ];
     const h = buildHierarchy(tasks);
-    const agg = aggregateGroup(h.descendantsOf('g'), resolveAll(tasks));
+    const agg = aggregateGroup(ctxOf(tasks), h.descendantsOf('g'), resolveAll(tasks));
     expect(agg.intervals).toEqual([
       { from: '2026-06-01', to: '2026-06-02' },
       { from: '2026-06-22', to: '2026-06-26' },
@@ -101,14 +104,30 @@ describe('agrégats de groupe (exemples chiffrés du GDD)', () => {
       milestone('m', '2026-06-30', { parentId: 'g' }),
     ];
     const h = buildHierarchy(tasks);
-    const agg = aggregateGroup(h.descendantsOf('g'), resolveAll(tasks));
+    const agg = aggregateGroup(ctxOf(tasks), h.descendantsOf('g'), resolveAll(tasks));
     expect(agg.effortTotal).toBe(3);
     expect(agg.effortRealized).toBe(2);
     expect(agg.span).toEqual({ start: '2026-06-01', end: '2026-06-03' });
   });
 
+  it('feuille fixed : effortTotal = effort planifié (dates), pas le champ effort', () => {
+    const tasks = [
+      group('g'),
+      task('t1', {
+        parentId: 'g',
+        scheduling: 'fixed',
+        effort: 0, // champ vide en mode fixed…
+        remaining: 0,
+        blocks: [block('b1', '2026-06-01', '2026-06-03')], // …mais 3 jours ouvrés posés
+      }),
+    ];
+    const h = buildHierarchy(tasks);
+    const agg = aggregateGroup(ctxOf(tasks), h.descendantsOf('g'), resolveAll(tasks));
+    expect(agg.effortTotal).toBe(3);
+  });
+
   it('groupe vide : agrégat neutre', () => {
-    const agg = aggregateGroup([], new Map());
+    const agg = aggregateGroup(ctxOf([]), [], new Map());
     expect(agg).toEqual({
       intervals: [],
       span: null,

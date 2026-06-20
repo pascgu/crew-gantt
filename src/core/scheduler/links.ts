@@ -205,7 +205,9 @@ export function earliestStart(inputs: LinkInputs, task: Task): EarliestResult {
       }
     }
     perLink.push({ link, date });
-    if (date !== null && (best === null || date > best)) {
+    // Un lien ancré sur un point interne du successeur (`targetDays`) ne contraint PAS le début de
+    // la tâche : sa violation est détectée à part (sur le point ancré), pas via la date de début.
+    if (link.targetDays == null && date !== null && (best === null || date > best)) {
       best = date;
       binding = link;
     }

@@ -1,3 +1,6 @@
-- gantt : j'aimerai qu'on puisse faire un lien vers un bloc plutot qu'une tache, quels impacts ?
-- gantt : tache à effort, si on ajoute un bloc après un bloc en cours, ça change le passé et la taille du bloc (logique, il faudrait faire quoi ?)
+- gantt : pouvoir supprimer un lien ou le récuperer pour le déplacer vers une autre tache (sans changer la source). Peut-être avec le curseur des liens quand on passe dessus. Aussi afficher en infobulle le message s'il y a un conflit sur le lien rouge et des infos sur le lien (comme son type) en infobulle.
+- gantt : quand on utilise CTRL et qu'on déplace un groupe, ça devrait permettre de déplacer toutes les taches/jalons/sous-taches du groupe (on veut "forcer un déplacement" avec CTRL). Par contre quand on déplace avec CTRL une tache qui possède une sous-tache, ça ne déplace que la tache parente.
+- gantt : quand j'ai une proposition sur une ligne et que je met la souris dessus, j'aimerai avoir des infos en infobulle et avoir un bouton qui me permet de valider cette proposition pour cette tache.
+- gantt : tache à effort, si on ajoute un bloc après un bloc en cours, ça change le passé et la taille du bloc (logique), il faudrait faire quoi pour conserver le passé ? TODO à retester+captures
 - gantt : il y a quelque chose de bizarre dans la proposition de plan pour les taches à effort, pour aujourd'hui il propose toujours un nouveau bloc de 1 alors que collé à 1 autre bloc et le 1er bloc recouvre plusieurs autres blocs. Et quand je les bouge, ça reforme 1 seul bloc, très étrange tout ça...
+- TODO à voir à l'usage : besoin d'ajouter directement un bloc sur le gantt quand on ajoute une tache ? ou le double-clic suffit ? S'il faut ajouter un bloc, où par rapport aux précédents ?

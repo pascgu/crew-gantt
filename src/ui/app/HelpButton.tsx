@@ -10,6 +10,9 @@ const LEGEND_KEYS = [
   'progressDrag',
   'linkHandle',
   'shiftDrag',
+  'shiftDrop',
+  'enclosingGroup',
+  'cycleSplit',
   'rightClickBar',
   'rightClickRow',
   'panDrag',
@@ -24,7 +27,7 @@ const LEGEND_KEYS = [
   'ctrlDrag',
 ] as const;
 
-const GUIDE_SECTIONS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
+const GUIDE_SECTIONS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7'] as const;
 const PLANNING_SECTIONS = ['s1', 's2', 's3', 's4', 's5'] as const;
 
 const PLANNING_CHARTS: Partial<Record<string, string>> = {

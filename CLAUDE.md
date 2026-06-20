@@ -59,3 +59,7 @@ React 18 + Tailwind v4. The Gantt is **hand-rolled SVG** (no Gantt library) — 
 - **i18n is mandatory for user-facing strings.** All UI text goes through `t('dot.path')` from [src/i18n/fr.ts](src/i18n/fr.ts) — keys are typechecked, so add the key to `fr.ts` before using it. No hardcoded strings in components.
 - Path alias `@/` → `src/`.
 - Tests sit next to sources (`*.test.ts`); the engine in `core/` is covered heavily — keep it that way when changing scheduling logic.
+
+# commits
+
+n'indique pas Co-Authored-By dans les commits

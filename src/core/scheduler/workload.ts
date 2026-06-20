@@ -31,6 +31,7 @@ export function buildLoadIndex(
     if (!task || task.type !== 'task') continue;
     if (task.status === 'cancelled') continue;
     for (const r of resolved) {
+      if (r.block.zero) continue; // bloc « 0 jour » : ne charge pas la ressource
       for (const assignment of r.block.assignments) {
         let perResource = index.get(assignment.resourceId);
         if (!perResource) {

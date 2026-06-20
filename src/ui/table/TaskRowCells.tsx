@@ -4,11 +4,15 @@ import { realizedOf, scheduledEffort } from '@/core/scheduler/blocks';
 import type { Conflict } from '@/core/conflicts/detect';
 import { useAppStore } from '@/state/store';
 import { useUiStore } from '@/state/uiStore';
-import type { TaskType } from '@/core/model/types';
+import type { Task, TaskType } from '@/core/model/types';
 import {
   addTask,
+  canEncloseInGroup,
   convertTaskType,
+  createEnclosingGroup,
+  createSubtaskFromPoint,
   deleteTask,
+  dissolveGroup,
   moveTask,
   moveTasks,
   setTaskEffort,
@@ -31,6 +35,7 @@ import {
   IconPlus,
 } from '@/ui/common/icons';
 import { t } from '@/i18n/fr';
+import { addDays, diffDays } from '@/core/calendar/dates';
 import { fmtDay, fmtDays } from '@/ui/gantt/format';
 import { resourceAvatar } from '@/ui/common/Avatar';
 import type { GanttRow } from '@/ui/gantt/rows';
@@ -165,8 +170,64 @@ export function TaskRowCells({
       },
     }));
 
+  // « Groupe englobant » : sur la sélection si la ligne en fait partie, sinon sur la ligne seule.
+  const selIds = useAppStore.getState().selectedTaskIds;
+  const groupIds = selIds.includes(task.id) && selIds.length > 0 ? selIds : [task.id];
+  const canGroup = canEncloseInGroup(useAppStore.getState().file, groupIds);
+  // « Sous-tâche à partir d'ici » : point par défaut = milieu du span de la tâche.
+  const subtaskSpan = schedule.spanByTask.get(task.id);
+  const midDay =
+    task.type === 'task' && subtaskSpan && diffDays(subtaskSpan.start, subtaskSpan.end) >= 1
+      ? addDays(subtaskSpan.start, Math.max(1, Math.floor(diffDays(subtaskSpan.start, subtaskSpan.end) / 2)))
+      : null;
+
+  // Effort « propre · sous-tâches · total » d'un parent (groupe OU tâche avec enfants, effort ou fixed)
+  // — lève l'ambiguïté « 5 ou 6 ? » sans l'interdire.
+  const effortOf = (tk: Task): number =>
+    tk.type !== 'task'
+      ? 0
+      : tk.scheduling === 'effort'
+        ? tk.effort
+        : scheduledEffort(schedule.ctx, tk, schedule.resolvedByTask.get(tk.id) ?? []);
+  const ownEffort = effortOf(task);
+  const subtreeEffort = hasChildren
+    ? schedule.hierarchy
+        .descendantsOf(task.id)
+        .reduce((s, d) => (d.type === 'task' && d.status !== 'cancelled' ? s + effortOf(d) : s), 0)
+    : 0;
+  const effortTitle = hasChildren
+    ? t('tasks.effortBreakdown', {
+        own: fmtDays(ownEffort),
+        sub: fmtDays(subtreeEffort),
+        total: fmtDays(ownEffort + subtreeEffort),
+      })
+    : undefined;
+
+  const focusNew = (id: string | null) => {
+    if (!id) return;
+    selectTask(id);
+    setEditingTaskId(id);
+  };
+
   const addEntries: MenuEntry[] = [
     ...convertEntries,
+    {
+      label: t('tasks.createEnclosingGroup'),
+      disabled: !canGroup,
+      title: canGroup ? undefined : t('tasks.createEnclosingGroupHint'),
+      onClick: () => focusNew(createEnclosingGroup(groupIds)),
+    },
+    ...(task.type === 'group'
+      ? [{ label: t('tasks.ungroup'), onClick: () => dissolveGroup(task.id) }]
+      : []),
+    {
+      label: t('tasks.subtaskFromHere'),
+      disabled: !midDay,
+      title: midDay ? undefined : t('tasks.subtaskFromHereHint'),
+      onClick: () => {
+        if (midDay) focusNew(createSubtaskFromPoint(task.id, midDay));
+      },
+    },
     { label: t('tasks.addAfter'), onClick: () => selectTask(addTask({ afterId: task.id })) },
     {
       label: t('tasks.addChild'),
@@ -344,7 +405,7 @@ export function TaskRowCells({
         );
       case 'effort':
         return (
-          <div key="effort" style={{ width: show('effort') ? cols.effort : 0, display: show('effort') ? undefined : 'none' }} className="overflow-hidden px-0.5">
+          <div key="effort" title={effortTitle} style={{ width: show('effort') ? cols.effort : 0, display: show('effort') ? undefined : 'none' }} className="overflow-hidden px-0.5">
             {task.type === 'task' && task.scheduling === 'effort' ? (
               <EditableNumber
                 value={task.effort}

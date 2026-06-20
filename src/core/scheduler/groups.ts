@@ -1,6 +1,7 @@
 import type { IsoDate, Task } from '../model/types';
 import { addDays, diffDays } from '../calendar/dates';
-import type { ResolvedBlock } from './blocks';
+import { realizedOf, scheduledEffort, type ResolvedBlock } from './blocks';
+import type { CalcContext } from './context';
 
 export interface Interval {
   from: IsoDate;
@@ -43,6 +44,7 @@ export interface GroupAggregate {
  * blocs, n'y contribuent pas), somme des efforts, avancement pondéré.
  */
 export function aggregateGroup(
+  ctx: CalcContext,
   descendants: Task[],
   resolvedByTask: ReadonlyMap<string, ResolvedBlock[]>,
 ): GroupAggregate {
@@ -53,10 +55,16 @@ export function aggregateGroup(
   for (const task of descendants) {
     if (task.type === 'group') continue; // leurs efforts sont déjà portés par leurs feuilles
     if (task.status === 'cancelled') continue; // exclus des calculs
-    effortTotal += task.effort;
-    effortRealized += Math.max(0, task.effort - task.remaining);
-    avancementWeighted += taskProgress(task) * task.effort;
-    for (const r of resolvedByTask.get(task.id) ?? []) {
+    const resolved = resolvedByTask.get(task.id) ?? [];
+    // Effort/réalisé **effectifs** = ceux affichés : pour une tâche fixed, dérivés des dates
+    // (scheduledEffort/realizedOf) et non du champ `effort` (souvent vide en mode fixed).
+    const effort = task.scheduling === 'fixed' ? scheduledEffort(ctx, task, resolved) : task.effort;
+    const realized =
+      task.scheduling === 'fixed' ? realizedOf(ctx, task) : Math.max(0, task.effort - task.remaining);
+    effortTotal += effort;
+    effortRealized += realized;
+    avancementWeighted += taskProgress(task) * effort;
+    for (const r of resolved) {
       intervals.push({ from: r.from, to: r.to });
     }
   }

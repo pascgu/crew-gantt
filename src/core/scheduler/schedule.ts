@@ -45,7 +45,7 @@ export function computeSchedule(file: TeamFile, today: IsoDate): Schedule {
   const groupAggByTask = new Map<string, GroupAggregate>();
   for (const task of file.tasks) {
     if (task.type !== 'group') continue;
-    groupAggByTask.set(task.id, aggregateGroup(hierarchy.descendantsOf(task.id), resolvedByTask));
+    groupAggByTask.set(task.id, aggregateGroup(ctx, hierarchy.descendantsOf(task.id), resolvedByTask));
   }
 
   const spanByTask = new Map<string, TaskSpan | null>();
