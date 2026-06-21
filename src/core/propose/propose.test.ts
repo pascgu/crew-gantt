@@ -168,6 +168,139 @@ describe('proposePlan — périmètre', () => {
     expect(proposePlan(f, TODAY)).toBeNull();
   });
 
+  it('fixed avec lien simple violé : translaté au plus tôt, forme préservée', () => {
+    const f = file([
+      task('pred', { remaining: 5, effort: 5, blocks: [block('b1', '2026-06-01', null, [assign('alice')])] }),
+      task('succ', {
+        scheduling: 'fixed',
+        remaining: 4,
+        effort: 4,
+        links: [{ on: 'pred', type: 'after-end', lag: 0 }],
+        // posée à la main du 03 au 04 puis 08-09, mais pred finit le 05/06 → départ au plus tôt 08/06
+        blocks: [
+          block('s1', '2026-06-03', '2026-06-04', [assign('bob')]),
+          block('s2', '2026-06-08', '2026-06-09', [assign('bob')]),
+        ],
+      }),
+    ]);
+    const proposal = proposePlan(f, TODAY)!;
+    const change = proposal.changes.find((c) => c.taskId === 'succ')!;
+    // pred finit le 05/06 → au plus tôt 08/06 (lundi). Décalage de 3 j calendaires.
+    expect(change.newStart).toBe('2026-06-08');
+    expect(change.blocks).toHaveLength(2);
+    // forme préservée : 1 j puis saut puis 1 j (intervalles dessinés conservés)
+    expect(change.blocks![0]).toMatchObject({ from: '2026-06-08', to: '2026-06-09' });
+    expect(change.blocks![1]).toMatchObject({ from: '2026-06-13', to: '2026-06-14' });
+  });
+
+  it('fixed : départ capacité-aware — démarre si ≥1 affecté dispo, sinon glisse', () => {
+    // pred finit le 05/06 → au plus tôt lundi 08/06.
+    const predBlocks = [block('b1', '2026-06-01', null, [assign('alice')])];
+    const onLeave = (id: string, from: string, to: string) =>
+      person(id, { exceptions: [{ from, to, percent: 0 }] });
+
+    // bob en congé le 08/06 seul → l'autre (carol) est dispo → démarre quand même le 08
+    const f1 = file(
+      [
+        task('pred', { remaining: 5, effort: 5, blocks: predBlocks }),
+        task('succ', {
+          scheduling: 'fixed',
+          remaining: 4,
+          effort: 4,
+          links: [{ on: 'pred', type: 'after-end', lag: 0 }],
+          blocks: [block('s1', '2026-06-03', '2026-06-04', [assign('bob'), assign('carol')])],
+        }),
+      ],
+      [person('alice'), onLeave('bob', '2026-06-08', '2026-06-08'), person('carol')],
+    );
+    expect(proposePlan(f1, TODAY)!.changes.find((c) => c.taskId === 'succ')!.newStart).toBe('2026-06-08');
+
+    // les deux en congé le 08/06 → glisse au mardi 09/06
+    const f2 = file(
+      [
+        task('pred', { remaining: 5, effort: 5, blocks: predBlocks }),
+        task('succ', {
+          scheduling: 'fixed',
+          remaining: 4,
+          effort: 4,
+          links: [{ on: 'pred', type: 'after-end', lag: 0 }],
+          blocks: [block('s1', '2026-06-03', '2026-06-04', [assign('bob'), assign('carol')])],
+        }),
+      ],
+      [person('alice'), onLeave('bob', '2026-06-08', '2026-06-08'), onLeave('carol', '2026-06-08', '2026-06-08')],
+    );
+    expect(proposePlan(f2, TODAY)!.changes.find((c) => c.taskId === 'succ')!.newStart).toBe('2026-06-09');
+  });
+
+  it('fixed non affecté : démarre au premier jour ouvré global ≥ au plus tôt', () => {
+    // pred finit vendredi 05/06 → au plus tôt = lundi 08/06 (jamais le week-end)
+    const f = file([
+      task('pred', { remaining: 5, effort: 5, blocks: [block('b1', '2026-06-01', null, [assign('alice')])] }),
+      task('succ', {
+        scheduling: 'fixed',
+        remaining: 2,
+        effort: 2,
+        links: [{ on: 'pred', type: 'after-end', lag: 0 }],
+        blocks: [block('s1', '2026-06-03', '2026-06-04')], // non affecté
+      }),
+    ]);
+    expect(proposePlan(f, TODAY)!.changes.find((c) => c.taskId === 'succ')!.newStart).toBe('2026-06-08');
+  });
+
+  it('fixed avec ancre targetDays violée : tête gardée, queue poussée', () => {
+    const f = file([
+      // pred : 5 j-h, finit le 05/06
+      task('pred', { remaining: 5, effort: 5, blocks: [block('b1', '2026-06-01', null, [assign('alice')])] }),
+      task('succ', {
+        scheduling: 'fixed',
+        remaining: 6,
+        effort: 6,
+        // ancre : le 2e jour travaillé de succ doit être après la fin de pred
+        links: [{ on: 'pred', type: 'after-end', lag: 0, targetDays: 2 }],
+        blocks: [block('s1', '2026-06-01', '2026-06-08', [assign('bob')])], // 01..08 ouvrés
+      }),
+    ]);
+    const proposal = proposePlan(f, TODAY)!;
+    const change = proposal.changes.find((c) => c.taskId === 'succ')!;
+    expect(change.blocks!.length).toBeGreaterThanOrEqual(2);
+    // tête : le jour atteignant le 2e jour travaillé est poussé → seul le 1er jour (01/06) reste
+    expect(change.blocks![0]).toMatchObject({ from: '2026-06-01', to: '2026-06-01' });
+    // queue : reprend au plus tôt après la fin de pred (08/06)
+    expect(change.blocks![1]!.from >= '2026-06-08').toBe(true);
+  });
+
+  it('effort avec ancre targetDays violée : pause à l’ancre puis reprise ≥ date', () => {
+    const f = file([
+      task('pred', { remaining: 5, effort: 5, blocks: [block('b1', '2026-06-01', null, [assign('alice')])] }),
+      task('succ', {
+        remaining: 6,
+        effort: 6,
+        links: [{ on: 'pred', type: 'after-end', lag: 0, targetDays: 2 }],
+        blocks: [block('s1', '2026-06-01', null, [assign('bob')])],
+      }),
+    ]);
+    const proposal = proposePlan(f, TODAY)!;
+    const change = proposal.changes.find((c) => c.taskId === 'succ')!;
+    // 1er jour en parallèle (01/06), puis attente, reprise après pred (≥ 08/06)
+    expect(change.blocks![0]).toMatchObject({ from: '2026-06-01', to: '2026-06-01' });
+    const resume = change.blocks![change.blocks!.length - 1]!;
+    expect(resume.from >= '2026-06-08').toBe(true);
+  });
+
+  it('effort avec ancre targetDays satisfaite : aucune proposition parasite', () => {
+    const f = file([
+      task('pred', { remaining: 2, effort: 2, blocks: [block('b1', '2026-06-01', null, [assign('alice')])] }),
+      task('succ', {
+        remaining: 3,
+        effort: 3,
+        // pred finit le 02/06 ; succ démarre bien plus tard → ancre déjà respectée
+        links: [{ on: 'pred', type: 'after-end', lag: 0, targetDays: 2 }],
+        blocks: [block('s1', '2026-06-15', null, [assign('bob')])],
+      }),
+    ]);
+    expect(proposePlan(f, TODAY)).toBeNull();
+  });
+
   it('liste les deadlines encore menacées dans le plan proposé', () => {
     const alice = person('alice', {
       exceptions: [{ from: '2026-06-08', to: '2026-06-19', percent: 0 }],
