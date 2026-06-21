@@ -142,6 +142,15 @@ export function proposePlan(file: TeamFile, today: IsoDate): Proposal | null {
 
     const resolved = resolvedByTask.get(taskId) ?? [];
 
+    // Tâche « 0 jour » (note/micro-rappel) : un point, jamais étiré — quel que soit
+    // le mode. On la translate seulement pour respecter un lien violé, en conservant
+    // son caractère 0 j (le passage par placeTask la transformerait en bloc réel).
+    if (task.blocks.every((b) => b.zero)) {
+      const shifted = shiftZeroMarker(inputs, task, resolved, today);
+      if (shifted) pushReblock(taskId, resolved, shifted);
+      continue;
+    }
+
     // Tâches fixed : on ne les re-bloque jamais pour la capacité, mais on propose
     // de glisser/découper celles qui violent un lien (translation, ou découpage à
     // l'ancre targetDays). Le reste du chemin (placeTask) reste réservé à l'effort.
@@ -345,6 +354,42 @@ function firstWorkableDay(
     day = addDays(day, 1);
   }
   return null;
+}
+
+/**
+ * Proposition pour une tâche entièrement « 0 jour » (note/micro-rappel) : c'est un
+ * point, jamais étiré. On translate ses blocs (en conservant `zero`) vers le plus
+ * tôt autorisé si un lien est violé. null si rien à proposer.
+ */
+function shiftZeroMarker(
+  inputs: LinkInputs,
+  task: Task,
+  resolved: ResolvedBlock[],
+  today: IsoDate,
+): Block[] | null {
+  const sorted = [...resolved].sort((a, b) => a.from.localeCompare(b.from));
+  const kept: Block[] = [];
+  const future: ResolvedBlock[] = [];
+  for (const r of sorted) {
+    if (r.from >= today) future.push(r);
+    else kept.push(r.block);
+  }
+  if (future.length === 0) return null;
+
+  const earliest = earliestStart(inputs, task).date;
+  if (!earliest || future[0]!.from >= earliest) return null;
+  const delta = diffDays(future[0]!.from, earliest);
+  if (delta <= 0) return null;
+
+  return [
+    ...kept,
+    ...future.map((r) => ({
+      ...r.block,
+      from: addDays(r.block.from, delta),
+      to: r.block.to === null ? null : addDays(r.block.to, delta),
+      assignments: r.block.assignments.map((a) => ({ ...a })),
+    })),
+  ];
 }
 
 /**

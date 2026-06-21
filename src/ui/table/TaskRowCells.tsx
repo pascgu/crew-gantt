@@ -1,6 +1,6 @@
 import { useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import type { Schedule } from '@/core/scheduler/schedule';
-import { realizedOf, scheduledEffort } from '@/core/scheduler/blocks';
+import { realizedOf, remainingOf, scheduledEffort } from '@/core/scheduler/blocks';
 import type { Conflict } from '@/core/conflicts/detect';
 import { useAppStore } from '@/state/store';
 import { useUiStore } from '@/state/uiStore';
@@ -450,9 +450,9 @@ export function TaskRowCells({
             {task.type === 'task' && task.scheduling === 'effort' ? (
               <EditableNumber value={task.remaining} onCommit={(v) => setTaskRemaining(task.id, v ?? 0)} />
             ) : task.type === 'task' ? (
-              // fixed : reste = effort − réalisé (lecture seule)
+              // fixed : reste = effort planifié − réalisé (lecture seule)
               <span className="block px-1 text-right font-mono text-ink-soft">
-                {fmtDays(Math.max(0, scheduledEffort(schedule.ctx, task, resolved) - realizedOf(schedule.ctx, task)))}
+                {fmtDays(remainingOf(schedule.ctx, task, resolved))}
               </span>
             ) : task.type === 'group' && agg ? (
               <span className="block px-1 text-right font-mono text-ink-soft">

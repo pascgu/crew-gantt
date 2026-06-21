@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { todayIso } from '@/core/calendar/dates';
 import { taskProgress } from '@/core/scheduler/groups';
-import { realizedOf, scheduledEffort } from '@/core/scheduler/blocks';
+import { realizedOf, remainingOf, scheduledEffort } from '@/core/scheduler/blocks';
 import type { Schedule } from '@/core/scheduler/schedule';
 import type { Task, TaskLink } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
@@ -181,7 +181,7 @@ export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
                   />
                 ) : (
                   <span className="block text-right font-mono text-[12.5px] text-ink-soft">
-                    {Math.round(Math.max(0, scheduledEffort(schedule.ctx, task, resolved) - realizedOf(schedule.ctx, task)) * 10) / 10}
+                    {Math.round(remainingOf(schedule.ctx, task, resolved) * 10) / 10}
                   </span>
                 )}
               </span>

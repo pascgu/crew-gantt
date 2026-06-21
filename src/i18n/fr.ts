@@ -348,6 +348,7 @@ export const fr = {
     see: 'Voir les impacts',
     applyAll: 'Tout appliquer',
     apply: 'Appliquer',
+    applyGroup: 'Valider {count} propositions',
     dismiss: 'Ignorer',
     impactsTitle: 'Impacts du plan proposé',
     shifted: 'Décalée de {days} j',

@@ -28,9 +28,15 @@ function changeLabels(change: TaskChange): string[] {
       t('proposal.split', { from: change.oldBlockCount, to: change.newBlockCount }),
     );
   }
-  if (change.oldEnd && change.newEnd && change.newEnd !== change.oldEnd) {
-    const d = diffDays(change.oldEnd, change.newEnd);
-    labels.push(t(d > 0 ? 'proposal.stretched' : 'proposal.shortened', { days: Math.abs(d) }));
+  // Étirement = variation de DURÉE, pas de date de fin : un décalage pur déplace
+  // début et fin du même delta (durée inchangée) → ne doit pas être signalé « étirée ».
+  if (change.oldStart && change.oldEnd && change.newStart && change.newEnd) {
+    const oldDur = diffDays(change.oldStart, change.oldEnd);
+    const newDur = diffDays(change.newStart, change.newEnd);
+    const d = newDur - oldDur;
+    if (d !== 0) {
+      labels.push(t(d > 0 ? 'proposal.stretched' : 'proposal.shortened', { days: Math.abs(d) }));
+    }
   }
   return labels;
 }

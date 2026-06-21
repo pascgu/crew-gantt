@@ -46,6 +46,24 @@ export function applyProposalChange(change: TaskChange): void {
   });
 }
 
+/** Applique plusieurs changements en une seule mutation (un seul undo) — validation groupée. */
+export function applyProposalChanges(changes: TaskChange[]): void {
+  if (changes.length === 0) return;
+  useAppStore.getState().mutate((file) => {
+    for (const change of changes) {
+      const task = file.tasks.find((t) => t.id === change.taskId);
+      if (!task) continue;
+      if (change.blocks) {
+        task.blocks = change.blocks.map((b) => ({
+          ...b,
+          assignments: b.assignments.map((a) => ({ ...a })),
+        }));
+      }
+      if (change.date) task.date = change.date;
+    }
+  });
+}
+
 /** Applique tout ou partie (taskIds) de la proposition. Chaque application recalcule. */
 export function applyProposal(proposal: Proposal, taskIds?: string[]): void {
   const only = taskIds ? new Set(taskIds) : null;

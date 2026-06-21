@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { addDays, diffDays, eachDay, todayIso } from '@/core/calendar/dates';
 import { progressBarDays, taskProgress } from '@/core/scheduler/groups';
 import { workedDaysReachedOn, workedDaysUpTo } from '@/core/scheduler/links';
-import { realizedOf, remainingForEndDate, scheduledEffort } from '@/core/scheduler/blocks';
+import { realizedOf, remainingForEndDate, remainingOf, scheduledEffort } from '@/core/scheduler/blocks';
 import type { Schedule } from '@/core/scheduler/schedule';
 import type { Assignment, IsoDate, Task } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
@@ -32,7 +32,7 @@ import {
   splitBlock,
   updateTask,
 } from '@/state/taskActions';
-import { applyProposalChange } from '@/state/proposalActions';
+import { applyProposalChange, applyProposalChanges } from '@/state/proposalActions';
 import { darken, rgba } from '@/ui/common/color';
 import { ContextMenu, type MenuEntry } from '@/ui/common/ContextMenu';
 import { t } from '@/i18n/fr';
@@ -181,6 +181,15 @@ export function GanttChart({
   const setSelectedRange = useAppStore((s) => s.setSelectedRange);
   /** La ligne `id` fait-elle partie d'une sélection multiple (≥2) ? */
   const isMultiSel = (id: string) => selectedTaskIds.length > 1 && selectedTaskIds.includes(id);
+
+  // Validation groupée : propositions des lignes sélectionnées (survol d'un ✓ → valider tout le groupe).
+  const [groupGhostHover, setGroupGhostHover] = useState(false);
+  const groupChanges = useMemo(() => {
+    if (!proposalByTask || selectedTaskIds.length < 2) return [] as TaskChange[];
+    return selectedTaskIds
+      .map((id) => proposalByTask.get(id))
+      .filter((c): c is TaskChange => c != null);
+  }, [proposalByTask, selectedTaskIds]);
 
   // Shift tenu : curseur « lien ancré » (indice du geste « depuis / vers N jours »).
   const [shiftHeld, setShiftHeld] = useState(false);
@@ -814,6 +823,8 @@ export function GanttChart({
           visible.map((row, i) => {
             const change = proposalByTask.get(row.task.id);
             if (!change) return null;
+            // Groupe actif : la ligne est sélectionnée et ≥2 lignes sélectionnées ont une proposition.
+            const inGroup = groupChanges.length >= 2 && selectedTaskIds.includes(row.task.id);
             return (
               <ProposalGhost
                 key={`prop-${row.task.id}`}
@@ -822,6 +833,11 @@ export function GanttChart({
                 scale={scale}
                 color={projectColor.get(row.task.projectId) ?? '#888888'}
                 onApply={applyProposalChange}
+                inGroup={inGroup}
+                groupCount={groupChanges.length}
+                groupHovered={groupGhostHover}
+                onGroupHover={setGroupGhostHover}
+                onApplyGroup={() => applyProposalChanges(groupChanges)}
               />
             );
           })}
@@ -1277,7 +1293,7 @@ function RowBars({
                 {t('gantt.blockOf', { name: task.name })} — {from} → {to}
                 {who ? `\n${who}` : ''}
                 {`\n${t('panel.realized')} : ${Math.round(realized * 10) / 10} ${t('common.days')}`}
-                {`\n${t('panel.remaining')} : ${Math.round(task.remaining * 10) / 10} ${t('common.days')}`}
+                {`\n${t('panel.remaining')} : ${Math.round(remainingOf(schedule.ctx, task, resolved) * 10) / 10} ${t('common.days')}`}
                 {`\n${t('gantt.progressTooltipIndep', { pct: Math.round(task.progress * 100) })}`}
               </title>
             </rect>
@@ -1473,7 +1489,7 @@ function cellText(task: Task, key: ColKey, schedule: Schedule): string {
         ? `${task.effort}j`
         : `${Math.round(scheduledEffort(schedule.ctx, task, schedule.resolvedByTask.get(task.id) ?? []) * 10) / 10}j`;
     case 'realized': return `${Math.round(realizedOf(schedule.ctx, task) * 10) / 10}j`;
-    case 'remaining': return `${Math.round(task.remaining * 10) / 10}j`;
+    case 'remaining': return `${Math.round(remainingOf(schedule.ctx, task, schedule.resolvedByTask.get(task.id) ?? []) * 10) / 10}j`;
     case 'progress': return `${Math.round(taskProgress(task) * 100)}%`;
     case 'assignees': {
       const res = schedule.ctx.file.resources;
@@ -1591,14 +1607,36 @@ function ProposalGhost({
   scale,
   color,
   onApply,
+  inGroup,
+  groupCount,
+  groupHovered,
+  onGroupHover,
+  onApplyGroup,
 }: {
   change: TaskChange;
   y: number;
   scale: TimeScale;
   color: string;
   onApply: (change: TaskChange) => void;
+  /** La ligne fait partie d'une sélection multiple dont ≥2 lignes ont une proposition. */
+  inGroup: boolean;
+  groupCount: number;
+  groupHovered: boolean;
+  onGroupHover: (hovered: boolean) => void;
+  onApplyGroup: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
+  const enter = () => {
+    setHovered(true);
+    if (inGroup) onGroupHover(true);
+  };
+  const leave = () => {
+    setHovered(false);
+    if (inGroup) onGroupHover(false);
+  };
+  // En groupe, survoler un ✓ allume les ✓ de toutes les lignes sélectionnées qui ont une proposition.
+  const showCheck = hovered || (inGroup && groupHovered);
+  const applyAction = () => (inGroup ? onApplyGroup() : onApply(change));
   const mid = ROW_HEIGHT / 2;
   const ghostCy = y + 3; // centre vertical de la bande fantôme (y+1 à y+5)
 
@@ -1608,6 +1646,8 @@ function ProposalGhost({
       ? diffDays(change.oldStart, change.date)
       : 0;
   const deltaLabel = deltaDays === 0 ? '' : `${deltaDays > 0 ? '+' : ''}${deltaDays} j`;
+  // Label au survol : en groupe → « Valider N propositions », sinon le delta de décalage.
+  const hoverLabel = inGroup ? t('proposal.applyGroup', { count: groupCount }) : deltaLabel;
 
   const openImpacts = (e: ReactPointerEvent | React.MouseEvent) => {
     e.stopPropagation(); // sinon le onClick racine (onAreaClick) referme aussitôt le panneau
@@ -1618,7 +1658,7 @@ function ProposalGhost({
   const applyBtn = (cx: number, cy: number) => (
     <g
       style={{ cursor: 'pointer' }}
-      onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); onApply(change); }}
+      onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); applyAction(); }}
     >
       <circle cx={cx} cy={cy} r={7} fill="var(--color-accent)" />
       <path
@@ -1640,8 +1680,8 @@ function ProposalGhost({
     // Zone de survol = le losange lui-même (+ le bouton à droite, à hauteur du losange).
     return (
       <g
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
+        onPointerEnter={enter}
+        onPointerLeave={leave}
         onPointerDown={(e) => e.stopPropagation()} // empêche la capture pointer racine de détourner le clic
         onClick={openImpacts}
         style={{ cursor: 'pointer' }}
@@ -1655,11 +1695,11 @@ function ProposalGhost({
           strokeDasharray="3 2"
           pointerEvents="none"
         />
-        {hovered && (
+        {showCheck && (
           <>
-            {/* Jalon : « +X j » au-dessus */}
-            {deltaLabel && (
-              <text x={cx} y={cy - 9} textAnchor="middle" fontSize={9} fill="var(--color-accent)" pointerEvents="none">{deltaLabel}</text>
+            {/* « +X j » (ou « Valider N propositions » en groupe), au-dessus, seulement sous le pointeur */}
+            {hovered && hoverLabel && (
+              <text x={cx} y={cy - 9} textAnchor="middle" fontSize={9} fill="var(--color-accent)" pointerEvents="none">{hoverLabel}</text>
             )}
             {applyBtn(btnCx, cy)}
           </>
@@ -1670,18 +1710,20 @@ function ProposalGhost({
   if (!change.blocks) return null;
 
   const firstFrom = change.blocks[0]?.from;
-  const lastTo = change.blocks[change.blocks.length - 1]?.to ?? change.newEnd;
+  const lastBlock = change.blocks[change.blocks.length - 1];
+  const lastTo = lastBlock?.to ?? change.newEnd;
   if (!firstFrom || !lastTo) return null;
 
   const firstX = scale.x(firstFrom);
-  const lastEndX = scale.xEnd(lastTo);
+  // Bloc « 0 jour » (note/micro-rappel) : marqueur étroit, jamais une journée pleine.
+  const lastEndX = lastBlock?.zero ? scale.x(lastBlock.from) + 5 : scale.xEnd(lastTo);
   const btnCx = lastEndX + 11; // centre du bouton ✓, collé au bord droit de la dernière bande
   const labelX = (firstX + lastEndX) / 2;
 
   return (
     <g
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
+      onPointerEnter={enter}
+      onPointerLeave={leave}
       onPointerDown={(e) => e.stopPropagation()} // empêche la capture pointer racine de détourner le clic
       onClick={openImpacts}
       style={{ cursor: 'pointer' }}
@@ -1697,7 +1739,7 @@ function ProposalGhost({
             key={i}
             x={scale.x(b.from)}
             y={y + 1}
-            width={Math.max(3, scale.xEnd(to) - scale.x(b.from))}
+            width={b.zero ? 5 : Math.max(3, scale.xEnd(to) - scale.x(b.from))}
             height={4}
             rx={2}
             fill={rgba(color, 0.3)}
@@ -1708,11 +1750,11 @@ function ProposalGhost({
           />
         );
       })}
-      {hovered && (
+      {showCheck && (
         <>
-          {/* « +X j » au-dessus de la barre, décalé à droite pour ne pas être masqué par le trait de revue */}
-          {deltaLabel && (
-            <text x={labelX + 3} y={y} textAnchor="middle" fontSize={9} fill="var(--color-accent)" pointerEvents="none">{deltaLabel}</text>
+          {/* « +X j » (ou « Valider N propositions » en groupe) au-dessus, seulement sous le pointeur */}
+          {hovered && hoverLabel && (
+            <text x={labelX + 3} y={y} textAnchor="middle" fontSize={9} fill="var(--color-accent)" pointerEvents="none">{hoverLabel}</text>
           )}
           {applyBtn(btnCx, ghostCy)}
         </>

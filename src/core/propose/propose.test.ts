@@ -301,6 +301,25 @@ describe('proposePlan — périmètre', () => {
     expect(proposePlan(f, TODAY)).toBeNull();
   });
 
+  it('tâche « 0 jour » en conflit de lien : translatée mais reste 0 j (jamais étirée)', () => {
+    const zblock = (id: string, day: string) => ({ ...block(id, day, day, [assign('bob')]), zero: true as const });
+    // mode effort avec un reste > 0 : le bug était de la convertir en bloc réel (1 j)
+    const f = file([
+      task('pred', { remaining: 5, effort: 5, blocks: [block('b1', '2026-06-01', null, [assign('alice')])] }),
+      task('note', {
+        remaining: 1,
+        effort: 1,
+        links: [{ on: 'pred', type: 'after-end', lag: 0 }],
+        blocks: [zblock('z1', '2026-06-03')], // posée avant la fin de pred (05/06)
+      }),
+    ]);
+    const change = proposePlan(f, TODAY)!.changes.find((c) => c.taskId === 'note')!;
+    expect(change.blocks).toHaveLength(1);
+    const b = change.blocks![0]!;
+    // translatée au plus tôt (08/06), point conservé (to === from, zero)
+    expect(b).toMatchObject({ from: '2026-06-08', to: '2026-06-08', zero: true });
+  });
+
   it('liste les deadlines encore menacées dans le plan proposé', () => {
     const alice = person('alice', {
       exceptions: [{ from: '2026-06-08', to: '2026-06-19', percent: 0 }],

@@ -142,6 +142,17 @@ export function realizedOf(ctx: CalcContext, task: Task): number {
   return realizedBeforeReview(ctx, task);
 }
 
+/**
+ * Reste à faire affiché (j-h) — source unique pour panneau, liste, infobulle, label.
+ * Tâche effort : le champ piloté `remaining`. Tâche fixed : capacité restante des
+ * dates posées (`effort planifié − réalisé`), donc 0 si les blocs tombent sur des
+ * jours non travaillés (férié/week-end).
+ */
+export function remainingOf(ctx: CalcContext, task: Task, resolved: ResolvedBlock[]): number {
+  if (task.scheduling === 'effort') return task.remaining;
+  return Math.max(0, scheduledEffort(ctx, task, resolved) - realizedOf(ctx, task));
+}
+
 /** Effort affiché d'une tâche fixed (j-h) = capacité totale des dates posées. */
 export function scheduledEffort(ctx: CalcContext, task: Task, resolved: ResolvedBlock[]): number {
   let total = 0;
