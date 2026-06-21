@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { diffDays } from '@/core/calendar/dates';
 import type { Proposal, TaskChange } from '@/core/propose/propose';
 import { useAppStore } from '@/state/store';
@@ -37,16 +38,28 @@ function changeLabels(change: TaskChange): string[] {
 interface ImpactsPanelProps {
   proposal: Proposal;
   onClose: () => void;
+  onSelectTask?: (taskId: string) => void;
 }
 
 /** Panneau Impacts : résumé + tâches décalées/découpées/étirées, jalons, deadlines. */
-export function ImpactsPanel({ proposal, onClose }: ImpactsPanelProps) {
+export function ImpactsPanel({ proposal, onClose, onSelectTask }: ImpactsPanelProps) {
   const tasks = useAppStore((s) => s.file.tasks);
   const { dismissProposal } = useUiStore();
+  const focusProposalTaskId = useUiStore((s) => s.focusProposalTaskId);
   const nameOf = (id: string) => tasks.find((tk) => tk.id === id)?.name ?? id;
+
+  const [taskFilter, setTaskFilter] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (focusProposalTaskId) setTaskFilter(focusProposalTaskId);
+  }, [focusProposalTaskId]);
 
   const taskCount = proposal.changes.filter((c) => c.blocks).length;
   const milestoneCount = proposal.changes.filter((c) => c.date).length;
+
+  const visibleChanges = taskFilter
+    ? proposal.changes.filter((c) => c.taskId === taskFilter)
+    : proposal.changes;
 
   return (
     <div className="absolute right-3 top-12 z-40 flex max-h-[70%] w-96 flex-col overflow-hidden rounded-xl border border-accent/30 bg-surface shadow-float">
@@ -61,17 +74,39 @@ export function ImpactsPanel({ proposal, onClose }: ImpactsPanelProps) {
           <IconClose size={13} />
         </button>
       </header>
+
+      {/* Filtre par tâche (combo, identique au panneau Conflits) */}
+      {proposal.changes.length > 1 && (
+        <div className="border-b border-line px-3 py-1.5">
+          <select
+            className="w-full rounded border border-line bg-surface px-1.5 py-0.5 text-[11.5px] text-ink"
+            value={taskFilter ?? ''}
+            onChange={(e) => setTaskFilter(e.target.value || null)}
+          >
+            <option value="">{t('proposal.filterAll')}</option>
+            {proposal.changes.map((c) => (
+              <option key={c.taskId} value={c.taskId}>{nameOf(c.taskId)}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {proposal.changes.length === 0 && (
+        {visibleChanges.length === 0 && (
           <p className="p-3 text-[12px] text-ink-faint">{t('proposal.empty')}</p>
         )}
-        {proposal.changes.map((change) => (
+        {visibleChanges.map((change) => (
           <div
             key={change.taskId}
             className="mb-1.5 flex items-start gap-2 rounded-lg border border-line bg-paper/50 px-2.5 py-1.5"
           >
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[12.5px] font-medium">{nameOf(change.taskId)}</p>
+              <button
+                className="truncate text-left text-[12.5px] font-medium hover:text-accent hover:underline"
+                onClick={() => onSelectTask?.(change.taskId)}
+              >
+                {nameOf(change.taskId)}
+              </button>
               <p className="text-[11.5px] text-ink-soft">{changeLabels(change).join(' · ')}</p>
               <p className="font-mono text-[10.5px] text-ink-faint">
                 {fmtDay(change.oldStart)}–{fmtDay(change.oldEnd)} → {fmtDay(change.newStart)}–
@@ -106,20 +141,23 @@ export function ImpactsPanel({ proposal, onClose }: ImpactsPanelProps) {
           </>
         )}
       </div>
-      <div className="flex gap-2 border-t border-line px-3 py-2">
-        <button
-          className="flex-1 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white transition hover:bg-accent-deep"
-          onClick={() => { applyProposal(proposal); onClose(); }}
-        >
-          {t('proposal.applyAll')}
-        </button>
-        <button
-          className="rounded-md border border-line px-3 py-1.5 text-[12px] text-ink-soft transition hover:text-ink"
-          onClick={() => { dismissProposal(proposalKey(proposal)); onClose(); }}
-        >
-          {t('proposal.dismiss')}
-        </button>
-      </div>
+      {/* Pied « Tout appliquer / Ignorer » : masqué si un filtre est actif (lever l'ambiguïté). */}
+      {!taskFilter && (
+        <div className="flex gap-2 border-t border-line px-3 py-2">
+          <button
+            className="flex-1 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white transition hover:bg-accent-deep"
+            onClick={() => { applyProposal(proposal); onClose(); }}
+          >
+            {t('proposal.applyAll')}
+          </button>
+          <button
+            className="rounded-md border border-line px-3 py-1.5 text-[12px] text-ink-soft transition hover:text-ink"
+            onClick={() => { dismissProposal(proposalKey(proposal)); onClose(); }}
+          >
+            {t('proposal.dismiss')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

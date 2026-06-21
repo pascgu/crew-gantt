@@ -20,6 +20,8 @@ import {
   mergeOverlappingBlocks,
   mergeWithNextBlock,
   moveBlock,
+  removeLink,
+  relinkSuccessor,
   resolveCycleBySplit,
   resyncRemaining,
   setBlockAssignments,
@@ -30,11 +32,12 @@ import {
   splitBlock,
   updateTask,
 } from '@/state/taskActions';
+import { applyProposalChange } from '@/state/proposalActions';
 import { darken, rgba } from '@/ui/common/color';
 import { ContextMenu, type MenuEntry } from '@/ui/common/ContextMenu';
 import { t } from '@/i18n/fr';
 import type { TaskChange } from '@/core/propose/propose';
-import type { Baseline } from '@/core/model/types';
+import type { Baseline, TaskLink } from '@/core/model/types';
 import { ROW_HEIGHT, type TimeScale } from './timescale';
 import type { GanttRow } from './rows';
 import { useGanttColumnsStore } from './ganttColumnsStore';
@@ -67,6 +70,8 @@ interface DragLink {
   toX: number;
   toY: number;
   targetTaskId: string | null;
+  /** Si présent : re-ciblage d'un lien existant (supprimer l'ancien sur pointerUp). */
+  relinkFrom?: { successorTaskId: string; linkIdx: number; link: TaskLink };
 }
 interface DragProgress {
   kind: 'progress';
@@ -355,6 +360,47 @@ export function GanttChart({
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
+  /** Re-ciblage d'un lien existant : glisser depuis la poignée de lien vers une nouvelle tâche. */
+  function startRelink(
+    e: ReactPointerEvent,
+    sourceTaskId: string,
+    anchorDate: IsoDate | null,
+    successorTaskId: string,
+    linkIdx: number,
+    link: TaskLink,
+    fromX: number,
+    fromY: number,
+  ) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    setDrag({
+      kind: 'link',
+      sourceTaskId,
+      anchorDate,
+      fromX,
+      fromY,
+      toX: fromX,
+      toY: fromY,
+      targetTaskId: null,
+      relinkFrom: { successorTaskId, linkIdx, link },
+    });
+    (e.target as Element).setPointerCapture(e.pointerId);
+  }
+
+  /** CTRL + glisser sur la barre de groupe → déplace tous les descendants (tâches + jalons). */
+  function startGroupDrag(e: ReactPointerEvent, task: Task) {
+    if (e.button !== 0 || !e.ctrlKey) return;
+    e.stopPropagation();
+    selectTask(task.id);
+    const descendants = schedule.hierarchy
+      .descendantsOf(task.id)
+      .filter((d) => d.type === 'task' || d.type === 'milestone')
+      .map((d) => d.id);
+    if (descendants.length === 0) return;
+    setDrag({ kind: 'move-selection', taskIds: descendants, startX: e.clientX, deltaDays: 0 });
+    (e.target as Element).setPointerCapture(e.pointerId);
+  }
+
   // ——— Pan : clic gauche maintenu sur le fond (les barres stoppent la propagation) ———
 
   function onRootPointerDown(e: ReactPointerEvent) {
@@ -469,27 +515,41 @@ export function GanttChart({
       setTaskProgress(drag.taskId, Math.max(0, Math.min(1, drag.frac)));
     } else if (drag.kind === 'link' && drag.targetTaskId) {
       const targetId = drag.targetTaskId;
-      const sourceId = drag.sourceTaskId;
-      // Ancre prédécesseur : Shift au départ → « après N j » (anchorDate), sinon « après la fin ».
-      const link: Parameters<typeof addLink>[1] = drag.anchorDate
-        ? {
-            on: sourceId,
-            type: 'after-progress',
-            progressDays: Math.max(0.5, workedDaysUpTo(schedule.linkInputs, sourceId, drag.anchorDate)),
-            lag: 0,
+      if (drag.relinkFrom) {
+        // Re-ciblage : changer le successeur du lien existant (la source reste identique).
+        // Action atomique → un seul undo restaure le lien d'origine.
+        const { successorTaskId, linkIdx, link: oldLink } = drag.relinkFrom;
+        if (targetId !== successorTaskId) {
+          const err = relinkSuccessor(successorTaskId, linkIdx, targetId, { ...oldLink });
+          if (err && window.confirm(t('links.cycleSplitPrompt'))) {
+            if (!resolveCycleBySplit(targetId, drag.sourceTaskId)) window.alert(t('links.cycleSplitImpossible'));
+          } else if (err) {
+            window.alert(err);
           }
-        : { on: sourceId, type: 'after-end', lag: 0 };
-      // Ancre successeur : Shift au relâchement → « vers N j » au point de drop, sinon au début.
-      if (shiftHeld) {
-        const td = workedDaysUpTo(schedule.linkInputs, targetId, scale.dateAt(drag.toX));
-        if (td > 0) link.targetDays = Math.max(0.5, td);
-      }
-      const error = addLink(targetId, link);
-      // Cycle refusé : proposer de scinder le successeur (sa fin devient une sous-tâche dépendante).
-      if (error && window.confirm(t('links.cycleSplitPrompt'))) {
-        if (!resolveCycleBySplit(targetId, sourceId)) window.alert(t('links.cycleSplitImpossible'));
-      } else if (error) {
-        window.alert(error);
+        }
+      } else {
+        const sourceId = drag.sourceTaskId;
+        // Ancre prédécesseur : Shift au départ → « après N j » (anchorDate), sinon « après la fin ».
+        const link: Parameters<typeof addLink>[1] = drag.anchorDate
+          ? {
+              on: sourceId,
+              type: 'after-progress',
+              progressDays: Math.max(0.5, workedDaysUpTo(schedule.linkInputs, sourceId, drag.anchorDate)),
+              lag: 0,
+            }
+          : { on: sourceId, type: 'after-end', lag: 0 };
+        // Ancre successeur : Shift au relâchement → « vers N j » au point de drop, sinon au début.
+        if (shiftHeld) {
+          const td = workedDaysUpTo(schedule.linkInputs, targetId, scale.dateAt(drag.toX));
+          if (td > 0) link.targetDays = Math.max(0.5, td);
+        }
+        const error = addLink(targetId, link);
+        // Cycle refusé : proposer de scinder le successeur (sa fin devient une sous-tâche dépendante).
+        if (error && window.confirm(t('links.cycleSplitPrompt'))) {
+          if (!resolveCycleBySplit(targetId, sourceId)) window.alert(t('links.cycleSplitImpossible'));
+        } else if (error) {
+          window.alert(error);
+        }
       }
     }
     setDrag(null);
@@ -719,28 +779,6 @@ export function GanttChart({
             />
           ) : null,
         )}
-        {/* Liens */}
-        <LinksLayer
-          schedule={schedule}
-          scale={scale}
-          rowIndexByTask={rowIndexByTask}
-          chainPairs={chainPairs}
-        />
-        {/* Fantômes colorés du plan proposé */}
-        {proposalByTask &&
-          visible.map((row, i) => {
-            const change = proposalByTask.get(row.task.id);
-            if (!change) return null;
-            return (
-              <ProposalGhost
-                key={`prop-${row.task.id}`}
-                change={change}
-                y={(windowStart + i) * ROW_HEIGHT}
-                scale={scale}
-                color={projectColor.get(row.task.projectId) ?? '#888888'}
-              />
-            );
-          })}
         {/* Barres (lignes visibles seulement) */}
         {visible.map((row, i) => (
           <g
@@ -767,9 +805,35 @@ export function GanttChart({
               onBlockContextMenu={blockMenu}
               onProgressPointerDown={startProgress}
               onMilestonePointerDown={startMilestoneDrag}
+              onGroupPointerDown={startGroupDrag}
             />
           </g>
         ))}
+        {/* Fantômes colorés du plan proposé — après les barres pour capter le survol */}
+        {proposalByTask &&
+          visible.map((row, i) => {
+            const change = proposalByTask.get(row.task.id);
+            if (!change) return null;
+            return (
+              <ProposalGhost
+                key={`prop-${row.task.id}`}
+                change={change}
+                y={(windowStart + i) * ROW_HEIGHT}
+                scale={scale}
+                color={projectColor.get(row.task.projectId) ?? '#888888'}
+                onApply={applyProposalChange}
+              />
+            );
+          })}
+        {/* Liens — rendus après les barres pour capter les événements pointer */}
+        <LinksLayer
+          schedule={schedule}
+          scale={scale}
+          rowIndexByTask={rowIndexByTask}
+          chainPairs={chainPairs}
+          onDeleteLink={removeLink}
+          onRelinkPointerDown={startRelink}
+        />
         {/* Fantômes gris de la baseline active — peints APRÈS les barres pour que le survol fonctionne */}
         {baseline &&
           visible.map((row, i) => (
@@ -899,6 +963,7 @@ interface RowBarsProps {
   onBlockContextMenu: (e: React.MouseEvent, task: Task, blockId: string) => void;
   onProgressPointerDown: (e: ReactPointerEvent, task: Task, xStart: number, xEnd: number) => void;
   onMilestonePointerDown: (e: ReactPointerEvent, task: Task) => void;
+  onGroupPointerDown: (e: ReactPointerEvent, task: Task) => void;
 }
 
 function RowBars({
@@ -917,6 +982,7 @@ function RowBars({
   onBlockContextMenu,
   onProgressPointerDown,
   onMilestonePointerDown,
+  onGroupPointerDown,
 }: RowBarsProps) {
   const { task } = row;
   const mid = ROW_HEIGHT / 2;
@@ -1002,7 +1068,10 @@ function RowBars({
     const gx0 = scale.x(agg.span.start);
     const gx1 = scale.xEnd(agg.span.end);
     return (
-      <g>
+      <g
+        onPointerDown={(e) => onGroupPointerDown(e, task)}
+        style={{ cursor: ctrlHeld ? 'grab' : undefined }}
+      >
         {/* liaison fine sur toute l'étendue — G8 : légèrement plus haute */}
         <rect
           x={gx0}
@@ -1333,8 +1402,9 @@ function RowBars({
         );
       })()}
       {/* poignée de création de lien (décalée à +11 pour ne pas chevaucher la poignée de fin) */}
+      {/* Tâche à 0 j : le marqueur ne fait que 5px, on se cale sur son bord droit visuel et non sur xEnd (un jour plus loin). */}
       <circle
-        cx={scale.xEnd(span.end) + 11}
+        cx={(zeroEffort ? xStart + 5 : xEnd) + 11}
         cy={mid}
         r={4}
         fill="var(--color-surface)"
@@ -1514,36 +1584,111 @@ function BaselineGhost({
   );
 }
 
-/** Surimpression du plan proposé : contours en pointillés au-dessus de la barre. */
+/** Surimpression du plan proposé : contours en pointillés + bouton ✓ au survol. */
 function ProposalGhost({
   change,
   y,
   scale,
   color,
+  onApply,
 }: {
   change: TaskChange;
   y: number;
   scale: TimeScale;
   color: string;
+  onApply: (change: TaskChange) => void;
 }) {
-  if (change.date) {
-    const cx = scale.x(change.date) + scale.dayWidth / 2;
-    const cy = y + ROW_HEIGHT / 2;
-    return (
+  const [hovered, setHovered] = useState(false);
+  const mid = ROW_HEIGHT / 2;
+  const ghostCy = y + 3; // centre vertical de la bande fantôme (y+1 à y+5)
+
+  const deltaDays = change.newStart && change.oldStart
+    ? diffDays(change.oldStart, change.newStart)
+    : change.date && change.oldStart
+      ? diffDays(change.oldStart, change.date)
+      : 0;
+  const deltaLabel = deltaDays === 0 ? '' : `${deltaDays > 0 ? '+' : ''}${deltaDays} j`;
+
+  const openImpacts = (e: ReactPointerEvent | React.MouseEvent) => {
+    e.stopPropagation(); // sinon le onClick racine (onAreaClick) referme aussitôt le panneau
+    useUiStore.getState().openImpacts(change.taskId);
+  };
+
+  // Bouton ✓ : déclenché sur pointerdown (fiable, l'élément n'existe qu'au survol).
+  const applyBtn = (cx: number, cy: number) => (
+    <g
+      style={{ cursor: 'pointer' }}
+      onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); onApply(change); }}
+    >
+      <circle cx={cx} cy={cy} r={7} fill="var(--color-accent)" />
       <path
-        d={`M ${cx} ${cy - 6} L ${cx + 6} ${cy} L ${cx} ${cy + 6} L ${cx - 6} ${cy} Z`}
-        fill={rgba(color, 0.25)}
-        stroke="var(--color-accent)"
+        d={`M ${cx - 3} ${cy} L ${cx - 1} ${cy + 2.5} L ${cx + 3.2} ${cy - 2.8}`}
+        fill="none"
+        stroke="white"
         strokeWidth={1.5}
-        strokeDasharray="3 2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
         pointerEvents="none"
       />
+    </g>
+  );
+
+  if (change.date) {
+    const cx = scale.x(change.date) + scale.dayWidth / 2;
+    const cy = y + mid;
+    const btnCx = cx + 16;
+    // Zone de survol = le losange lui-même (+ le bouton à droite, à hauteur du losange).
+    return (
+      <g
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
+        onPointerDown={(e) => e.stopPropagation()} // empêche la capture pointer racine de détourner le clic
+        onClick={openImpacts}
+        style={{ cursor: 'pointer' }}
+      >
+        <rect x={cx - 7} y={cy - 8} width={btnCx + 7 - (cx - 7)} height={16} fill="transparent" />
+        <path
+          d={`M ${cx} ${cy - 6} L ${cx + 6} ${cy} L ${cx} ${cy + 6} L ${cx - 6} ${cy} Z`}
+          fill={rgba(color, 0.25)}
+          stroke="var(--color-accent)"
+          strokeWidth={1.5}
+          strokeDasharray="3 2"
+          pointerEvents="none"
+        />
+        {hovered && (
+          <>
+            {/* Jalon : « +X j » au-dessus */}
+            {deltaLabel && (
+              <text x={cx} y={cy - 9} textAnchor="middle" fontSize={9} fill="var(--color-accent)" pointerEvents="none">{deltaLabel}</text>
+            )}
+            {applyBtn(btnCx, cy)}
+          </>
+        )}
+      </g>
     );
   }
   if (!change.blocks) return null;
-  // fin du dernier bloc (ouvert) : newEnd calculé par la proposition
+
+  const firstFrom = change.blocks[0]?.from;
+  const lastTo = change.blocks[change.blocks.length - 1]?.to ?? change.newEnd;
+  if (!firstFrom || !lastTo) return null;
+
+  const firstX = scale.x(firstFrom);
+  const lastEndX = scale.xEnd(lastTo);
+  const btnCx = lastEndX + 11; // centre du bouton ✓, collé au bord droit de la dernière bande
+  const labelX = (firstX + lastEndX) / 2;
+
   return (
-    <g pointerEvents="none">
+    <g
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onPointerDown={(e) => e.stopPropagation()} // empêche la capture pointer racine de détourner le clic
+      onClick={openImpacts}
+      style={{ cursor: 'pointer' }}
+    >
+      {/* Zone de survol restreinte à la bande haute (y..y+8) : ne gêne plus la barre réelle (y+5..y+16). */}
+      <rect x={firstX - 2} y={y} width={btnCx + 7 - (firstX - 2)} height={8} fill="transparent" />
+      {/* Bandes fantôme */}
       {change.blocks.map((b, i) => {
         const to = b.to ?? change.newEnd;
         if (!to || to < b.from) return null;
@@ -1559,28 +1704,86 @@ function ProposalGhost({
             stroke="var(--color-accent)"
             strokeWidth={1.1}
             strokeDasharray="3 2"
+            pointerEvents="none"
           />
         );
       })}
+      {hovered && (
+        <>
+          {/* « +X j » au-dessus de la barre, décalé à droite pour ne pas être masqué par le trait de revue */}
+          {deltaLabel && (
+            <text x={labelX + 3} y={y} textAnchor="middle" fontSize={9} fill="var(--color-accent)" pointerEvents="none">{deltaLabel}</text>
+          )}
+          {applyBtn(btnCx, ghostCy)}
+        </>
+      )}
     </g>
   );
 }
 
 // ——— Liens entre tâches ———
 
+interface LinkPathEntry {
+  d: string;
+  /** Zone de survol : segment vertical seul (évite les portions horizontales proches des barres). */
+  hitD: string;
+  violated: boolean;
+  inChain: boolean;
+  key: string;
+  arrow: { x: number; y: number; dir: 'right' | 'down' };
+  taskId: string;
+  linkIdx: number;
+  link: TaskLink;
+  sourceTaskId: string;
+  anchorDate: IsoDate | null;
+  midX: number;
+  midY: number;
+  arrowFromX: number;
+  arrowFromY: number;
+}
+
+/**
+ * Code compact d'un lien pour l'infobulle : [ancre prédécesseur][délai][ancre successeur][délai].
+ * F = fin, D = début, P = après N j travaillés. Délais en j ouvrés, 0 omis.
+ * Ex. : FD (fin→début), F1D3 (fin+1→début+3), DD1 (début→début+1).
+ */
+function linkCode(link: TaskLink): string {
+  let pred: string;
+  if (link.type === 'with-start') pred = 'D';
+  else if (link.type === 'after-progress') pred = `P${link.progressDays ?? 0}`;
+  else pred = 'F';
+  if (link.lag) pred += `${link.lag}`; // 0 omis ; signe conservé pour les délais négatifs
+  let succ = 'D';
+  if (link.targetDays) succ += `${link.targetDays}`;
+  return pred + succ;
+}
+
 function LinksLayer({
   schedule,
   scale,
   rowIndexByTask,
   chainPairs,
+  onDeleteLink,
+  onRelinkPointerDown,
 }: {
   schedule: Schedule;
   scale: TimeScale;
   rowIndexByTask: ReadonlyMap<string, number>;
   chainPairs?: ReadonlySet<string>;
+  onDeleteLink: (taskId: string, linkIdx: number) => void;
+  onRelinkPointerDown: (
+    e: ReactPointerEvent,
+    sourceTaskId: string,
+    anchorDate: IsoDate | null,
+    successorTaskId: string,
+    linkIdx: number,
+    link: TaskLink,
+    fromX: number,
+    fromY: number,
+  ) => void;
 }) {
-  type Arrow = { x: number; y: number; dir: 'right' | 'down' };
-  const paths: { d: string; violated: boolean; inChain: boolean; key: string; arrow: Arrow }[] = [];
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const paths: LinkPathEntry[] = [];
 
   // Une feuille repliée (cachée) reporte son lien sur la ligne de son ancêtre visible le plus proche.
   const resolveRow = (taskId: string): number | undefined => {
@@ -1609,11 +1812,13 @@ function LinksLayer({
       if (!sourceSpan) continue;
 
       let sx: number;
+      let anchorDate: IsoDate | null = null;
       if (link.type === 'with-start') {
         sx = scale.x(sourceSpan.start);
       } else if (link.type === 'after-progress') {
         const reached = workedDaysReachedOn(schedule.linkInputs, link.on, link.progressDays ?? 0);
         sx = scale.xEnd(reached ?? sourceSpan.end);
+        anchorDate = reached ?? null;
       } else {
         sx = scale.xEnd(sourceSpan.end);
       }
@@ -1633,41 +1838,149 @@ function LinksLayer({
       const tx = scale.x(targetAnchor);
       const ty = targetIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
       const bend = sx + 7;
-      // Lien « retour arrière » : la cible démarre à gauche du coude. On remonte le trait
-      // de retour en haut de la ligne cible (au-dessus de la barre/losange) puis on redescend
-      // vers la flèche, plutôt que de traverser la barre en son milieu.
+      // Lien « retour arrière »
       const backward = tx - 4 < bend;
       const d = backward
         ? `M ${sx} ${sy} L ${bend} ${sy} L ${bend} ${targetIndex * ROW_HEIGHT + 3} L ${tx} ${targetIndex * ROW_HEIGHT + 3} L ${tx} ${ty}`
         : `M ${sx} ${sy} L ${bend} ${sy} L ${bend} ${ty} L ${tx - 4} ${ty}`;
+      const midX = backward ? bend : bend;
+      const vertBotY = backward ? targetIndex * ROW_HEIGHT + 3 : ty;
+      const midY = (sy + vertBotY) / 2;
+      // Zone de survol = segment vertical + le trait horizontal qui le suit, tronqué pour garder
+      // 10px de marge avec l'ancre du successeur (et ignoré si ce trait fait moins de 10px).
+      let hitD = `M ${bend} ${sy} L ${bend} ${vertBotY}`;
+      const drawnEndX = backward ? tx : tx - 4;
+      const rightward = drawnEndX > bend;
+      if (Math.abs(drawnEndX - bend) >= 10) {
+        const trimEnd = rightward ? tx - 10 : tx + 10;
+        if (rightward ? trimEnd > bend : trimEnd < bend) {
+          hitD += ` M ${bend} ${vertBotY} L ${trimEnd} ${vertBotY}`;
+        }
+      }
       paths.push({
         key: `${task.id}-${li}`,
         violated,
         inChain: chainPairs?.has(`${task.id}:${link.on}`) ?? false,
         d,
+        hitD,
         arrow: backward ? { x: tx, y: ty, dir: 'down' } : { x: tx - 4, y: ty, dir: 'right' },
+        taskId: task.id,
+        linkIdx: li,
+        link,
+        sourceTaskId: link.on,
+        anchorDate,
+        midX,
+        midY,
+        arrowFromX: sx,
+        arrowFromY: sy,
       });
     }
   }
 
   return (
-    <g pointerEvents="none">
+    <g>
       {paths.map((p) => {
+        const isHovered = hoveredKey === p.key;
         const stroke = p.violated
           ? 'var(--color-danger)'
           : p.inChain
             ? 'var(--color-warn)'
             : 'var(--color-ink-faint)';
+        const sw = p.violated || p.inChain ? (isHovered ? 2.4 : 1.8) : (isHovered ? 1.6 : 1.1);
+        const sourceName = schedule.hierarchy.tasksById.get(p.sourceTaskId)?.name ?? p.sourceTaskId;
+        // Groupe parent (direct ou indirect) du prédécesseur, s'il existe.
+        let groupName: string | null = null;
+        let ancId = schedule.hierarchy.tasksById.get(p.sourceTaskId)?.parentId ?? null;
+        while (ancId) {
+          const anc = schedule.hierarchy.tasksById.get(ancId);
+          if (!anc) break;
+          if (anc.type === 'group') { groupName = anc.name; break; }
+          ancId = anc.parentId ?? null;
+        }
+        const sourceLabel = groupName ? `${groupName} / ${sourceName}` : sourceName;
+        const conflictLabel = p.violated ? ` · ${t('conflicts.types.link-violated')}` : '';
+        const tooltipText = `${linkCode(p.link)} « ${sourceLabel} »${conflictLabel}`;
+        const tooltipW = Math.min(300, tooltipText.length * 6.2 + 12);
+        const tooltipX = Math.max(4, p.midX - tooltipW / 2);
+        const tooltipY = p.midY - 28;
+
         return (
           <g key={p.key}>
+            {/* Zone de hit fine (≈ épaisseur du trait, sans marge), vertical + horizontal tronqué */}
+            <path
+              d={p.hitD}
+              fill="none"
+              stroke="transparent"
+              strokeWidth={4}
+              style={{ cursor: 'pointer' }}
+              onPointerEnter={() => setHoveredKey(p.key)}
+              onPointerLeave={() => setHoveredKey(null)}
+            />
+            {/* Trait visuel */}
             <path
               d={p.d}
               fill="none"
               stroke={stroke}
-              strokeWidth={p.violated || p.inChain ? 1.8 : 1.1}
+              strokeWidth={sw}
               opacity={0.9}
+              pointerEvents="none"
             />
             <ArrowHead arrow={p.arrow} color={stroke} />
+
+            {/* Éléments interactifs visibles au survol */}
+            {isHovered && (
+              <g>
+                {/* Infobulle */}
+                <g pointerEvents="none">
+                  <rect
+                    x={tooltipX}
+                    y={tooltipY}
+                    width={tooltipW}
+                    height={18}
+                    rx={3}
+                    fill="var(--color-ink)"
+                    opacity={0.88}
+                  />
+                  <text
+                    x={tooltipX + 6}
+                    y={tooltipY + 12}
+                    fontSize={10}
+                    fill="white"
+                  >
+                    {tooltipText}
+                  </text>
+                </g>
+                {/* Bouton × supprimer — à gauche du trait (le trait passe entre les deux boutons) */}
+                {/* Sur pointerdown : la capture pointer racine détourne sinon le clic. */}
+                <g
+                  style={{ cursor: 'pointer' }}
+                  onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); onDeleteLink(p.taskId, p.linkIdx); setHoveredKey(null); }}
+                  onPointerEnter={() => setHoveredKey(p.key)}
+                  onPointerLeave={() => setHoveredKey(null)}
+                >
+                  <circle cx={p.midX - 8} cy={p.midY} r={7} fill="var(--color-danger)" opacity={0.9} />
+                  <path
+                    d={`M ${p.midX - 11} ${p.midY - 3} L ${p.midX - 5} ${p.midY + 3} M ${p.midX - 5} ${p.midY - 3} L ${p.midX - 11} ${p.midY + 3}`}
+                    stroke="white" strokeWidth={1.5} strokeLinecap="round" pointerEvents="none"
+                  />
+                  <title>{t('links.remove')}</title>
+                </g>
+                {/* Poignée re-ciblage → — à droite du trait */}
+                <g
+                  style={{ cursor: 'grab' }}
+                  onPointerDown={(e) => onRelinkPointerDown(e, p.sourceTaskId, p.anchorDate, p.taskId, p.linkIdx, p.link, p.arrowFromX, p.arrowFromY)}
+                  onPointerEnter={() => setHoveredKey(p.key)}
+                  onPointerLeave={() => setHoveredKey(null)}
+                >
+                  <circle cx={p.midX + 8} cy={p.midY} r={7} fill="var(--color-accent)" opacity={0.9} />
+                  <path
+                    d={`M ${p.midX + 4.5} ${p.midY} L ${p.midX + 11} ${p.midY} M ${p.midX + 8.5} ${p.midY - 2.5} L ${p.midX + 11} ${p.midY} L ${p.midX + 8.5} ${p.midY + 2.5}`}
+                    fill="none" stroke="white" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none"
+                  />
+                  <title>{t('gantt.linkRelinkHint')}</title>
+                </g>
+              </g>
+            )}
           </g>
         );
       })}

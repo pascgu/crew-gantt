@@ -110,7 +110,14 @@ export function App() {
         />
       )}
       {panel === 'impacts' && proposal && (
-        <ImpactsPanel proposal={proposal} onClose={closePanel} />
+        <ImpactsPanel
+          proposal={proposal}
+          onClose={closePanel}
+          onSelectTask={(id) => {
+            selectTask(id);
+            useUiStore.getState().scrollToTask(id);
+          }}
+        />
       )}
       {panel === 'messages' && (
         <div className="fixed right-4 top-14 z-50 w-80 rounded-xl border border-line bg-surface shadow-float">

@@ -317,6 +317,21 @@ export function GanttTab() {
     }
   }, [workloadOpen, scale]);
 
+  // Scroll vers une tâche demandée depuis un autre composant (ex. clic dans ImpactsPanel)
+  const requestScrollTo = useUiStore((s) => s.requestScrollTo);
+  useEffect(() => {
+    if (!requestScrollTo) return;
+    useUiStore.getState().clearScrollRequest();
+    const idx = rows.findIndex((r) => r.task.id === requestScrollTo);
+    if (idx < 0) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const y = idx * ROW_HEIGHT;
+    if (y < el.scrollTop || y + ROW_HEIGHT > el.scrollTop + el.clientHeight) {
+      el.scrollTop = y - el.clientHeight / 2 + ROW_HEIGHT / 2;
+    }
+  }, [requestScrollTo, rows]);
+
   // ——— Clavier : navigation, ALT+flèches, Entrée/Suppr/Échap ———
 
   useEffect(() => {
@@ -557,7 +572,7 @@ export function GanttTab() {
                   chainPairs={chain?.pairs}
                   onOpenPanel={openPanel}
                   onPanBy={panBy}
-                  onAreaClick={() => setPanelOpen(false)}
+                  onAreaClick={() => { setPanelOpen(false); useUiStore.getState().closePanel(); }}
                   hoveredTaskId={hoveredTaskId}
                   onHoverTask={setHoveredTaskId}
                   minHeight={viewportH}

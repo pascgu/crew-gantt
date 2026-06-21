@@ -28,7 +28,7 @@ const LEGEND_KEYS = [
 ] as const;
 
 const GUIDE_SECTIONS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7'] as const;
-const PLANNING_SECTIONS = ['s1', 's2', 's3', 's4', 's5'] as const;
+const PLANNING_SECTIONS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
 
 const PLANNING_CHARTS: Partial<Record<string, string>> = {
   // s1 : arbre de décision en LR pour rester compact horizontalement

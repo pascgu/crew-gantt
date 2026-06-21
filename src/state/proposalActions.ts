@@ -1,4 +1,4 @@
-import { proposePlan, type Proposal } from '@/core/propose/propose';
+import { proposePlan, type Proposal, type TaskChange } from '@/core/propose/propose';
 import { todayIso } from '@/core/calendar/dates';
 import type { TeamFile } from '@/core/model/types';
 import { useAppStore } from './store';
@@ -29,6 +29,21 @@ export function proposalKey(proposal: Proposal): string {
   return proposal.changes
     .map((c) => `${c.taskId}:${c.newStart}:${c.newEnd}:${c.date ?? ''}`)
     .join('|');
+}
+
+/** Applique un seul changement de proposition (validation inline depuis le Gantt). */
+export function applyProposalChange(change: TaskChange): void {
+  useAppStore.getState().mutate((file) => {
+    const task = file.tasks.find((t) => t.id === change.taskId);
+    if (!task) return;
+    if (change.blocks) {
+      task.blocks = change.blocks.map((b) => ({
+        ...b,
+        assignments: b.assignments.map((a) => ({ ...a })),
+      }));
+    }
+    if (change.date) task.date = change.date;
+  });
 }
 
 /** Applique tout ou partie (taskIds) de la proposition. Chaque application recalcule. */

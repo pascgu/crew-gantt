@@ -981,6 +981,31 @@ export function removeLink(taskId: string, index: number): void {
   });
 }
 
+/**
+ * Re-cible un lien : retire le lien `linkIdx` de l'ancien successeur et le pose sur le nouveau,
+ * en une seule mutation (un seul undo). La source du lien (`link.on`) ne change pas.
+ */
+export function relinkSuccessor(
+  oldTaskId: string,
+  linkIdx: number,
+  newTaskId: string,
+  link: TaskLink,
+): string | null {
+  const { file } = useAppStore.getState();
+  if (wouldCreateCycle(file.tasks, newTaskId, link.on)) {
+    return t('links.cycleRefused');
+  }
+  mutate((f) => {
+    const old = taskById(f, oldTaskId);
+    if (old) old.links.splice(linkIdx, 1);
+    const target = taskById(f, newTaskId);
+    if (!target) return;
+    if (target.links.some((l) => l.on === link.on && l.type === link.type)) return;
+    target.links.push(link);
+  });
+  return null;
+}
+
 // ——— UI persistée ———
 
 export function toggleCollapsed(taskId: string): void {

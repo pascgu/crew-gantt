@@ -179,6 +179,8 @@ export const fr = {
     snapToPredecessor: 'Caler le début sur le prédécesseur',
     reviewDateLine: 'Date de réunion',
     assignSubmenu: 'Affectation',
+    linkRelinkHint: 'Déplacer vers une autre tâche',
+    ctrlDragGroupHint: 'Ctrl + glisser — déplacer tout le groupe',
     newBlockHisto: 'Nouveau bloc (garder histo)',
     progressTooltipIndep: 'Avancement : {pct} % (indépendant du réalisé/reste)',
   },
@@ -356,6 +358,7 @@ export const fr = {
     deadlines: 'Deadlines encore menacées',
     deadlineLine: '« {task} » finirait le {end} (deadline {deadline})',
     empty: 'Aucun impact — le plan est stable.',
+    filterAll: 'Toutes les tâches',
   },
   baseline: {
     freeze: 'Figer le plan',
@@ -456,6 +459,8 @@ export const fr = {
       s4Body: "1. Effort = Réalisé + Reste (en j-h) ; le Réalisé (passé figé) est le pivot.\n2. Posez le début en ajoutant un bloc, puis affectez l’équipe.\n3. Le Reste pilote la fin de la barre ; baissez-le quand le travail avance.\n4. Effort et Reste sont éditables au panneau : changer l’un ajuste l’autre, le Réalisé ne bouge pas.\n5. L’Avancement (%) est saisi à part — il dit où en est le travail, indépendamment des j-h.",
       s5Title: '5. Les deux gestes — bord gauche et bord droit',
       s5Body: "La barre a deux teintes (les deux types de tâches) : clair = passé (réalisé), sombre = reste à faire, séparés par le trait de revue. L’encoche noire = Avancement saisi, indépendant des j-h. Bord droit (tâche effort) : tire la fin → ajuste le reste ET l’effort. Bord gauche / déplacement : recalcule le réalisé (le passé). Bords (tâche dates fixées) : déplacent simplement les dates.",
+      s6Title: '6. Lire un lien (infobulle)',
+      s6Body: "Au survol d’un lien, l’infobulle affiche un code compact : [ancre prédécesseur][délai][ancre successeur][délai]. Les lettres : F = fin, D = début (P = après N jours travaillés du prédécesseur). Les chiffres sont des décalages en jours ouvrés ; 0 est omis. Exemples : FD = de la fin du prédécesseur au début du successeur ; F1D3 = fin +1 j → début +3 j ; DD1 = début → début +1 j. Le nom du groupe parent du prédécesseur précède son nom (« Groupe / Tâche »). Tous les liens sont « au plus tôt » : commencer après le point autorisé est permis, seul commencer avant est un conflit.",
     },
     legend: {
       dragBar: 'Glisser une barre — déplacer le bloc de travail',
