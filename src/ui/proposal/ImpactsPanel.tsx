@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { diffDays } from '@/core/calendar/dates';
-import type { Proposal, TaskChange } from '@/core/propose/propose';
+import type { ChangeReason, Proposal, TaskChange } from '@/core/propose/propose';
 import { useAppStore } from '@/state/store';
 import { applyProposal, proposalKey } from '@/state/proposalActions';
 import { useUiStore } from '@/state/uiStore';
 import { IconClose } from '@/ui/common/icons';
-import { t } from '@/i18n/fr';
+import { t, type TranslationKey } from '@/i18n/fr';
 import { fmtDay } from '@/ui/gantt/format';
 
 function changeLabels(change: TaskChange): string[] {
@@ -45,6 +45,12 @@ interface ImpactsPanelProps {
   proposal: Proposal;
   onClose: () => void;
   onSelectTask?: (taskId: string) => void;
+}
+
+function reasonLabel(reason: ChangeReason, nameOf: (id: string) => string): string {
+  if (reason.type === 'cascade') return t('proposal.reason.cascade', { task: nameOf(reason.taskId ?? '') });
+  if (reason.type === 'link-violated') return t('proposal.reason.link-violated', { task: nameOf(reason.taskId ?? '') });
+  return t('proposal.reason.effort-overflow' as TranslationKey);
 }
 
 /** Panneau Impacts : résumé + tâches décalées/découpées/étirées, jalons, deadlines. */
@@ -118,6 +124,11 @@ export function ImpactsPanel({ proposal, onClose, onSelectTask }: ImpactsPanelPr
                 {fmtDay(change.oldStart)}–{fmtDay(change.oldEnd)} → {fmtDay(change.newStart)}–
                 {fmtDay(change.newEnd)}
               </p>
+              {change.reason && (
+                <p className="text-[10.5px] text-ink-faint">
+                  {t('proposal.reason.label' as TranslationKey)} {reasonLabel(change.reason, nameOf)}
+                </p>
+              )}
             </div>
             <button
               className="shrink-0 rounded border border-accent/40 px-2 py-0.5 text-[11px] font-medium text-accent transition hover:bg-accent-wash"

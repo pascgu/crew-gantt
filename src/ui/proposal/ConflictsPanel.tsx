@@ -98,7 +98,17 @@ export function ConflictsPanel({ onClose, onSelectTask }: ConflictsPanelProps) {
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {active.filter(filterFn).length === 0 && active.length === 0 && (
+        {/* Cycle de dépendances : cas rare (prévenu à la création), mais possible si le fichier
+            a été édité manuellement. Affiché en priorité, bloque le calcul. */}
+        {schedule.cycle && (
+          <div className="mb-2 rounded-lg border border-danger/40 bg-danger-wash/60 px-2.5 py-1.5">
+            <p className="text-[12px] font-semibold text-danger">{t('conflicts.types.cycle')}</p>
+            <p className="text-[11.5px] leading-snug text-ink-soft">
+              {t('conflicts.cycle', { tasks: schedule.cycle.join(' → ') })}
+            </p>
+          </div>
+        )}
+        {active.filter(filterFn).length === 0 && active.length === 0 && !schedule.cycle && (
           <p className="p-3 text-[12px] text-ok">{t('conflicts.none')}</p>
         )}
         {active.filter(filterFn).map((c) => renderConflict(c, false))}

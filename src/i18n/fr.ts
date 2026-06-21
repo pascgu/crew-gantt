@@ -183,6 +183,7 @@ export const fr = {
     ctrlDragGroupHint: 'Ctrl + glisser — déplacer tout le groupe',
     newBlockHisto: 'Nouveau bloc (garder histo)',
     progressTooltipIndep: 'Avancement : {pct} % (indépendant du réalisé/reste)',
+    overloadedDays: '(surchargée les jours du trait orange)',
   },
   links: {
     title: 'Liens (prédécesseurs)',
@@ -258,6 +259,7 @@ export const fr = {
       deadline: 'Deadline menacée',
       'milestone-untenable': 'Jalon intenable',
       unassigned: 'Tâche non affectée',
+      cycle: 'Cycle de dépendances',
     },
     messages: {
       'link-violated': '« {task} » démarre avant son point autorisé ({date}).',
@@ -360,6 +362,13 @@ export const fr = {
     deadlineLine: '« {task} » finirait le {end} (deadline {deadline})',
     empty: 'Aucun impact — le plan est stable.',
     filterAll: 'Toutes les tâches',
+    reason: {
+      label: 'raison :',
+      'effort-overflow': 'effort non casé',
+      'link-violated': 'lien violé (après « {task} »)',
+      'project-overload': 'surcharge projet ({resource})',
+      cascade: 'cascade (depuis « {task} »)',
+    },
   },
   baseline: {
     freeze: 'Figer le plan',
@@ -493,6 +502,7 @@ export const fr = {
       insertKey: 'Inser — insérer une tâche sœur après la sélection',
       cancelled: 'Statut Annulé — barre hacturée, exclue des calculs de charge',
       ctrlDrag: 'Ctrl + glisser — déplacer (tâche ou jalon)',
+      orangeBand: "Trait orange en haut d'une barre — ressource surchargée ce(s) jour(s) : surcharge projet ou sur-engagement cross-projets",
     },
     guide: {
       s1Title: '1. Démarrer',

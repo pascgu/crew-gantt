@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { addDays, diffDays, eachDay, todayIso } from '@/core/calendar/dates';
+import { addDays, diffDays, eachDay, maxIso, minIso, todayIso } from '@/core/calendar/dates';
 import { progressBarDays, taskProgress } from '@/core/scheduler/groups';
 import { workedDaysReachedOn, workedDaysUpTo } from '@/core/scheduler/links';
 import { realizedOf, remainingForEndDate, remainingOf, scheduledEffort } from '@/core/scheduler/blocks';
@@ -123,6 +123,8 @@ interface GanttChartProps {
   windowStart: number;
   windowEnd: number;
   conflictTaskIds: ReadonlySet<string>;
+  /** Périodes de surcharge par ressource (project-overload + sur-engagement). */
+  capacityConcernPeriods?: ReadonlyMap<string, readonly { from: IsoDate; to: IsoDate }[]>;
   /** Fantômes du plan proposé (surimpression). */
   proposalByTask?: ReadonlyMap<string, TaskChange>;
   /** Baseline active affichée (fantômes gris). */
@@ -148,6 +150,7 @@ export function GanttChart({
   windowStart,
   windowEnd,
   conflictTaskIds,
+  capacityConcernPeriods,
   proposalByTask,
   baseline,
   chainTaskIds,
@@ -805,6 +808,7 @@ export function GanttChart({
               scale={scale}
               color={projectColor.get(row.task.projectId) ?? '#888888'}
               hasConflict={conflictTaskIds.has(row.task.id)}
+              capacityConcernPeriods={capacityConcernPeriods}
               drag={drag}
               ctrlHeld={ctrlHeld}
               shiftHeld={shiftHeld}
@@ -963,6 +967,7 @@ interface RowBarsProps {
   scale: TimeScale;
   color: string;
   hasConflict: boolean;
+  capacityConcernPeriods?: ReadonlyMap<string, readonly { from: IsoDate; to: IsoDate }[]>;
   drag: Drag | null;
   ctrlHeld: boolean;
   shiftHeld: boolean;
@@ -990,6 +995,7 @@ function RowBars({
   scale,
   color,
   hasConflict,
+  capacityConcernPeriods,
   drag,
   ctrlHeld,
   shiftHeld,
@@ -1268,7 +1274,16 @@ function RowBars({
         const who = r.block.assignments
           .map((a) => {
             const res = schedule.ctx.file.resources.find((rs) => rs.id === a.resourceId);
-            return res ? `${res.name} (${a.units} %)` : null;
+            if (!res) return null;
+            const overloaded =
+              capacityConcernPeriods &&
+              task.status !== 'cancelled' &&
+              task.status !== 'done' &&
+              (capacityConcernPeriods.get(a.resourceId) ?? []).some((p) => {
+                const start = maxIso(maxIso(p.from, from), schedule.ctx.today);
+                return start <= minIso(p.to, to);
+              });
+            return `${res.name} (${a.units} %)${overloaded ? ` ${t('gantt.overloadedDays')}` : ''}`;
           })
           .filter(Boolean)
           .join(', ');
@@ -1318,6 +1333,30 @@ function RowBars({
             {task.status === 'cancelled' && (
               <rect x={x} y={barY} width={w} height={barH} rx={rx} fill="url(#cancelled-hatch)" pointerEvents="none" />
             )}
+            {/* bande orange (2 px) sur le bord supérieur de la barre pour les jours de surcharge
+                (project-overload intra-projet ou sur-engagement inter-projets). Uniquement futur. */}
+            {capacityConcernPeriods && task.status !== 'cancelled' && task.status !== 'done' &&
+              r.block.assignments.flatMap((a, ai) => {
+                const periods = capacityConcernPeriods.get(a.resourceId) ?? [];
+                const today = schedule.ctx.today;
+                return periods.flatMap((p, pi) => {
+                  const from = maxIso(maxIso(p.from, r.from), today);
+                  const to = minIso(p.to, r.to);
+                  if (from > to) return [];
+                  const xFrom = scale.x(from);
+                  const xTo = scale.xEnd(to);
+                  const bandW = xTo - xFrom;
+                  if (bandW <= 0) return [];
+                  return [
+                    <rect
+                      key={`load-${ai}-${pi}`}
+                      x={xFrom} y={barY} width={bandW} height={2}
+                      fill="var(--color-warn)" opacity={0.9} pointerEvents="none"
+                    />,
+                  ];
+                });
+              })
+            }
             {/* poignée de début — moitié basse seulement (haut = déplacer) */}
             <rect
               x={x - 3}

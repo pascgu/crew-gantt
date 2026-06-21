@@ -25,6 +25,7 @@ const LEGEND_KEYS = [
   'undoRedo',
   'cancelled',
   'ctrlDrag',
+  'orangeBand',
 ] as const;
 
 const GUIDE_SECTIONS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7'] as const;

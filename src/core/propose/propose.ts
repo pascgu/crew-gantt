@@ -20,6 +20,12 @@ import {
 const HORIZON_DAYS = 1200;
 const EPS = 1e-9;
 
+export interface ChangeReason {
+  type: 'effort-overflow' | 'link-violated' | 'cascade';
+  /** Tâche source (pour link-violated / cascade). */
+  taskId?: string;
+}
+
 export interface TaskChange {
   taskId: string;
   /** Nouveau jeu de blocs complet (tâches). */
@@ -33,6 +39,8 @@ export interface TaskChange {
   newEnd: IsoDate | null;
   oldBlockCount: number;
   newBlockCount: number;
+  /** Raison principale du décalage (pour le panneau Impacts). */
+  reason?: ChangeReason;
 }
 
 export interface Proposal {
@@ -91,7 +99,12 @@ export function proposePlan(file: TeamFile, today: IsoDate): Proposal | null {
 
   // Enregistre un re-blocage : reflète les nouveaux blocs (cascade), recalcule les
   // groupes, et empile le TaskChange (vues span/compteurs pour le panneau Impacts).
-  const pushReblock = (taskId: string, resolved: ResolvedBlock[], newBlocks: Block[]): void => {
+  const pushReblock = (
+    taskId: string,
+    resolved: ResolvedBlock[],
+    newBlocks: Block[],
+    reason?: ChangeReason,
+  ): void => {
     const oldSpan = taskSpan(resolved);
     const newTask = { ...taskFor(taskId), blocks: newBlocks };
     reblocked.set(taskId, newTask);
@@ -109,7 +122,17 @@ export function proposePlan(file: TeamFile, today: IsoDate): Proposal | null {
       newEnd: newSpan?.end ?? null,
       oldBlockCount: resolved.length,
       newBlockCount: newResolved.length,
+      reason,
     });
+  };
+
+  /** Détermine la raison d'un décalage lié à une contrainte de lien. */
+  const linkReason = (task: Task): ChangeReason => {
+    const result = earliestStart(inputs, task);
+    const cascadePred = result.perLink.find(({ date, link }) => date && reblocked.has(link.on));
+    if (cascadePred) return { type: 'cascade', taskId: cascadePred.link.on };
+    const directPred = result.perLink.find(({ date }) => date);
+    return { type: 'link-violated', taskId: directPred?.link.on };
   };
 
   for (const taskId of order) {
@@ -118,8 +141,13 @@ export function proposePlan(file: TeamFile, today: IsoDate): Proposal | null {
 
     if (task.type === 'milestone') {
       if (!task.date) continue;
-      const earliest = earliestStart(inputs, task).date;
+      const earliestResult = earliestStart(inputs, task);
+      const earliest = earliestResult.date;
       if (earliest && task.date < earliest) {
+        const cascadePred = earliestResult.perLink.find(({ date, link }) => date && reblocked.has(link.on));
+        const reason: ChangeReason = cascadePred
+          ? { type: 'cascade', taskId: cascadePred.link.on }
+          : { type: 'link-violated', taskId: earliestResult.perLink.find(({ date }) => date)?.link.on };
         changes.push({
           taskId,
           date: earliest,
@@ -129,6 +157,7 @@ export function proposePlan(file: TeamFile, today: IsoDate): Proposal | null {
           newEnd: earliest,
           oldBlockCount: 0,
           newBlockCount: 0,
+          reason,
         });
         // un jalon déplacé peut contraindre des successeurs : reflète sa nouvelle date
         reblocked.set(taskId, { ...task, date: earliest });
@@ -147,7 +176,7 @@ export function proposePlan(file: TeamFile, today: IsoDate): Proposal | null {
     // son caractère 0 j (le passage par placeTask la transformerait en bloc réel).
     if (task.blocks.every((b) => b.zero)) {
       const shifted = shiftZeroMarker(inputs, task, resolved, today);
-      if (shifted) pushReblock(taskId, resolved, shifted);
+      if (shifted) pushReblock(taskId, resolved, shifted, linkReason(task));
       continue;
     }
 
@@ -156,15 +185,24 @@ export function proposePlan(file: TeamFile, today: IsoDate): Proposal | null {
     // l'ancre targetDays). Le reste du chemin (placeTask) reste réservé à l'effort.
     if (task.scheduling === 'fixed') {
       const shifted = shiftFixedTask(ctx, inputs, task, resolved, today);
-      if (shifted) pushReblock(taskId, resolved, shifted);
+      if (shifted) pushReblock(taskId, resolved, shifted, linkReason(task));
       continue;
     }
 
     if (task.remaining <= EPS) continue;
 
+    // Détermine la raison avant d'appeler placeTask (qui recalcule la même info en interne).
+    const effortEarliest = earliestStart(inputs, task);
+    const effortEarliestDate = effortEarliest.date;
+    const firstFuture = resolved.filter((r) => r.to >= today)[0];
+    const effortViolated = Boolean(effortEarliestDate && firstFuture && firstFuture.from < effortEarliestDate);
+    const effortReason: ChangeReason = effortViolated
+      ? linkReason(task)
+      : { type: 'effort-overflow' };
+
     const proposed = placeTask(ctx, inputs, task, resolved, today);
     if (!proposed) continue;
-    pushReblock(taskId, resolved, proposed);
+    pushReblock(taskId, resolved, proposed, effortReason);
   }
 
   if (changes.length === 0) return null;

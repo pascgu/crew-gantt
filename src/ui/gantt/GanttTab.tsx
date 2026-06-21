@@ -7,7 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { todayIso } from '@/core/calendar/dates';
+import { addDays, todayIso } from '@/core/calendar/dates';
 import { constrainingChain } from '@/core/scheduler/links';
 import type { IsoDate, ZoomLevel } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
@@ -120,6 +120,43 @@ export function GanttTab() {
       proposal ? new Map(proposal.changes.map((c) => [c.taskId, c])) : undefined,
     [proposal],
   );
+
+  // Périodes de surcharge par ressource : project-overload (intra-projet) + sur-engagement
+  // (inter-projets). Utilisées pour rendre la bande orange sur les barres du Gantt.
+  const capacityConcernPeriods = useMemo(() => {
+    const result = new Map<string, { from: IsoDate; to: IsoDate }[]>();
+    // Jours de project-overload par ressource (Σ units > 100 % sur un même projet).
+    const overloadDaysByResource = new Map<string, IsoDate[]>();
+    for (const [resourceId, days] of schedule.loadIndex) {
+      for (const [day, load] of days) {
+        for (const units of Object.values(load.unitsByProject)) {
+          if (units > 100 + 1e-9) {
+            if (!overloadDaysByResource.has(resourceId)) overloadDaysByResource.set(resourceId, []);
+            overloadDaysByResource.get(resourceId)!.push(day);
+            break;
+          }
+        }
+      }
+    }
+    for (const [resourceId, days] of overloadDaysByResource) {
+      days.sort();
+      const periods: { from: IsoDate; to: IsoDate }[] = [];
+      for (const day of days) {
+        const last = periods[periods.length - 1];
+        // Tolère les week-ends (gap ≤ 3 j calendaires) pour fusionner les jours contigus.
+        if (last && last.to >= addDays(day, -3)) { if (day > last.to) last.to = day; }
+        else periods.push({ from: day, to: day });
+      }
+      result.set(resourceId, periods);
+    }
+    // Périodes de sur-engagement (déjà agrégées par le scheduler).
+    for (const oe of schedule.overEngagements) {
+      const existing = result.get(oe.resourceId);
+      if (existing) existing.push({ from: oe.from, to: oe.to });
+      else result.set(oe.resourceId, [{ from: oe.from, to: oe.to }]);
+    }
+    return result as ReadonlyMap<string, readonly { from: IsoDate; to: IsoDate }[]>;
+  }, [schedule]);
 
   const [extend, setExtend] = useState({ before: 0, after: 0 });
 
@@ -566,6 +603,7 @@ export function GanttTab() {
                   windowStart={windowStart}
                   windowEnd={windowEnd}
                   conflictTaskIds={new Set(conflictsByTask.keys())}
+                  capacityConcernPeriods={capacityConcernPeriods}
                   proposalByTask={proposalByTask}
                   baseline={activeBl}
                   chainTaskIds={chain?.ids}
