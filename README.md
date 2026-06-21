@@ -3,7 +3,7 @@
 > Outil web de pilotage d'équipe multi-projets.
 > Qui fait quoi, cette semaine et sur la durée. Un fichier = une équipe.
 
-CrewGantt n'est pas un outil de gestion de projet de plus : c'est un outil de **management d'équipe**. Le manager y pilote **une équipe** travaillant sur **plusieurs projets** — plan long terme (Gantt à blocs de travail), dispatch des personnes, et suivi en réunion hebdomadaire. Voir le [document de conception](GDD.md).
+CrewGantt n'est pas un outil de gestion de projet de plus : c'est un outil de **management d'équipe**. Le manager y pilote **une équipe** travaillant sur **plusieurs projets** — plan long terme (Gantt à blocs de travail), dispatch des personnes, et suivi en réunion hebdomadaire. Voir le [document de conception](plans/GDD.md).
 
 **Principe fondateur : l'outil propose, l'humain dispose.** CrewGantt ne déplace jamais une tâche tout seul — il signale les conflits, propose un réordonnancement en surimpression, et vous appliquez tout, tâche par tâche, ou rien.
 

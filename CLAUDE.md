@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-CrewGantt is a serverless, single-file web app for managing **one team across multiple projects**. A file (`monequipe.crewgantt.json`) *is* a team. The UI and most docs are in **French** — match that language for user-facing strings, comments, and commit messages. The deep design rationale lives in [GDD.md](GDD.md); read it when touching scheduling, links, or workload semantics.
+CrewGantt is a serverless, single-file web app for managing **one team across multiple projects**. A file (`monequipe.crewgantt.json`) *is* a team. The UI and most docs are in **French** — match that language for user-facing strings, comments, and commit messages. The deep design rationale lives in [GDD.md](plans/GDD.md); read it when touching scheduling, links, or workload semantics.
 
 ## Shell usage
 
@@ -37,7 +37,7 @@ There is no separate `typecheck` script — `npm run build` does it (`tsc -b`). 
 
 Recompute is **memoized by file reference** in [src/state/schedule.ts](src/state/schedule.ts): because all mutations go through Immer, any change produces a new `file` reference, which invalidates the one-slot cache. Consume it via the `useSchedule()` / `useConflicts()` hooks — never call `computeSchedule` directly from components.
 
-Le catalogue complet des conflits (types, affichage, résolution) est dans [docs/conflicts.md](docs/conflicts.md). Maintenir ce fichier à jour lors de toute modification impactant la détection, l'affichage ou la résolution d'un conflit.
+Le catalogue complet des conflits (types, affichage, résolution) est dans [plans/conflicts.md](plans/conflicts.md). Maintenir ce fichier à jour lors de toute modification impactant la détection, l'affichage ou la résolution d'un conflit.
 
 ### State, mutations, and undo
 Single Zustand store ([src/state/store.ts](src/state/store.ts)) using `immer` + `zundo` (`temporal`). All business edits go through `mutate((file) => { ... })`, which applies an Immer draft and sets `dirty`. Higher-level domain actions live in `src/state/*Actions.ts` (e.g. `taskActions`, `resourceActions`, `proposalActions`) and wrap `mutate`.
