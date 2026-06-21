@@ -1,4 +1,3 @@
-- renommer docs/ en plans/ et déplacer GDD.md et TODO.md dans plans/ . Mettre à jour la mémoire et CLAUDE.md avec ces changements.
 - liste : quand on fait CTRL, transformer les boutons rond "+" du bas en "G" pour inserer un groupe au lieu d'une tache. Idem quand on fait SHIFT, transformer ces boutons en losange pour ajouter un jalon. Dans les 2 cas, le dernier bouton (celui utilisé pour faire un sous-niveau), doit devenir une croix et rouge pour supprimer la ligne. Si on fait CTRL+SHIFT, ça fait comme SHIFT.
 - liste : ces boutons rond "+", ils doivent s'afficher au survol sur la liste (pas au survol dans le gantt) et masqués quand on ne survol plus la ligne. Donc ça ne sera plus en fonction de la ligne sélectionnée.
 
