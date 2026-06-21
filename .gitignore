@@ -4,4 +4,5 @@ coverage/
 playwright-report/
 test-results/
 *.local
+.claude/settings.local.json
 .DS_Store
