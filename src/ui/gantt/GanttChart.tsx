@@ -41,7 +41,8 @@ import type { Baseline, TaskLink } from '@/core/model/types';
 import { ROW_HEIGHT, type TimeScale } from './timescale';
 import type { GanttRow } from './rows';
 import { useGanttColumnsStore } from './ganttColumnsStore';
-import type { ColKey } from '@/ui/table/tableStore';
+import { useTableStore, type ColKey } from '@/ui/table/tableStore';
+import { fmtDate } from '@/ui/gantt/format';
 import { resourceAvatar } from '@/ui/common/Avatar';
 
 
@@ -859,6 +860,7 @@ export function GanttChart({
               task={row.task}
               y={(windowStart + i) * ROW_HEIGHT}
               scale={scale}
+              schedule={schedule}
             />
           ))}
         {/* Ligne aujourd'hui (bleue) — au début de la journée, par-dessus les barres.
@@ -1557,33 +1559,70 @@ function BaselineGhost({
   task,
   y,
   scale,
+  schedule,
 }: {
   baseline: Baseline;
   task: { id: string; type: string };
   y: number;
   scale: TimeScale;
+  schedule: Schedule;
 }) {
+  const dateFormat = useTableStore((s) => s.dateFormat);
+  const fmt = (iso: Parameters<typeof fmtDate>[0]) => fmtDate(iso, dateFormat);
+  const fmtDrift = (d: number) => (d > 0 ? `+${d}` : `${d}`);
+
   if (task.type === 'milestone') {
-    const date = baseline.milestones[task.id];
-    if (!date) return null;
-    const cx = scale.x(date) + scale.dayWidth / 2;
+    const blDate = baseline.milestones[task.id];
+    if (!blDate) return null;
+    const cx = scale.x(blDate) + scale.dayWidth / 2;
     const cy = y + ROW_HEIGHT / 2;
+    const curSpan = schedule.spanByTask.get(task.id);
+    const curDate = curSpan?.start ?? null;
+    const drift = curDate ? diffDays(blDate, curDate) : null;
+    const titleLines = [
+      `baseline : ${baseline.name}`,
+      `${t('baseline.tooltipRefDate')} : ${fmt(blDate)}`,
+      ...(curDate ? [`${t('baseline.tooltipCurDate')} : ${fmt(curDate)}`] : []),
+      ...(drift !== null ? [t('baseline.drift', { days: fmtDrift(drift) })] : []),
+    ];
     return (
       <path
         d={`M ${cx} ${cy - 5} L ${cx + 5} ${cy} L ${cx} ${cy + 5} L ${cx - 5} ${cy} Z`}
-        fill="none"
+        fill="transparent"
         stroke="var(--color-line-strong)"
         strokeWidth={1.5}
       >
-        <title>baseline : {baseline.name}</title>
+        <title>{titleLines.join('\n')}</title>
       </path>
     );
   }
   const snapshot = baseline.tasks[task.id];
   if (!snapshot) return null;
+  const blStart = snapshot.blocks[0]?.from ?? null;
+  const blEnd = snapshot.blocks[snapshot.blocks.length - 1]?.to ?? null;
+  const blDays = blStart && blEnd ? diffDays(blStart, blEnd) + 1 : null;
+  const curSpan = schedule.spanByTask.get(task.id);
+  const curStart = curSpan?.start ?? null;
+  const curEnd = curSpan?.end ?? null;
+  const curDays = curStart && curEnd ? diffDays(curStart, curEnd) + 1 : null;
+  const startDrift = blStart && curStart ? diffDays(blStart, curStart) : null;
+  const durationDrift = blDays !== null && curDays !== null ? curDays - blDays : null;
+  const titleLines = [
+    `baseline : ${baseline.name}`,
+    ...(blStart
+      ? [
+          `${t('baseline.tooltipRefStart')} : ${fmt(blStart)}${curStart ? `  →  ${t('baseline.tooltipCurStart')} : ${fmt(curStart)}` : ''}${startDrift !== null ? `  (${t('baseline.drift', { days: fmtDrift(startDrift) })})` : ''}`,
+        ]
+      : []),
+    ...(blDays !== null
+      ? [
+          `${t('baseline.tooltipRefDuration')} : ${blDays} j${curDays !== null ? `  →  ${t('baseline.tooltipCurDuration')} : ${curDays} j` : ''}${durationDrift !== null ? `  (${t('baseline.drift', { days: fmtDrift(durationDrift) })})` : ''}`,
+        ]
+      : []),
+  ];
   return (
     <g>
-      <title>baseline : {baseline.name}</title>
+      <title>{titleLines.join('\n')}</title>
       {snapshot.blocks.map((b, i) => (
         <rect
           key={i}

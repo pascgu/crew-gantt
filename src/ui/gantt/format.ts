@@ -18,6 +18,13 @@ export function fmtDayFull(iso: IsoDate | null | undefined): string {
   return format(toDate(iso), 'dd/MM/yyyy');
 }
 
+export type DateFormat = 'DD/MM/YYYY' | 'YYYY-MM-DD';
+
+export function fmtDate(iso: IsoDate | null | undefined, fmt: DateFormat): string {
+  if (!iso) return '—';
+  return format(toDate(iso), fmt === 'DD/MM/YYYY' ? 'dd/MM/yyyy' : 'yyyy-MM-dd');
+}
+
 export function fmtDays(value: number): string {
   return `${Math.round(value * 10) / 10}`.replace('.', ',');
 }

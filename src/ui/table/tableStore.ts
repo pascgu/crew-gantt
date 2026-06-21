@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { COLS } from './columns';
+import type { DateFormat } from '@/ui/gantt/format';
 
 export type ColKey = keyof typeof COLS;
 
@@ -57,6 +58,8 @@ interface TableState {
   nameQuery: string;
   /** Taille de police de la liste des tâches (px). */
   fontSize: number;
+  /** Format d'affichage des dates dans l'interface. */
+  dateFormat: DateFormat;
 
   setWidth: (col: ColKey, w: number) => void;
   toggleHidden: (col: ColKey) => void;
@@ -69,6 +72,7 @@ interface TableState {
   setNameQuery: (q: string) => void;
   resetWidths: () => void;
   setFontSize: (size: number) => void;
+  setDateFormat: (fmt: DateFormat) => void;
 }
 
 export const useTableStore = create<TableState>()(
@@ -81,6 +85,7 @@ export const useTableStore = create<TableState>()(
       assigneeFilter: null,
       nameQuery: '',
       fontSize: 11,
+      dateFormat: 'DD/MM/YYYY' as DateFormat,
 
       setWidth: (col, w) =>
         set((s) => ({ widths: { ...s.widths, [col]: Math.max(MIN_COL_BY_KEY[col] ?? MIN_COL, w) } })),
@@ -110,6 +115,7 @@ export const useTableStore = create<TableState>()(
       setNameQuery: (q) => set({ nameQuery: q }),
       resetWidths: () => set({ widths: DEFAULT_WIDTHS, order: DEFAULT_COLUMN_ORDER }),
       setFontSize: (size) => set({ fontSize: Math.max(9, Math.min(13, size)) }),
+      setDateFormat: (fmt) => set({ dateFormat: fmt }),
     }),
     {
       name: 'crewgantt.ui.columns',

@@ -4,6 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CrewGantt is a serverless, single-file web app for managing **one team across multiple projects**. A file (`monequipe.crewgantt.json`) *is* a team. The UI and most docs are in **French** — match that language for user-facing strings, comments, and commit messages. The deep design rationale lives in [GDD.md](GDD.md); read it when touching scheduling, links, or workload semantics.
 
+## Shell usage
+
+The working directory is always the project root — **never prefix commands with `cd`**. Run `npm run build`, `git status`, etc. directly. Prefixing with `cd` breaks the `.claude/settings.json` permission allowlist (the pattern `npm run build:*` won't match `cd ...; npm run build`).
+
 ## Commands
 
 ```bash

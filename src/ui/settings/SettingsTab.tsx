@@ -8,6 +8,7 @@ import { IconClose, IconPlus } from '@/ui/common/icons';
 import { t, tList } from '@/i18n/fr';
 import { fmtDayFull } from '@/ui/gantt/format';
 import { useTableStore, type ColKey } from '@/ui/table/tableStore';
+import type { DateFormat } from '@/ui/gantt/format';
 import { useGanttColumnsStore, type CenterOverflow } from '@/ui/gantt/ganttColumnsStore';
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
@@ -37,23 +38,50 @@ export function SettingsTab() {
   );
 }
 
+const DATE_FORMATS: { value: DateFormat; label: string }[] = [
+  { value: 'DD/MM/YYYY', label: t('settings.dateFormatDDMM') },
+  { value: 'YYYY-MM-DD', label: t('settings.dateFormatISO') },
+];
+
 function DisplayCard() {
   const fontSize = useTableStore((s) => s.fontSize);
   const setFontSize = useTableStore((s) => s.setFontSize);
+  const dateFormat = useTableStore((s) => s.dateFormat);
+  const setDateFormat = useTableStore((s) => s.setDateFormat);
   return (
     <Card title={t('settings.display')}>
-      <div className="flex items-center gap-3">
-        <span className="text-[13px] text-ink-soft">{t('settings.tableFontSize')}</span>
-        <button
-          className="flex h-6 w-6 items-center justify-center rounded border border-line text-ink-soft hover:border-accent hover:text-accent"
-          onClick={() => setFontSize(fontSize - 1)}
-        >−</button>
-        <span className="min-w-[2rem] text-center font-mono text-[13px]">{fontSize} px</span>
-        <button
-          className="flex h-6 w-6 items-center justify-center rounded border border-line text-ink-soft hover:border-accent hover:text-accent"
-          onClick={() => setFontSize(fontSize + 1)}
-        >+</button>
-        <span className="ml-2 text-[11px] text-ink-faint" style={{ fontSize }}>Aperçu</span>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-3">
+          <span className="text-[13px] text-ink-soft">{t('settings.tableFontSize')}</span>
+          <button
+            className="flex h-6 w-6 items-center justify-center rounded border border-line text-ink-soft hover:border-accent hover:text-accent"
+            onClick={() => setFontSize(fontSize - 1)}
+          >−</button>
+          <span className="min-w-[2rem] text-center font-mono text-[13px]">{fontSize} px</span>
+          <button
+            className="flex h-6 w-6 items-center justify-center rounded border border-line text-ink-soft hover:border-accent hover:text-accent"
+            onClick={() => setFontSize(fontSize + 1)}
+          >+</button>
+          <span className="ml-2 text-[11px] text-ink-faint" style={{ fontSize }}>Aperçu</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-[13px] text-ink-soft">{t('settings.dateFormat')}</span>
+          <div className="flex rounded border border-line overflow-hidden">
+            {DATE_FORMATS.map(({ value, label }) => (
+              <button
+                key={value}
+                className={`px-3 py-1 font-mono text-[12px] transition-colors ${
+                  dateFormat === value
+                    ? 'bg-accent text-white'
+                    : 'text-ink-soft hover:bg-surface-raised'
+                }`}
+                onClick={() => setDateFormat(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </Card>
   );
