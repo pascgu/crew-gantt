@@ -4,7 +4,7 @@ import type { TeamFile } from '@/core/model/types';
 const FILE_TYPES = [
   {
     description: 'Fichier CrewGantt',
-    accept: { 'application/json': ['.json'] as string[] },
+    accept: { 'application/json': ['.cgan'] as string[] },
   },
 ];
 
@@ -60,7 +60,7 @@ export function pickFileFallback(): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.json,application/json';
+    input.accept = '.cgan,application/json';
     input.onchange = () => resolve(input.files?.[0] ?? null);
     // Pas d'événement fiable d'annulation : resolve(null) au retour du focus.
     window.addEventListener(
@@ -80,7 +80,7 @@ export function defaultFileName(teamName: string): string {
       .replace(/[̀-ͯ]/g, '')
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '') || 'equipe';
-  return `${slug}.crewgantt.json`;
+  return `${slug}.cgan`;
 }
 
 export type SaveOutcome =

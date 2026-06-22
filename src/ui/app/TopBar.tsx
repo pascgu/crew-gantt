@@ -53,7 +53,7 @@ export function TopBar() {
     downloadBlob(blob, `${ganttProjectSlug(file.team.name)}.gan`);
   };
 
-  const baseName = () => defaultFileName(file.team.name).replace('.crewgantt.json', '');
+  const baseName = () => defaultFileName(file.team.name).replace('.cgan', '');
 
   const handleExportPng = () => {
     setIoMenuOpen(false);

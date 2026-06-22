@@ -39,7 +39,7 @@ export function App() {
 
   const proposal = useProposal();
 
-  // Glisser-déposer d'un fichier .crewgantt.json n'importe où dans la fenêtre.
+  // Glisser-déposer d'un fichier .cgan n'importe où dans la fenêtre.
   useEffect(() => {
     const onDragOver = (e: DragEvent) => {
       if (e.dataTransfer?.types.includes('Files')) {

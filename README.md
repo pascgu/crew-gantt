@@ -13,7 +13,7 @@ CrewGantt n'est pas un outil de gestion de projet de plus : c'est un outil de **
 - **Un calendrier + deux étages de pourcentage** : présence (motif hebdo + exceptions datées), part projet par périodes, % d'affectation par bloc. Partout, l'équivalent concret en j/semaine est affiché.
 - **Liens faibles** « au plus tôt » (après la fin, avec le début, après N jours de travail — ancré), jamais un aimant.
 - **Zéro perte de données** : fichier JSON local (File System Access + fallback), auto-save, sauvegarde de secours IndexedDB, validation Zod en lecture *et* écriture, undo/redo illimité.
-- Pas de serveur, pas de compte : un fichier `monequipe.crewgantt.json` qu'on ouvre, modifie, partage.
+- Pas de serveur, pas de compte : un fichier `monequipe.cgan` qu'on ouvre, modifie, partage.
 
 ## Développement
 

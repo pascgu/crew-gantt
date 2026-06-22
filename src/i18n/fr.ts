@@ -24,7 +24,7 @@ export const fr = {
     demoLoaded: 'Équipe de démonstration',
     confirmDiscard: 'Des modifications ne sont pas enregistrées. Continuer et les abandonner ?',
     openError: "Impossible d'ouvrir ce fichier",
-    dropHint: 'Déposer un fichier .crewgantt.json',
+    dropHint: 'Déposer un fichier .cgan',
     fsUnavailable:
       'Enregistrement direct indisponible dans ce navigateur : le fichier sera téléchargé.',
   },

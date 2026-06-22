@@ -5,7 +5,7 @@ import { parseTeamFile, serializeTeamFile, TeamFileError } from './migrate';
 import { createDemoTeamFile } from './demo';
 import { createEmptyTeamFile } from './factory';
 
-const fixturePath = join(__dirname, '../../../tests/fixtures/equipe-web.crewgantt.json');
+const fixturePath = join(__dirname, '../../../tests/fixtures/equipe-web.cgan');
 const fixtureJson = readFileSync(fixturePath, 'utf-8');
 
 describe('parseTeamFile', () => {

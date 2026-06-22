@@ -9,7 +9,7 @@ export type TabId = 'gantt' | 'meeting' | 'dashboard' | 'team' | 'settings';
 
 export interface AppState {
   file: TeamFile;
-  /** Nom du fichier lié (ex. `monequipe.crewgantt.json`), null si jamais enregistré. */
+  /** Nom du fichier lié (ex. `monequipe.cgan`), null si jamais enregistré. */
   fileName: string | null;
   dirty: boolean;
   lastSavedAt: string | null;
