@@ -39,6 +39,9 @@ Recompute is **memoized by file reference** in [src/state/schedule.ts](src/state
 
 Le catalogue complet des conflits (types, affichage, résolution) est dans [plans/conflicts.md](plans/conflicts.md). Maintenir ce fichier à jour lors de toute modification impactant la détection, l'affichage ou la résolution d'un conflit.
 
+### Base de connaissances des échanges
+[plans/agent-conversations.md](plans/agent-conversations.md) capitalise nos discussions de conception : concepts, questions, explications des sujets complexes, décisions prises (et pistes écartées avec leur raison), et **exemples concrets**. **L'alimenter au fil de l'eau** : après tout échange où l'on clarifie un concept, tranche un arbitrage de design, ou voit un exemple parlant, y consigner le sujet, le raisonnement, la décision et l'exemple (et mettre à jour la date de dernière synthèse). **La consulter avant tout changement structurant** pour savoir ce qui a déjà été fait, essayé ou rejeté, et pourquoi.
+
 ### State, mutations, and undo
 Single Zustand store ([src/state/store.ts](src/state/store.ts)) using `immer` + `zundo` (`temporal`). All business edits go through `mutate((file) => { ... })`, which applies an Immer draft and sets `dirty`. Higher-level domain actions live in `src/state/*Actions.ts` (e.g. `taskActions`, `resourceActions`, `proposalActions`) and wrap `mutate`.
 

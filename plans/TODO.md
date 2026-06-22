@@ -1,3 +1,1 @@
-
-- projet : j'aimerai que tu regardes toutes nos conversations sur ce projet et que tu synthétises tous nos échanges, les questions et les décisions dans un document dans docs/projet-conversations.md . Notamment notes tous les exemples qu'on a pu voir ensemble. L'idée est de créer une base de connaissances qui sera utile pour améliorer l'aide et la compréhension de l'outil mais aussi quand on fait de gros changements d'avoir une référence pour savoir ce qu'on a déjà fait et pourquoi. Notes également dans CLAUDE.md le fait de continuer à alimenter ce fichier au fur et à mesure.
 - TODO à voir à l'usage : besoin d'ajouter directement un bloc sur le gantt quand on ajoute une tache ? ou le double-clic suffit ? S'il faut ajouter un bloc, où ? (par rapport aux précédents)
