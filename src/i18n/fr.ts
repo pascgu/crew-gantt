@@ -130,6 +130,8 @@ export const fr = {
     addChild: 'Ajouter une sous-tâche',
     addAfter: 'Insérer une tâche après',
     addAtLevel: 'Ajouter une tâche au niveau {level}',
+    addGroupAtLevel: 'Ajouter un groupe au niveau {level}',
+    addMilestoneAtLevel: 'Ajouter un jalon au niveau {level}',
     createEnclosingGroup: 'Créer un groupe englobant',
     createEnclosingGroupHint: 'Les lignes sélectionnées doivent être au même niveau.',
     ungroup: 'Dégrouper',

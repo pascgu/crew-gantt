@@ -1,4 +1,4 @@
-import { useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import type { Schedule } from '@/core/scheduler/schedule';
 import { realizedOf, remainingOf, scheduledEffort } from '@/core/scheduler/blocks';
 import type { Conflict } from '@/core/conflicts/detect';
@@ -84,10 +84,6 @@ export function TaskRowCells({
   const { task, depth, hasChildren, collapsed } = row;
   const selectTask = useAppStore((s) => s.selectTask);
   const selected = useAppStore((s) => s.selectedTaskIds.includes(task.id));
-  /** Ancre en sélection simple : seul cas où l'on montre les boutons « + niveau ». */
-  const isLoneAnchor = useAppStore(
-    (s) => s.selectedTaskId === task.id && s.selectedTaskIds.length === 1,
-  );
   const projects = useAppStore((s) => s.file.projects);
   const resources = useAppStore((s) => s.file.resources);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -98,6 +94,23 @@ export function TaskRowCells({
   const show = (col: string) => !hidden.includes(col as keyof typeof cols);
   const editingTaskId = useUiStore((s) => s.editingTaskId);
   const setEditingTaskId = useUiStore((s) => s.setEditingTaskId);
+
+  const [isListHovered, setIsListHovered] = useState(false);
+  const [modifiers, setModifiers] = useState({ ctrl: false, shift: false });
+
+  useEffect(() => {
+    if (!isListHovered) return;
+    const sync = (e: KeyboardEvent) => setModifiers({ ctrl: e.ctrlKey, shift: e.shiftKey });
+    document.addEventListener('keydown', sync);
+    document.addEventListener('keyup', sync);
+    return () => {
+      document.removeEventListener('keydown', sync);
+      document.removeEventListener('keyup', sync);
+    };
+  }, [isListHovered]);
+
+  // CTRL+SHIFT = SHIFT (jalon prime sur groupe)
+  const addMode = modifiers.shift ? 'milestone' : modifiers.ctrl ? 'group' : 'task';
 
   const span = schedule.spanByTask.get(task.id) ?? null;
   const agg = task.type === 'group' ? schedule.groupAggByTask.get(task.id) : undefined;
@@ -251,10 +264,10 @@ export function TaskRowCells({
     },
   ];
 
-  /** Boutons ronds « + » de la ligne sélectionnée : un par niveau (0…profondeur+1). */
-  function addAtLevel(level: number) {
+  /** Boutons ronds « + » de la ligne survolée : un par niveau (0…profondeur+1). */
+  function addAtLevel(level: number, type: TaskType = 'task') {
     if (level === depth + 1) {
-      selectTask(addTask({ parentId: task.id }));
+      selectTask(addTask({ parentId: task.id, type }));
       return;
     }
     // remonter la chaîne des parents jusqu'à l'ancêtre du niveau visé
@@ -265,7 +278,7 @@ export function TaskRowCells({
       if (!parent) break;
       anchor = parent;
     }
-    selectTask(addTask({ afterId: anchor.id }));
+    selectTask(addTask({ afterId: anchor.id, type }));
   }
 
   const isDropTarget = dropIndicator?.taskId === task.id;
@@ -555,8 +568,16 @@ export function TaskRowCells({
       } ${dropClass}`}
       onClick={(e) => onSelectRow(task.id, e)}
       onDoubleClick={() => onOpenPanel(task.id)}
-      onMouseEnter={() => onHover(task.id)}
-      onMouseLeave={() => onHover(null)}
+      onMouseEnter={(e) => {
+        onHover(task.id);
+        setIsListHovered(true);
+        setModifiers({ ctrl: e.ctrlKey, shift: e.shiftKey });
+      }}
+      onMouseLeave={() => {
+        onHover(null);
+        setIsListHovered(false);
+        setModifiers({ ctrl: false, shift: false });
+      }}
       onDragOver={onDragOver}
       onDragLeave={() => onDropIndicator(null)}
       onDrop={onDrop}
@@ -571,15 +592,44 @@ export function TaskRowCells({
       {/* Cellules dans l'ordre stocké (`name` épinglé en tête) */}
       {order.map((key) => renderCell(key))}
 
-      {/* « + » par niveau, sous la ligne sélectionnée : choisir directement la profondeur */}
-      {isLoneAnchor && (
+      {/* « + » par niveau, au survol de la ligne dans la liste */}
+      {isListHovered && (
         <div className="pointer-events-none absolute -bottom-[9px] left-0 z-20 h-[18px]">
           {Array.from({ length: depth + 2 }, (_, level) => {
             const isChild = level === depth + 1;
+
+            // En mode modificateur, le bouton enfant devient suppression (rouge)
+            if (isChild && addMode !== 'task') {
+              const title = t('tasks.delete');
+              return (
+                <button
+                  key={level}
+                  className="pointer-events-auto absolute flex h-[18px] w-[18px] items-center justify-center rounded-full border border-red-400 bg-surface text-red-500 shadow-sm transition hover:bg-red-500 hover:text-white"
+                  style={{ left: 4 + level * 16 }}
+                  title={title}
+                  aria-label={title}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteTask(task.id);
+                  }}
+                >
+                  <IconPlus size={10} className="rotate-45" />
+                </button>
+              );
+            }
+
+            // En mode tâche, le bouton enfant est caché pour les jalons
             if (isChild && task.type === 'milestone') return null;
-            const title = isChild
-              ? t('tasks.addChild')
-              : t('tasks.addAtLevel', { level: level + 1 });
+
+            const title =
+              addMode === 'group'
+                ? t('tasks.addGroupAtLevel', { level: level + 1 })
+                : addMode === 'milestone'
+                ? t('tasks.addMilestoneAtLevel', { level: level + 1 })
+                : isChild
+                ? t('tasks.addChild')
+                : t('tasks.addAtLevel', { level: level + 1 });
+
             return (
               <button
                 key={level}
@@ -589,10 +639,16 @@ export function TaskRowCells({
                 aria-label={title}
                 onClick={(e) => {
                   e.stopPropagation();
-                  addAtLevel(level);
+                  addAtLevel(level, addMode as TaskType);
                 }}
               >
-                <IconPlus size={10} />
+                {addMode === 'group' ? (
+                  <span className="text-[9px] font-bold leading-none">G</span>
+                ) : addMode === 'milestone' ? (
+                  <IconDiamond size={10} />
+                ) : (
+                  <IconPlus size={10} />
+                )}
               </button>
             );
           })}
