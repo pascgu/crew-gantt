@@ -87,11 +87,11 @@ describe('proposePlan — découpe autour des absences', () => {
     const blocks = proposal.changes[0]!.blocks!;
     // passé conservé tel quel
     expect(blocks[0]).toMatchObject({ id: 'b0', from: '2026-05-18', to: '2026-05-20' });
-    // part passée du bloc à cheval tronquée à hier
-    expect(blocks[1]).toMatchObject({ id: 'b1', from: '2026-05-28', to: '2026-05-31' });
-    // reprise aujourd'hui, découpée autour de l'absence des 11-12/06
-    expect(blocks[2]).toMatchObject({ from: '2026-06-01', to: '2026-06-10' });
-    expect(blocks[3]).toMatchObject({ from: '2026-06-15', to: null });
+    // bloc à cheval fusionné avec le run adjacent (pas de coupure artificielle à hier)
+    expect(blocks[1]).toMatchObject({ id: 'b1', from: '2026-05-28', to: '2026-06-10' });
+    // 2e run après l'absence des 11-12/06
+    expect(blocks[2]).toMatchObject({ from: '2026-06-15', to: null });
+    expect(blocks).toHaveLength(3);
   });
 });
 

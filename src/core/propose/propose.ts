@@ -366,7 +366,26 @@ function placeTask(
       assignments: assignments.map((a) => ({ ...a })),
     });
   });
-  return blocks;
+
+  // 6. fusion des blocs adjacents issus du découpage à cheval sur today
+  const merged: Block[] = [];
+  for (const b of blocks) {
+    const prev = merged[merged.length - 1];
+    if (
+      prev &&
+      prev.to !== null &&
+      addDays(prev.to, 1) === b.from &&
+      prev.assignments.length === b.assignments.length &&
+      prev.assignments.every(
+        (a, i) => a.resourceId === b.assignments[i]?.resourceId && a.units === b.assignments[i]?.units,
+      )
+    ) {
+      prev.to = b.to;
+    } else {
+      merged.push({ ...b, assignments: b.assignments.map((a) => ({ ...a })) });
+    }
+  }
+  return merged;
 }
 
 /**
