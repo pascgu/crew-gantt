@@ -17,6 +17,11 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  server: {
+    watch: {
+      ignored: ['**/plans/**', '**/shots/**', '**/coverage/**', '**/dist/**', '**/test-results/**', '**/node_modules/**'],
+    },
+  },
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
