@@ -17,6 +17,7 @@ Ce fichier décrit tous les types de conflits et avertissements que CrewGantt pe
 | `deadline` | Deadline menacée | Drapeau rouge + badge rouge + panneau Conflits | Réduire la portée, ajouter des ressources, ou réviser la deadline |
 | `milestone-untenable` | Jalon intenable | Losange rouge + badge rouge + panneau Conflits | Avancer le jalon ou décaler le prédécesseur |
 | `unassigned` | Tâche non affectée | Badge rouge + panneau Conflits | Affecter une personne au bloc ouvert |
+| `unplanned` | Tâche non planifiée | Marqueur fantôme rouge (bord gauche, épinglé) + badge rouge + panneau Conflits | Cliquer un ghost de placement (ou double-clic) pour la matérialiser, ou ignorer |
 | sur-engagement | Sur-engagement *(avertissement)* | Panneau Conflits (orange) + vue Charge + bande orange sur barres | Rééquilibrer les affectations cross-projets |
 | cycle | Cycle de dépendances | Bandeau rouge dans le panneau Conflits | Supprimer un lien créant la boucle |
 
@@ -132,7 +133,28 @@ Les motifs hebdomadaires récurrents et les jours fériés globaux ne déclenche
 
 ---
 
-## 8 · Sur-engagement *(avertissement doux)*
+## 8 · Tâche non planifiée (`unplanned`)
+
+**Cause :** une tâche vient d'être créée mais n'a encore aucun bloc (invisible sur le Gantt), ou un jalon n'a pas de date. Sans ce signal, on peut oublier de la placer dans le planning. Les groupes (qui n'ont pas de blocs propres) et les tâches `cancelled`/`done` ne sont pas concernés.
+
+**Détection :** `task.type === 'task'` sans bloc, **ou** `task.type === 'milestone'` sans `date`, et statut ≠ `cancelled`/`done`.
+
+**Affichage :**
+- **Marqueur fantôme rouge** (petite silhouette ~12 px, yeux blancs) épinglé au **bord gauche visible** de la ligne du Gantt — indépendant du défilement horizontal (la tâche n'a pas de date, donc pas de position sur l'axe temps). **Clic** → ouvre le panneau Conflits filtré sur la tâche.
+- Sur la ligne **active** (sélectionnée/survolée) : un à deux **ghosts de placement** (barres/losanges fantômes) aux ancres « Maintenant » (aujourd'hui, 1 j) et « Continuité » (calée sur la fratrie/le parent — cf. `src/core/scheduler/placement.ts`). Au survol d'un ghost, il passe en aperçu plein de la vraie tâche et l'autre disparaît.
+- Badge rouge dans la colonne nom + entrée dans le panneau Conflits.
+
+**Résolution — gestes directs sur un ghost** (chacun matérialise la tâche dans son type `effort`/`fixed`, puis enchaîne en réutilisant le drag des barres réelles) :
+- **clic** = valide à 1 j à l'ancre (jalon : pose la date) ;
+- **déplacer** le corps = pose à l'endroit lâché ;
+- **étirer** un bord = redimensionne (effort → ajuste le reste ; fixed → les dates) ;
+- **poignée de lien** = relie depuis le ghost ; **lien déposé sur le ghost** = le matérialise calé après la fin du prédécesseur, puis pose le lien.
+
+Le double-clic / l'ajout de bloc manuel restent possibles. Sinon, ignorer le conflit.
+
+---
+
+## 9 · Sur-engagement *(avertissement doux)*
 
 **Cause :** pour une ressource, le total de sa charge sur tous projets dépasse 100 % de sa présence sur une ou plusieurs journées. Ce n'est pas un conflit bloquant — il peut être voulu (la personne gère plusieurs projets en parallèle avec une légère surtension acceptable).
 
@@ -147,7 +169,7 @@ Les motifs hebdomadaires récurrents et les jours fériés globaux ne déclenche
 
 ---
 
-## 9 · Cycle de dépendances
+## 10 · Cycle de dépendances
 
 **Cause :** le graphe de liens contient un cycle (A dépend de B, B dépend de A, directement ou indirectement). Le tri topologique échoue, aucune date au plus tôt ne peut être calculée.
 

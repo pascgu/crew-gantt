@@ -255,6 +255,35 @@ describe('7 — tâche non affectée', () => {
   });
 });
 
+describe('8 — non planifiée', () => {
+  it('tâche sans bloc', () => {
+    const f = file([task('t')]);
+    expect(conflictsOf(f).find((c) => c.type === 'unplanned')).toMatchObject({ taskId: 't' });
+  });
+
+  it('jalon sans date', () => {
+    const f = file([milestone('m', '', { date: null })]);
+    expect(conflictsOf(f).find((c) => c.type === 'unplanned')).toMatchObject({ taskId: 'm' });
+  });
+
+  it('tâche avec bloc, jalon daté, groupe : rien', () => {
+    const f = file([
+      task('t', { blocks: [block('b', '2026-06-08', '2026-06-10')] }),
+      milestone('m', '2026-06-15'),
+      task('g', { type: 'group' }),
+    ]);
+    expect(conflictsOf(f).filter((c) => c.type === 'unplanned')).toEqual([]);
+  });
+
+  it('tâche abandonnée/terminée sans bloc : rien', () => {
+    const f = file([
+      task('cancelled', { status: 'cancelled' }),
+      task('done', { status: 'done' }),
+    ]);
+    expect(conflictsOf(f).filter((c) => c.type === 'unplanned')).toEqual([]);
+  });
+});
+
 describe('ignorer explicitement', () => {
   it('splitIgnored sépare actifs et ignorés par id stable', () => {
     const f = file([task('t', { remaining: 5, effort: 5 })]);

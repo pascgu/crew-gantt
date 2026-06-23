@@ -186,6 +186,9 @@ export const fr = {
     newBlockHisto: 'Nouveau bloc (garder histo)',
     progressTooltipIndep: 'Avancement : {pct} % (indépendant du réalisé/reste)',
     overloadedDays: '(surchargée les jours du trait orange)',
+    placementNow: 'Planifier aujourd’hui (1 j) — clic pour valider',
+    placementContinuity: 'Planifier dans la continuité — clic pour valider',
+    unplannedMarker: 'Tâche non planifiée — cliquer pour la placer sur le Gantt',
   },
   links: {
     title: 'Liens (prédécesseurs)',
@@ -261,6 +264,7 @@ export const fr = {
       deadline: 'Deadline menacée',
       'milestone-untenable': 'Jalon intenable',
       unassigned: 'Tâche non affectée',
+      unplanned: 'Tâche non planifiée',
       cycle: 'Cycle de dépendances',
     },
     messages: {
@@ -271,6 +275,7 @@ export const fr = {
       deadline: '« {task} » finit {amount} j après sa deadline ({date}).',
       'milestone-untenable': 'Le jalon « {task} » est posé avant sa date au plus tôt ({date}).',
       unassigned: '« {task} » n’a personne sur son travail à venir.',
+      unplanned: '« {task} » n’est pas encore placée sur le Gantt.',
     },
     overEngagement: 'Sur-engagement',
     overEngagementMsg:

@@ -10,6 +10,7 @@ import {
   createEnclosingGroup,
   createSubtaskFromPoint,
   deleteTasks,
+  materializeTaskAt,
   dissolveGroup,
   expandAll,
   indentTask,
@@ -382,6 +383,48 @@ describe('createSubtaskFromPoint', () => {
     expect(taskOf(b).links[0]!.on).toBe(head.id);
     // la queue dépend désormais de B
     expect(taskOf(tail!).links.some((l) => l.on === b)).toBe(true);
+  });
+});
+
+describe('materializeTaskAt', () => {
+  it('tâche effort : bloc ouvert + 1 j-h par défaut', () => {
+    const a = addTask({});
+    useAppStore.getState().mutate((f) => {
+      f.tasks.find((t) => t.id === a)!.scheduling = 'effort';
+    });
+    materializeTaskAt(a, '2026-07-01');
+    const t = taskOf(a);
+    expect(t.blocks).toHaveLength(1);
+    expect(t.blocks[0]).toMatchObject({ from: '2026-07-01', to: null });
+    expect(t.effort).toBe(1);
+    expect(t.remaining).toBe(1);
+  });
+
+  it('tâche fixed : bloc fermé d’1 jour', () => {
+    const a = addTask({});
+    useAppStore.getState().mutate((f) => {
+      f.tasks.find((t) => t.id === a)!.scheduling = 'fixed';
+    });
+    materializeTaskAt(a, '2026-07-01');
+    expect(taskOf(a).blocks[0]).toMatchObject({ from: '2026-07-01', to: '2026-07-01' });
+  });
+
+  it('jalon : pose la date', () => {
+    const m = addTask({ type: 'milestone' });
+    materializeTaskAt(m, '2026-07-10');
+    expect(taskOf(m).date).toBe('2026-07-10');
+  });
+
+  it('no-op si déjà planifiée', () => {
+    const a = addTask({});
+    useAppStore.getState().mutate((f) => {
+      const t = f.tasks.find((x) => x.id === a)!;
+      t.scheduling = 'fixed';
+      t.blocks = [{ id: 'b0', from: '2026-08-01', to: '2026-08-05', assignments: [] }];
+    });
+    materializeTaskAt(a, '2026-07-01');
+    expect(taskOf(a).blocks).toHaveLength(1);
+    expect(taskOf(a).blocks[0]).toMatchObject({ from: '2026-08-01', to: '2026-08-05' });
   });
 });
 

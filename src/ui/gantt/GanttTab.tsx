@@ -614,6 +614,7 @@ export function GanttTab() {
                   hoveredTaskId={hoveredTaskId}
                   onHoverTask={setHoveredTaskId}
                   minHeight={viewportH}
+                  scrollLeft={scrollLeft}
                 />
               </div>
               {/* Bandeau de charge : repliable (chevron) et redimensionnable (poignée) */}

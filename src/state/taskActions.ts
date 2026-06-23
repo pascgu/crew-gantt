@@ -797,6 +797,36 @@ export function addBlockToTask(taskId: string, from: IsoDate): void {
   });
 }
 
+/**
+ * Matérialise une tâche/jalon **non planifié** à la date `from` (clic / déplacement d'un ghost de
+ * placement). Pose le 1er bloc selon le type, en conservant le `scheduling` de la tâche :
+ * - **fixed** → bloc fermé d'1 jour (`{from, to: from}`) : « les dates, c'est moi qui les pose » ;
+ * - **effort** → bloc ouvert `{from}` piloté par le reste, avec 1 j-h par défaut s'il est vide ;
+ * - **jalon** → date posée.
+ * No-op si la cible est déjà planifiée (a un bloc, ou un jalon déjà daté).
+ * Retourne l'id du bloc créé (pour enchaîner un geste de drag), ou `null` (jalon / no-op).
+ */
+export function materializeTaskAt(taskId: string, from: IsoDate): string | null {
+  let blockId: string | null = null;
+  mutate((file) => {
+    const task = taskById(file, taskId);
+    if (!task) return;
+    if (task.type === 'milestone') {
+      if (task.date === null) task.date = from;
+      return;
+    }
+    if (task.type !== 'task' || task.blocks.length > 0) return;
+    const block = task.scheduling === 'fixed' ? createBlock({ from, to: from }) : createBlock({ from });
+    task.blocks = [block];
+    blockId = block.id;
+    if (task.scheduling === 'effort' && task.effort <= 0) {
+      task.effort = 1;
+      task.remaining = 1;
+    }
+  });
+  return blockId;
+}
+
 export function deleteBlock(taskId: string, blockId: string): void {
   mutate((file) => {
     const task = taskById(file, taskId);

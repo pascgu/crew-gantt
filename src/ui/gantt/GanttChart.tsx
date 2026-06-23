@@ -24,6 +24,7 @@ import {
   relinkSuccessor,
   resolveCycleBySplit,
   resyncRemaining,
+  materializeTaskAt,
   setBlockAssignments,
   setBlockDates,
   setTaskProgress,
@@ -32,6 +33,7 @@ import {
   splitBlock,
   updateTask,
 } from '@/state/taskActions';
+import { placementAnchors } from '@/core/scheduler/placement';
 import { applyProposalChange, applyProposalChanges } from '@/state/proposalActions';
 import { darken, rgba } from '@/ui/common/color';
 import { ContextMenu, type MenuEntry } from '@/ui/common/ContextMenu';
@@ -141,6 +143,8 @@ interface GanttChartProps {
   onHoverTask: (taskId: string | null) => void;
   /** Hauteur minimale du SVG (= hauteur du viewport) pour rendre le fond pnable. */
   minHeight?: number;
+  /** Défilement horizontal courant : épingle le marqueur « non planifiée » au bord gauche visible. */
+  scrollLeft?: number;
 }
 
 export function GanttChart({
@@ -161,6 +165,7 @@ export function GanttChart({
   hoveredTaskId,
   onHoverTask,
   minHeight,
+  scrollLeft = 0,
 }: GanttChartProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -258,6 +263,13 @@ export function GanttChart({
 
   const height = Math.max(rows.length * ROW_HEIGHT + 8, minHeight ?? 0);
   const today = todayIso();
+
+  /** Tâche/jalon non planifié (invisible sur le Gantt) : à matérialiser via les ghosts de placement. */
+  const isUnplanned = (task: Task) =>
+    task.status !== 'cancelled' &&
+    task.status !== 'done' &&
+    ((task.type === 'task' && task.blocks.length === 0) ||
+      (task.type === 'milestone' && task.date === null));
 
   function svgPoint(e: ReactPointerEvent): { x: number; y: number } {
     const rect = svgRef.current!.getBoundingClientRect();
@@ -414,6 +426,55 @@ export function GanttChart({
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
+  // ——— Gestes directs sur un ghost de placement (matérialise puis enchaîne le geste) ———
+  // Le bloc créé est un vrai bloc d'1 jour à l'ancre : le drag réutilise le système des barres réelles.
+
+  /** Corps du ghost → matérialise à l'ancre puis déplace (un simple clic sans déplacement = valide à 1 j). */
+  function startGhostMove(e: ReactPointerEvent, task: Task, anchor: IsoDate) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    selectTask(task.id);
+    if (task.type === 'milestone') {
+      materializeTaskAt(task.id, anchor);
+      setDrag({ kind: 'move-milestone', taskId: task.id, day: anchor });
+    } else {
+      const blockId = materializeTaskAt(task.id, anchor);
+      if (blockId) setDrag({ kind: 'move', taskId: task.id, blockId, startX: e.clientX, deltaDays: 0 });
+    }
+    // Le ghost disparaît dès la matérialisation : capturer sur le SVG racine (persistant), pas sur e.target.
+    svgRef.current?.setPointerCapture(e.pointerId);
+  }
+
+  /** Bord du ghost → matérialise à l'ancre puis redimensionne (effort : ajuste le reste ; fixed : les dates). */
+  function startGhostResize(e: ReactPointerEvent, task: Task, anchor: IsoDate, edge: 'start' | 'end') {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    selectTask(task.id);
+    const blockId = materializeTaskAt(task.id, anchor);
+    if (!blockId) return;
+    // Bloc d'1 jour (from = to = anchor pour fixed ; from = anchor, fin calculée ≈ anchor pour effort).
+    setDrag({
+      kind: edge === 'start' ? 'resize-start' : 'resize-end',
+      taskId: task.id,
+      blockId,
+      day: anchor,
+      otherEdge: anchor,
+      openEnd: task.scheduling === 'effort',
+    });
+    svgRef.current?.setPointerCapture(e.pointerId);
+  }
+
+  /** Poignée de lien du ghost → matérialise à l'ancre puis tire un lien (le ghost devient prédécesseur). */
+  function startGhostLink(e: ReactPointerEvent, task: Task, anchor: IsoDate) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    materializeTaskAt(task.id, anchor);
+    selectTask(task.id);
+    const { x, y } = svgPoint(e);
+    setDrag({ kind: 'link', sourceTaskId: task.id, anchorDate: null, fromX: x, fromY: y, toX: x, toY: y, targetTaskId: null });
+    svgRef.current?.setPointerCapture(e.pointerId);
+  }
+
   // ——— Pan : clic gauche maintenu sur le fond (les barres stoppent la propagation) ———
 
   function onRootPointerDown(e: ReactPointerEvent) {
@@ -528,6 +589,16 @@ export function GanttChart({
       setTaskProgress(drag.taskId, Math.max(0, Math.min(1, drag.frac)));
     } else if (drag.kind === 'link' && drag.targetTaskId) {
       const targetId = drag.targetTaskId;
+      // Lien déposé sur un ghost (tâche non planifiée) : on la matérialise d'abord, calée juste après
+      // la fin du prédécesseur (à défaut : aujourd'hui) — ainsi le lien la « positionne correctement ».
+      const tgt = schedule.ctx.file.tasks.find((tk) => tk.id === targetId);
+      if (tgt && isUnplanned(tgt)) {
+        const srcSpan = schedule.spanByTask.get(drag.sourceTaskId);
+        const at = srcSpan
+          ? schedule.ctx.nextWorkingDay(addDays(srcSpan.end, 1))
+          : schedule.ctx.nextWorkingDay(today);
+        materializeTaskAt(targetId, at);
+      }
       if (drag.relinkFrom) {
         // Re-ciblage : changer le successeur du lien existant (la source reste identique).
         // Action atomique → un seul undo restaure le lien d'origine.
@@ -846,6 +917,45 @@ export function GanttChart({
               />
             );
           })}
+        {/* Ghosts de placement — uniquement la ligne active (sélectionnée/survolée) ; rendus après les
+            barres pour capter le survol. Clic = matérialise la tâche/jalon à l'ancre. */}
+        {visible.map((row, i) => {
+          const task = row.task;
+          if (!isUnplanned(task)) return null;
+          const active = selectedTaskId === task.id || hoveredTaskId === task.id;
+          if (!active) return null;
+          return (
+            <PlacementGhost
+              key={`ghost-${task.id}`}
+              task={task}
+              anchors={placementAnchors(schedule, task)}
+              y={(windowStart + i) * ROW_HEIGHT}
+              scale={scale}
+              color={projectColor.get(task.projectId) ?? '#888888'}
+              onMove={startGhostMove}
+              onResize={startGhostResize}
+              onLink={startGhostLink}
+            />
+          );
+        })}
+        {/* Marqueur « non planifiée » (fantôme) — épinglé au bord gauche visible, indépendant du temps. */}
+        {visible.map((row, i) => {
+          const task = row.task;
+          if (!isUnplanned(task)) return null;
+          return (
+            <GhostMarker
+              key={`mark-${task.id}`}
+              x={scrollLeft + 7}
+              y={(windowStart + i) * ROW_HEIGHT}
+              onSelect={() => {
+                // Étouffer le click qui suit le pointerdown (sinon onAreaClick referme le panneau).
+                suppressClickRef.current = true;
+                selectTask(task.id);
+                useUiStore.getState().openConflicts(task.id);
+              }}
+            />
+          );
+        })}
         {/* Liens — rendus après les barres pour capter les événements pointer */}
         <LinksLayer
           schedule={schedule}
@@ -1573,6 +1683,171 @@ function Diamond({
       stroke={conflict ? 'var(--color-danger)' : darken(color, 0.45)}
       strokeWidth={conflict ? 1.8 : 1}
     />
+  );
+}
+
+/** Petite silhouette de fantôme (~12 px) : yeux évidés en blanc pour rester lisible à cette taille. */
+function GhostIcon({ cx, cy, fill }: { cx: number; cy: number; fill: string }) {
+  return (
+    <g pointerEvents="none">
+      <path
+        d={`M ${cx - 5} ${cy + 6} L ${cx - 5} ${cy - 1} A 5 5 0 0 1 ${cx + 5} ${cy - 1} L ${cx + 5} ${cy + 6} L ${cx + 3} ${cy + 4.5} L ${cx + 1} ${cy + 6} L ${cx - 1} ${cy + 4.5} L ${cx - 3} ${cy + 6} Z`}
+        fill={fill}
+      />
+      <circle cx={cx - 1.9} cy={cy - 1} r={1.05} fill="white" />
+      <circle cx={cx + 1.9} cy={cy - 1} r={1.05} fill="white" />
+    </g>
+  );
+}
+
+/** Marqueur « tâche non planifiée » : un fantôme rouge épinglé au bord gauche visible de la ligne. */
+function GhostMarker({ x, y, onSelect }: { x: number; y: number; onSelect: () => void }) {
+  return (
+    <g
+      transform={`translate(${x}, ${y + ROW_HEIGHT / 2})`}
+      style={{ cursor: 'pointer' }}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        onSelect();
+      }}
+    >
+      <rect x={-7} y={-8} width={14} height={16} fill="transparent" />
+      <GhostIcon cx={0} cy={0} fill="var(--color-danger)" />
+      <title>{t('gantt.unplannedMarker')}</title>
+    </g>
+  );
+}
+
+/**
+ * Ghosts de placement d'une tâche/jalon non planifié : une barre/un losange fantôme par ancre
+ * (« Maintenant » + « Continuité »). Au survol d'un ghost, il passe en aperçu plein de la vraie tâche
+ * et l'autre ghost disparaît. Clic (pointerdown) = matérialise à l'ancre (piège pointer-capture : on
+ * agit sur pointerdown + stopPropagation).
+ */
+function PlacementGhost({
+  task,
+  anchors,
+  y,
+  scale,
+  color,
+  onMove,
+  onResize,
+  onLink,
+}: {
+  task: Task;
+  anchors: IsoDate[];
+  y: number;
+  scale: TimeScale;
+  color: string;
+  onMove: (e: ReactPointerEvent, task: Task, anchor: IsoDate) => void;
+  onResize: (e: ReactPointerEvent, task: Task, anchor: IsoDate, edge: 'start' | 'end') => void;
+  onLink: (e: ReactPointerEvent, task: Task, anchor: IsoDate) => void;
+}) {
+  const [hovered, setHovered] = useState<number | null>(null);
+  const mid = ROW_HEIGHT / 2;
+  const barY = mid - 5.5;
+  const barH = 11;
+  const rx = task.scheduling === 'effort' ? 3 : 0;
+  const isMilestone = task.type === 'milestone';
+
+  return (
+    <g transform={`translate(0, ${y})`}>
+      {anchors.map((a, i) => {
+        // Survol d'un ghost → on n'affiche que celui-là (« l'autre ghost disparaît »).
+        if (hovered !== null && hovered !== i) return null;
+        const preview = hovered === i;
+        const x = scale.x(a);
+        const cx = x + scale.dayWidth / 2;
+        const w = Math.max(scale.dayWidth, 6);
+        const label = i === 0 ? t('gantt.placementNow') : t('gantt.placementContinuity');
+        const stop = (e: ReactPointerEvent) => e.preventDefault();
+        return (
+          <g
+            key={i}
+            onPointerEnter={() => setHovered(i)}
+            onPointerLeave={() => setHovered((h) => (h === i ? null : h))}
+          >
+            {isMilestone ? (
+              <path
+                d={`M ${cx} ${mid - 6} L ${cx + 6} ${mid} L ${cx} ${mid + 6} L ${cx - 6} ${mid} Z`}
+                fill={color}
+                opacity={preview ? 0.85 : 0.4}
+                stroke={darken(color, 0.4)}
+                strokeWidth={1}
+                strokeDasharray={preview ? undefined : '3 2'}
+                style={{ cursor: 'grab' }}
+                onPointerDown={(e) => { stop(e); onMove(e, task, a); }}
+              />
+            ) : (
+              <rect
+                x={x}
+                y={barY}
+                width={w}
+                height={barH}
+                rx={rx}
+                fill={color}
+                opacity={preview ? 0.8 : 0.32}
+                stroke={darken(color, 0.3)}
+                strokeWidth={preview ? 1.2 : 1}
+                strokeDasharray={preview ? undefined : '3 2'}
+                style={{ cursor: 'grab' }}
+                onPointerDown={(e) => { stop(e); onMove(e, task, a); }}
+              />
+            )}
+            <title>{label}</title>
+            {/* Poignées (sur le ghost en aperçu) : bords = resize, pastille = lien. Au-dessus du corps. */}
+            {preview && !isMilestone && (
+              <>
+                <rect
+                  x={x - 3}
+                  y={barY}
+                  width={8}
+                  height={barH}
+                  fill="transparent"
+                  style={{ cursor: 'ew-resize' }}
+                  onPointerDown={(e) => { stop(e); onResize(e, task, a, 'start'); }}
+                />
+                <rect
+                  x={x + w - 5}
+                  y={barY}
+                  width={8}
+                  height={barH}
+                  fill="transparent"
+                  style={{ cursor: 'ew-resize' }}
+                  onPointerDown={(e) => { stop(e); onResize(e, task, a, 'end'); }}
+                />
+              </>
+            )}
+            {preview && (
+              <circle
+                cx={(isMilestone ? cx + 6 : x + w) + 9}
+                cy={mid}
+                r={4}
+                fill="var(--color-surface)"
+                stroke={darken(color, 0.3)}
+                strokeWidth={1}
+                style={{ cursor: 'crosshair' }}
+                onPointerDown={(e) => { stop(e); onLink(e, task, a); }}
+              >
+                <title>{t('gantt.newLinkTo')}</title>
+              </circle>
+            )}
+            {preview && (
+              <text
+                x={isMilestone ? cx - 6 : x}
+                y={barY - 3}
+                fontSize={9.5}
+                fill="var(--color-ink-soft)"
+                pointerEvents="none"
+              >
+                {label}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </g>
   );
 }
 

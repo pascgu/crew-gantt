@@ -14,8 +14,8 @@
 > **Sources** — synthèse des transcripts de sessions agent (répertoire projet de Claude Code).
 > Périmètre : produit uniquement (les échanges sur l'usage de Claude Code ne sont pas inclus).
 >
-> **Dernière synthèse** : 2026-06-22 (couvre la genèse → Phase 8 → conflits/liens/propositions →
-> renommage `.cgan` → fusion de blocs de proposition).
+> **Dernière synthèse** : 2026-06-23 (couvre la genèse → Phase 8 → conflits/liens/propositions →
+> renommage `.cgan` → fusion de blocs de proposition → ghosts de placement / conflit « non planifiée »).
 >
 > Documents liés : [GDD.md](GDD.md) (rationale de design profond), [conflicts.md](conflicts.md)
 > (catalogue des conflits), [TODO.md](TODO.md).
@@ -312,6 +312,52 @@ tâche.
   Shift au départ **et** au drop, « sous-tâche à partir d'ici », « groupe englobant / dégrouper »,
   « scinder »), trait orange, indépendance de l'avancement.
 
+### 1.14 Ghosts de placement (tâche/jalon non planifié)
+
+**Question.** Quand on crée une tâche, faut-il poser un bloc d'emblée (où ? 0 j / 1 j ?) ou le
+double-clic suffit-il ? Aujourd'hui une tâche naît avec `blocks: []` (jalon : `date: null`) →
+**invisible** sur le Gantt, donc facile à oublier.
+
+**Options pesées** (cf. discussion) : (A) ne rien poser mais rendre la ligne visible via un fantôme ;
+(B) bloc auto 1 j à aujourd'hui ; (C) bloc auto après la précédente ; (D) bloc 0 j. **Décision : un
+mélange A+B+E.** La tâche reste sans bloc (pas de date prématurée) mais devient un objet **visible et
+manipulable** : des **ghosts de placement** s'affichent sur sa ligne, et l'état « non planifiée »
+**devient un conflit** (ignorable) pour ne pas l'oublier.
+
+**Design retenu :**
+- **Deux ancres** (dédoublonnées si même jour) : **« Maintenant »** (aujourd'hui ouvré, 1 j) et
+  **« Continuité »** (ex-E) — calée sur la fratrie : début de la sœur précédente (tâche/groupe), date
+  d'un jalon, sinon début du groupe parent, sinon aujourd'hui. Pour un **jalon** : la **fin** au lieu du
+  début (un jalon marque souvent l'achèvement de ce qui précède). Implémentée pure dans
+  `src/core/scheduler/placement.ts` (`placementAnchors`). **L'ancre « C » (après la fin de la précédente)
+  a été abandonnée** : redondante avec le geste « tirer un lien vers le ghost », et Pascal préfère un
+  ghost proche qu'on relie ensuite. *(On avait un temps envisagé d'ignorer une continuité ≤ aujourd'hui —
+  finalement non : on la garde même dans le passé.)*
+- **Type conservé, jamais muté par un geste.** Le ghost est dessiné selon le `scheduling` réel de la
+  tâche (hérité du projet, modifiable avant planif) : arrondi = effort, carré = fixed. Resize agit
+  *selon* ce type (effort → effort/reste ; fixed → dates). Raison (tranchée par Pascal) : afficher un
+  type au survol puis le changer au resize serait incohérent ; et le type existe déjà à la création.
+- **Anti-bruit** : seules la **ligne active** (sélectionnée/survolée) montre ses ghosts complets ;
+  sinon un **marqueur fantôme rouge** (couleur conflit, yeux blancs évidés) **épinglé au bord gauche
+  visible** (hors axe temps → insensible au scroll horizontal ; pas besoin de doubler les marqueurs).
+  **Clic sur le fantôme** → ouvre le panneau Conflits filtré sur la tâche (comme le badge rouge de la liste).
+- **Survol** d'un ghost → aperçu plein de la vraie tâche + **l'autre ghost disparaît** (lisibilité).
+- **Gestes directs sur le ghost** (tous matérialisent puis enchaînent, en réutilisant le système de
+  drag des barres réelles — le bloc créé est un vrai bloc d'1 jour à l'ancre) :
+  - **clic** (corps, sans déplacement) = valide à 1 j à l'ancre (`materializeTaskAt`) ;
+  - **déplacer** le corps = matérialise puis pose à l'endroit lâché ;
+  - **étirer** un bord = matérialise puis redimensionne (effort → ajuste le reste ; fixed → les dates) ;
+  - **poignée de lien** du ghost = matérialise puis tire un lien (ghost = prédécesseur) ;
+  - **lien déposé *sur* un ghost** = le matérialise calé juste après la fin du prédécesseur (sinon
+    aujourd'hui), puis pose le lien → « le lien le positionne correctement ».
+  - ⚠️ Piège : le ghost disparaît dès la matérialisation → la **capture de pointeur** est posée sur le
+    **SVG racine** (persistant), pas sur l'élément ghost (qui est retiré du DOM).
+
+**Exemple.** Je crée 5 tâches dans la liste (préparation), chacune affiche un fantôme rouge à gauche +
+un conflit « non planifiée ». Je sélectionne la 1ʳᵉ → 2 ghosts (aujourd'hui / dans la continuité) ;
+je survole « Continuité » → il devient l'aperçu de la barre, l'autre s'efface ; je clique → barre 1 j
+posée, le conflit disparaît.
+
 ---
 
 ## 2. Journal chronologique des rounds
@@ -377,6 +423,10 @@ Format : décision retenue ↔ option(s) écartée(s) ↔ raison.
   les tâches en cours.
 - **Menu « changer affectation » direct (sans sous-menu), en 1er** ↔ *sous-menu* ↔ revirement après
   essai : moins bien avec un sous-menu.
+- **Ghosts de placement (tâche non planifiée = conflit + fantômes manipulables)** ↔ *bloc auto 1 j à la
+  création* / *bloc 0 j* / *statu quo (invisible)* ↔ pas de date prématurée mais plus d'oubli ;
+  2 ancres « Maintenant »/« Continuité » (ancre « après la précédente » abandonnée car redondante avec
+  le lien). Type de la tâche **conservé** (pas muté par le geste de resize). Voir §1.14.
 
 ---
 

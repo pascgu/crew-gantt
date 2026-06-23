@@ -11,7 +11,8 @@ export type ConflictType =
   | 'effort-overflow'
   | 'deadline'
   | 'milestone-untenable'
-  | 'unassigned';
+  | 'unassigned'
+  | 'unplanned';
 
 export interface Conflict {
   /** Id stable (type + sujets, sans date) : « ignorer » survit aux recalculs. */
@@ -44,6 +45,17 @@ export function detectConflicts(schedule: Schedule): Conflict[] {
   for (const task of ctx.file.tasks) {
     const span = spanByTask.get(task.id) ?? null;
     const earliest = earliestByTask.get(task.id);
+
+    // 8 — Non planifiée : tâche sans bloc / jalon sans date → invisible sur le Gantt, à caser.
+    // Les groupes (sans blocs propres) et les tâches abandonnées/terminées ne crient pas.
+    if (task.status !== 'cancelled' && task.status !== 'done') {
+      const unplanned =
+        (task.type === 'task' && task.blocks.length === 0) ||
+        (task.type === 'milestone' && task.date === null);
+      if (unplanned) {
+        out.push({ id: conflictId('unplanned', task.id), type: 'unplanned', taskId: task.id });
+      }
+    }
 
     // 1 & 6 — Lien violé / jalon intenable : placé avant son point autorisé.
     if (earliest?.date) {
