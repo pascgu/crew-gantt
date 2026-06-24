@@ -38,6 +38,16 @@ export const useGanttColumnsStore = create<GanttColumnsState>()(
       setCenterOverflow: (centerOverflow) => set({ centerOverflow }),
       setFontSize: (size) => set({ fontSize: Math.max(9, Math.min(13, size)) }),
     }),
-    { name: 'crewgantt.ui.gantt-columns' },
+    {
+      name: 'crewgantt.ui.gantt-columns',
+      version: 1,
+      migrate: (state, version) => {
+        const s = state as Partial<GanttColumnsState>;
+        if (version < 1) {
+          return { ...s, center: (s.center ?? []).filter((k: string) => k !== 'assignees') };
+        }
+        return state;
+      },
+    },
   ),
 );

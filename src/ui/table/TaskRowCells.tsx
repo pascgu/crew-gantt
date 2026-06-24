@@ -4,7 +4,7 @@ import { realizedOf, remainingOf, scheduledEffort } from '@/core/scheduler/block
 import type { Conflict } from '@/core/conflicts/detect';
 import { useAppStore } from '@/state/store';
 import { useUiStore } from '@/state/uiStore';
-import type { Task, TaskType } from '@/core/model/types';
+import type { Resource, Task, TaskType } from '@/core/model/types';
 import {
   addTask,
   canEncloseInGroup,
@@ -38,6 +38,7 @@ import { t } from '@/i18n/fr';
 import { addDays, diffDays } from '@/core/calendar/dates';
 import { fmtDay, fmtDays } from '@/ui/gantt/format';
 import { resourceAvatar } from '@/ui/common/Avatar';
+import { BlockAssignPopover } from '@/ui/common/BlockAssignPopover';
 import type { GanttRow } from '@/ui/gantt/rows';
 import { useTableStore, type ColKey } from './tableStore';
 
@@ -119,9 +120,12 @@ export function TaskRowCells({
   // — affectés : le dernier bloc (le plus récent) fait foi
   const resolved = schedule.resolvedByTask.get(task.id) ?? [];
   const lastBlock = resolved.length > 0 ? resolved[resolved.length - 1]!.block : null;
-  const assigneeResources = (lastBlock?.assignments ?? [])
-    .map((a) => resources.find((r) => r.id === a.resourceId))
-    .filter(Boolean);
+  const lastAssignments = lastBlock?.assignments ?? [];
+  const assigneesWithUnits = lastAssignments
+    .map((a) => ({ resource: resources.find((r) => r.id === a.resourceId), units: a.units }))
+    .filter((x): x is { resource: Resource; units: number } => x.resource != null);
+
+  const [assignPopover, setAssignPopover] = useState<{ x: number; y: number; blockId: string } | null>(null);
 
   // — glisser-déposer : réordonner / ré-indenter avec niveau horizontal
   function onDragOver(e: DragEvent) {
@@ -241,20 +245,26 @@ export function TaskRowCells({
         if (midDay) focusNew(createSubtaskFromPoint(task.id, midDay));
       },
     },
-    { label: t('tasks.addAfter'), onClick: () => selectTask(addTask({ afterId: task.id })) },
+    { label: t('tasks.addAfter'), onClick: () => focusNew(addTask({ afterId: task.id })) },
     {
       label: t('tasks.addChild'),
-      onClick: () => selectTask(addTask({ parentId: task.id })),
+      onClick: () => focusNew(addTask({ parentId: task.id })),
       disabled: task.type === 'milestone',
     },
     {
       label: t('tasks.addMilestone'),
-      onClick: () => selectTask(addTask({ afterId: task.id, type: 'milestone' })),
+      onClick: () => focusNew(addTask({ afterId: task.id, type: 'milestone' })),
     },
     {
       label: t('tasks.addGroup'),
-      onClick: () => selectTask(addTask({ afterId: task.id, type: 'group' })),
+      onClick: () => focusNew(addTask({ afterId: task.id, type: 'group' })),
     },
+    ...(task.type === 'task' && task.scheduling !== 'effort'
+      ? [{ label: t('tasks.setSchedulingEffort'), onClick: () => updateTask(task.id, { scheduling: 'effort' as const }) }]
+      : []),
+    ...(task.type === 'task' && task.scheduling !== 'fixed'
+      ? [{ label: t('tasks.setSchedulingFixed'), onClick: () => updateTask(task.id, { scheduling: 'fixed' as const }) }]
+      : []),
     {
       label: t('tasks.delete'),
       danger: true,
@@ -267,7 +277,7 @@ export function TaskRowCells({
   /** Boutons ronds « + » de la ligne survolée : un par niveau (0…profondeur+1). */
   function addAtLevel(level: number, type: TaskType = 'task') {
     if (level === depth + 1) {
-      selectTask(addTask({ parentId: task.id, type }));
+      focusNew(addTask({ parentId: task.id, type }));
       return;
     }
     // remonter la chaîne des parents jusqu'à l'ancêtre du niveau visé
@@ -278,7 +288,7 @@ export function TaskRowCells({
       if (!parent) break;
       anchor = parent;
     }
-    selectTask(addTask({ afterId: anchor.id, type }));
+    focusNew(addTask({ afterId: anchor.id, type }));
   }
 
   const isDropTarget = dropIndicator?.taskId === task.id;
@@ -494,28 +504,73 @@ export function TaskRowCells({
             )}
           </div>
         );
-      case 'assignees':
+      case 'assignees': {
+        const canEdit = lastBlock != null;
         return (
-          <div key="assignees" className="flex items-center gap-0.5 overflow-hidden px-1" style={{ width: show('assignees') ? cols.assignees : 0, display: show('assignees') ? undefined : 'none' }}>
-            {assigneeResources.length > 0 ? (
-              assigneeResources.map((r, i) => {
-                const { color, label } = resourceAvatar(r!);
+          <div
+            key="assignees"
+            className="relative flex items-center gap-0.5 overflow-hidden px-1"
+            style={{
+              width: show('assignees') ? cols.assignees : 0,
+              display: show('assignees') ? undefined : 'none',
+              cursor: canEdit ? 'pointer' : 'default',
+            }}
+            title={canEdit ? t('tasks.assigneesClickHint') : undefined}
+            onClick={(e) => {
+              if (!canEdit) return;
+              e.stopPropagation();
+              setAssignPopover({ x: e.clientX, y: e.clientY, blockId: lastBlock.id });
+            }}
+          >
+            {assigneesWithUnits.length > 0 ? (
+              assigneesWithUnits.map(({ resource, units }, i) => {
+                const { color, label } = resourceAvatar(resource);
+                const stripes = `repeating-linear-gradient(-45deg, ${color} 0px, ${color} 2px, rgba(255,255,255,0.45) 2px, rgba(255,255,255,0.45) 4px)`;
                 return (
-                  <span
+                  <div
                     key={i}
-                    className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full font-display text-[9px] font-bold text-white"
-                    style={{ background: color }}
-                    title={r!.name}
+                    style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
+                    title={`${resource.name} : ${units}%`}
                   >
-                    {label}
-                  </span>
+                    {/* Cercle avatar 18×18 */}
+                    <span
+                      className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full font-display text-[9px] font-bold text-white"
+                      style={{ background: color }}
+                    >
+                      {label}
+                    </span>
+                    {/* Barre verticale 3×18, remplie de bas en haut */}
+                    <div style={{ width: 3, height: 18, background: 'var(--color-line)', borderRadius: 1.5, position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
+                      <div style={{
+                        position: 'absolute', bottom: 0, left: 0, right: 0,
+                        height: `${Math.min(units, 100)}%`,
+                        background: units > 100 ? stripes : color,
+                        borderRadius: 1.5,
+                      }} />
+                    </div>
+                  </div>
                 );
               })
             ) : (
               <span className="text-ink-faint">—</span>
             )}
+            {/* Icône crayon au survol, visible seulement si éditable */}
+            {canEdit && (
+              <span className="pointer-events-none absolute right-0.5 opacity-0 text-ink-faint transition-opacity group-hover/row:opacity-100 text-[9px]">✎</span>
+            )}
+            {assignPopover && (
+              <BlockAssignPopover
+                x={assignPopover.x}
+                y={assignPopover.y}
+                taskId={task.id}
+                blockId={assignPopover.blockId}
+                schedule={schedule}
+                onClose={() => setAssignPopover(null)}
+              />
+            )}
           </div>
         );
+      }
       case 'start':
         return (
           <div key="start" style={{ width: show('start') ? cols.start : 0, display: show('start') ? undefined : 'none' }} className="overflow-hidden px-1 text-right font-mono text-[11.5px] text-ink-soft">
@@ -578,6 +633,7 @@ export function TaskRowCells({
         setIsListHovered(false);
         setModifiers({ ctrl: false, shift: false });
       }}
+      onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}
       onDragOver={onDragOver}
       onDragLeave={() => onDropIndicator(null)}
       onDrop={onDrop}

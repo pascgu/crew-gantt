@@ -8,7 +8,7 @@ export const COLS = {
   realized: 46,
   remaining: 46,
   progress: 48,
-  assignees: 80,
+  assignees: 90,
   start: 60,
   end: 60,
   status: 96,

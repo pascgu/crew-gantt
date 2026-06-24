@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type Ref,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { addDays, todayIso } from '@/core/calendar/dates';
@@ -27,6 +28,7 @@ import {
   outdentTask,
   outdentTasks,
   setZoom,
+  updateTask,
 } from '@/state/taskActions';
 import { useProposal } from '@/state/proposalActions';
 import { usePersistedState } from '@/ui/common/persist';
@@ -62,6 +64,14 @@ export function GanttTab() {
   const schedule = useSchedule();
   const rows = useGanttRows();
   const conflictsByTask = useConflictsByTask();
+  const unassignedTaskIds = useMemo(
+    () => new Set([...conflictsByTask.entries()].filter(([, cs]) => cs.some((c) => c.type === 'unassigned')).map(([id]) => id)),
+    [conflictsByTask],
+  );
+  const effortOverflowTaskIds = useMemo(
+    () => new Set([...conflictsByTask.entries()].filter(([, cs]) => cs.some((c) => c.type === 'effort-overflow')).map(([id]) => id)),
+    [conflictsByTask],
+  );
   const zoom = useAppStore((s) => s.file.ui.zoom);
   const selectedTaskId = useAppStore((s) => s.selectedTaskId);
   const selectedTaskIds = useAppStore((s) => s.selectedTaskIds);
@@ -162,6 +172,7 @@ export function GanttTab() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const tableBodyRef = useRef<HTMLDivElement | null>(null);
+  const tableHeaderInnerRef = useRef<HTMLDivElement | null>(null);
   const headerInnerRef = useRef<HTMLDivElement | null>(null);
   const workloadInnerRef = useRef<HTMLDivElement | null>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
@@ -379,6 +390,15 @@ export function GanttTab() {
         target instanceof HTMLTextAreaElement ||
         target instanceof HTMLSelectElement ||
         (target !== null && target.isContentEditable);
+      // Ctrl+P : bascule planification (actif même en édition de nom)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+        e.preventDefault();
+        if (selectedTaskId) {
+          const tk = tasks.find((t) => t.id === selectedTaskId);
+          if (tk?.type === 'task') updateTask(tk.id, { scheduling: tk.scheduling === 'effort' ? 'fixed' : 'effort' });
+        }
+        return;
+      }
       if (typing) return;
       const sel = selectedTaskId;
       const multi = selectedTaskIds.length > 1;
@@ -532,9 +552,16 @@ export function GanttTab() {
                 className="shrink-0 overflow-hidden border-b border-line"
                 style={{ height: HEADER_HEIGHT + friezeH }}
               >
-                <HeaderLeft />
+                <HeaderLeft innerRef={tableHeaderInnerRef} />
               </div>
-              <div ref={attachTableBody} className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+              <div
+                ref={attachTableBody}
+                className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden"
+                onScroll={(e) => {
+                  if (tableHeaderInnerRef.current)
+                    tableHeaderInnerRef.current.style.transform = `translateX(${-e.currentTarget.scrollLeft}px)`;
+                }}
+              >
                 {rows.length === 0 ? (
                   <div className="p-6 text-sm text-ink-faint">
                     <p>{t('tasks.emptyPlan')}</p>
@@ -603,6 +630,8 @@ export function GanttTab() {
                   windowStart={windowStart}
                   windowEnd={windowEnd}
                   conflictTaskIds={new Set(conflictsByTask.keys())}
+                  unassignedTaskIds={unassignedTaskIds}
+                  effortOverflowTaskIds={effortOverflowTaskIds}
                   capacityConcernPeriods={capacityConcernPeriods}
                   proposalByTask={proposalByTask}
                   baseline={activeBl}
@@ -750,7 +779,7 @@ export function GanttTab() {
   );
 }
 
-function HeaderLeft() {
+function HeaderLeft({ innerRef }: { innerRef?: Ref<HTMLDivElement> }) {
   const { widths, hidden, order, setWidth, toggleHidden, moveColumn, setColumnOrder, setStatusFilter, setAssigneeFilter, setNameQuery, statusFilter, assigneeFilter, nameQuery } = useTableStore();
   const projects = useAppStore((s) => s.file.projects);
   const resources = useAppStore((s) => s.file.resources);
@@ -947,7 +976,7 @@ function HeaderLeft() {
   return (
     <div className="relative h-full bg-surface">
       {/* Colonnes : déborde à droite (clippé par le parent overflow-hidden) */}
-      <div className="flex h-full items-end pb-1" style={{ width: totalWidth + 14 }}>
+      <div ref={innerRef} className="flex h-full items-end pb-1" style={{ width: totalWidth + 14, willChange: 'transform' }}>
         {visibleLabels.map(({ key, label, filterable }) => {
           const w = widths[key];
           const right = ['estimate', 'effort', 'remaining', 'start', 'end'].includes(key);

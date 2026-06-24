@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { createPortal } from 'react-dom';
 import { addDays, diffDays, eachDay, maxIso, minIso, todayIso } from '@/core/calendar/dates';
 import { progressBarDays, taskProgress } from '@/core/scheduler/groups';
 import { workedDaysReachedOn, workedDaysUpTo } from '@/core/scheduler/links';
 import { realizedOf, remainingForEndDate, remainingOf, scheduledEffort } from '@/core/scheduler/blocks';
 import type { Schedule } from '@/core/scheduler/schedule';
-import type { Assignment, IsoDate, Task } from '@/core/model/types';
+import type { IsoDate, Task } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
 import { useUiStore } from '@/state/uiStore';
-import { reassignTask } from '@/state/meetingActions';
 import {
   addBlockToTask,
   addLink,
@@ -23,9 +21,7 @@ import {
   removeLink,
   relinkSuccessor,
   resolveCycleBySplit,
-  resyncRemaining,
   materializeTaskAt,
-  setBlockAssignments,
   setBlockDates,
   setTaskProgress,
   setTaskRemaining,
@@ -46,6 +42,7 @@ import { useGanttColumnsStore } from './ganttColumnsStore';
 import { useTableStore, type ColKey } from '@/ui/table/tableStore';
 import { fmtDate } from '@/ui/gantt/format';
 import { resourceAvatar } from '@/ui/common/Avatar';
+import { BlockAssignPopover } from '@/ui/common/BlockAssignPopover';
 
 
 interface DragMove {
@@ -125,6 +122,10 @@ interface GanttChartProps {
   windowStart: number;
   windowEnd: number;
   conflictTaskIds: ReadonlySet<string>;
+  /** Tâches effort sans affectation (marqueur personnage barré). */
+  unassignedTaskIds?: ReadonlySet<string>;
+  /** Tâches avec dépassement de capacité (marqueur flamme). */
+  effortOverflowTaskIds?: ReadonlySet<string>;
   /** Périodes de surcharge par ressource (project-overload + sur-engagement). */
   capacityConcernPeriods?: ReadonlyMap<string, readonly { from: IsoDate; to: IsoDate }[]>;
   /** Fantômes du plan proposé (surimpression). */
@@ -154,6 +155,8 @@ export function GanttChart({
   windowStart,
   windowEnd,
   conflictTaskIds,
+  unassignedTaskIds,
+  effortOverflowTaskIds,
   capacityConcernPeriods,
   proposalByTask,
   baseline,
@@ -808,6 +811,9 @@ export function GanttChart({
           <pattern id="cancelled-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(33,31,26,0.35)" strokeWidth="3" />
           </pattern>
+          <pattern id="assignee-overload-stripe" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)">
+            <line x1="0" y1="0" x2="0" y2="4" stroke="rgba(255,255,255,0.45)" strokeWidth="2" />
+          </pattern>
         </defs>
         {/* Jours chômés */}
         {gridColumns.map((c, i) => (
@@ -891,6 +897,9 @@ export function GanttChart({
               onProgressPointerDown={startProgress}
               onMilestonePointerDown={startMilestoneDrag}
               onGroupPointerDown={startGroupDrag}
+              onAssignPopover={(e, taskId, blockId) =>
+                setAssignPopover({ x: e.clientX, y: e.clientY, taskId, blockId })
+              }
             />
           </g>
         ))}
@@ -952,6 +961,38 @@ export function GanttChart({
                 suppressClickRef.current = true;
                 selectTask(task.id);
                 useUiStore.getState().openConflicts(task.id);
+              }}
+            />
+          );
+        })}
+        {/* Marqueur « tâche sans affectation » (personnage barré rouge) */}
+        {unassignedTaskIds && visible.map((row, i) => {
+          if (!unassignedTaskIds.has(row.task.id)) return null;
+          return (
+            <UnassignedMarker
+              key={`unassigned-${row.task.id}`}
+              x={scrollLeft + 7}
+              y={(windowStart + i) * ROW_HEIGHT}
+              onSelect={() => {
+                suppressClickRef.current = true;
+                selectTask(row.task.id);
+                useUiStore.getState().openConflicts(row.task.id);
+              }}
+            />
+          );
+        })}
+        {/* Marqueur « dépassement de capacité » (flamme orange) — décalé de 14px pour coexistence */}
+        {effortOverflowTaskIds && visible.map((row, i) => {
+          if (!effortOverflowTaskIds.has(row.task.id)) return null;
+          return (
+            <EffortOverflowMarker
+              key={`overflow-${row.task.id}`}
+              x={scrollLeft + 7 + (unassignedTaskIds?.has(row.task.id) ? 14 : 0)}
+              y={(windowStart + i) * ROW_HEIGHT}
+              onSelect={() => {
+                suppressClickRef.current = true;
+                selectTask(row.task.id);
+                useUiStore.getState().openConflicts(row.task.id);
               }}
             />
           );
@@ -1097,6 +1138,7 @@ interface RowBarsProps {
   onProgressPointerDown: (e: ReactPointerEvent, task: Task, xStart: number, xEnd: number) => void;
   onMilestonePointerDown: (e: ReactPointerEvent, task: Task) => void;
   onGroupPointerDown: (e: ReactPointerEvent, task: Task) => void;
+  onAssignPopover: (e: React.MouseEvent, taskId: string, blockId: string) => void;
 }
 
 function RowBars({
@@ -1117,6 +1159,7 @@ function RowBars({
   onProgressPointerDown,
   onMilestonePointerDown,
   onGroupPointerDown,
+  onAssignPopover,
 }: RowBarsProps) {
   const { task } = row;
   const mid = ROW_HEIGHT / 2;
@@ -1538,15 +1581,73 @@ function RowBars({
         const afterParts = colsAfter.map((k) => cellText(task, k, schedule)).filter(Boolean);
         if (overflow === 'before' && centerTxt) beforeParts.unshift(centerTxt);
         if (overflow === 'after' && centerTxt) afterParts.unshift(centerTxt);
+
+        // Avatars affectation (before / after) — pixel-perfect avec la colonne liste
+        const assigneesInAfter = colsAfter.includes('assignees');
+        const assigneesInBefore = colsBefore.includes('assignees');
+        const lastResolved = resolved[resolved.length - 1];
+        const avatarPairs = (assigneesInAfter || assigneesInBefore)
+          ? (lastResolved?.block.assignments.flatMap((a) => {
+              const res = schedule.ctx.file.resources.find((rs) => rs.id === a.resourceId);
+              return res ? [{ resource: res, units: a.units }] : [];
+            }) ?? [])
+          : [];
+        // slotWidth = ⌀18 (r=9) + gap 1 + barre 3 + inter-paire 2 = 24px ; marge gauche 4px
+        const avatarGroupW = avatarPairs.length > 0 ? 4 + avatarPairs.length * 24 : 0;
+
+        const renderAvatarGroup = (anchorX: number) =>
+          avatarPairs.map(({ resource, units }, i) => {
+            const { color: ac, label } = resourceAvatar(resource);
+            const cx = anchorX + 4 + 9 + i * 24;
+            const barX = cx + 9 + 1;
+            const barTop = mid - 9;
+            const fillH = (Math.min(units, 100) / 100) * 18;
+            return (
+              <g key={resource.id} pointerEvents="none">
+                <circle cx={cx} cy={mid} r={9} fill={ac} />
+                <text x={cx} y={mid} fontSize={9} fontWeight="bold" textAnchor="middle" dominantBaseline="central" fill="white">{label}</text>
+                <rect x={barX} y={barTop} width={3} height={18} rx={1.5} fill="var(--color-line)" />
+                <rect x={barX} y={barTop + 18 - fillH} width={3} height={fillH} rx={1.5} fill={ac} />
+                {units > 100 && <rect x={barX} y={barTop} width={3} height={18} rx={1.5} fill="url(#assignee-overload-stripe)" />}
+              </g>
+            );
+          });
+
+        const avatarHitRect = (anchorX: number) =>
+          lastResolved ? (
+            <rect
+              x={anchorX} y={0} width={avatarGroupW} height={ROW_HEIGHT}
+              fill="transparent" style={{ cursor: 'pointer' }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onAssignPopover(e, task.id, lastResolved.block.id); }}
+            >
+              <title>{t('gantt.changeAssign')}</title>
+            </rect>
+          ) : null;
+
+        // Décalage du texte after pour laisser la place aux avatars
+        const afterTextX = xEnd + 4 + (assigneesInAfter && avatarGroupW > 0 ? avatarGroupW + 4 : 0);
+        // Position des avatars before : à gauche du texte before estimé
+        const beforeTxtW = beforeParts.join(' · ').length * (ganttFontSize * 0.55);
+
         return (
           <>
+            {/* avatars before */}
+            {assigneesInBefore && avatarGroupW > 0 && (() => {
+              const ax = xStart - 4 - (beforeTxtW > 0 ? beforeTxtW + 4 : 0) - avatarGroupW;
+              return <g key="av-before">{renderAvatarGroup(ax)}{avatarHitRect(ax)}</g>;
+            })()}
             {beforeParts.length > 0 && (
               <text x={xStart - 4} y={txtY} fontSize={ganttFontSize} textAnchor="end" fill="var(--color-ink-soft)" pointerEvents="none">
                 {beforeParts.join(' · ')}
               </text>
             )}
+            {/* avatars after — avant le texte after */}
+            {assigneesInAfter && avatarGroupW > 0 && (
+              <g key="av-after">{renderAvatarGroup(xEnd + 4)}{avatarHitRect(xEnd + 4)}</g>
+            )}
             {afterParts.length > 0 && (
-              <text x={xEnd + 4} y={txtY} fontSize={ganttFontSize} textAnchor="start" fill="var(--color-ink-soft)" pointerEvents="none">
+              <text x={afterTextX} y={txtY} fontSize={ganttFontSize} textAnchor="start" fill="var(--color-ink-soft)" pointerEvents="none">
                 {afterParts.join(' · ')}
               </text>
             )}
@@ -1642,14 +1743,7 @@ function cellText(task: Task, key: ColKey, schedule: Schedule): string {
     case 'realized': return `${Math.round(realizedOf(schedule.ctx, task) * 10) / 10}j`;
     case 'remaining': return `${Math.round(remainingOf(schedule.ctx, task, schedule.resolvedByTask.get(task.id) ?? []) * 10) / 10}j`;
     case 'progress': return `${Math.round(taskProgress(task) * 100)}%`;
-    case 'assignees': {
-      const res = schedule.ctx.file.resources;
-      const ids = new Set(task.blocks.flatMap((b) => b.assignments.map((a) => a.resourceId)));
-      return [...ids].map((id) => {
-        const r = res.find((x) => x.id === id);
-        return r ? resourceAvatar(r).label : '';
-      }).filter(Boolean).join(' ');
-    }
+    case 'assignees': return '';
     case 'start': {
       const resolved = schedule.resolvedByTask.get(task.id);
       return resolved?.[0]?.from ?? '';
@@ -1696,6 +1790,42 @@ function GhostIcon({ cx, cy, fill }: { cx: number; cy: number; fill: string }) {
       />
       <circle cx={cx - 1.9} cy={cy - 1} r={1.05} fill="white" />
       <circle cx={cx + 1.9} cy={cy - 1} r={1.05} fill="white" />
+    </g>
+  );
+}
+
+/** Marqueur « tâche sans affectation » : silhouette personnage dans un cercle rouge. */
+function UnassignedMarker({ x, y, onSelect }: { x: number; y: number; onSelect: () => void }) {
+  return (
+    <g
+      transform={`translate(${x}, ${y + ROW_HEIGHT / 2})`}
+      style={{ cursor: 'pointer' }}
+      onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); onSelect(); }}
+    >
+      <rect x={-8} y={-8} width={16} height={16} fill="transparent" />
+      {/* Cercle contour */}
+      <circle cx={0} cy={0} r={6} fill="none" stroke="var(--color-danger)" strokeWidth={1.2} />
+      {/* Tête */}
+      <circle cx={0} cy={-2} r={1.8} fill="var(--color-danger)" />
+      {/* Corps (épaules arrondies) */}
+      <path d="M-2.5,3.5 Q-2.5,0.5 0,0.5 Q2.5,0.5 2.5,3.5" fill="var(--color-danger)" />
+      <title>{t('gantt.unassignedMarker')}</title>
+    </g>
+  );
+}
+
+/** Marqueur « dépassement de capacité » : éclair orange. */
+function EffortOverflowMarker({ x, y, onSelect }: { x: number; y: number; onSelect: () => void }) {
+  return (
+    <g
+      transform={`translate(${x}, ${y + ROW_HEIGHT / 2})`}
+      style={{ cursor: 'pointer' }}
+      onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); onSelect(); }}
+    >
+      <rect x={-8} y={-7} width={15} height={14} fill="transparent" />
+      {/* Éclair */}
+      <path d="M3,-1.5 H0.5 L2.5,-5 H0 L-3,0 H-0.5 L-3,5 Z" fill="var(--color-warn)" />
+      <title>{t('gantt.effortOverflowMarker')}</title>
     </g>
   );
 }
@@ -2397,139 +2527,3 @@ function ArrowHead({
   return <path d={d} fill={color} />;
 }
 
-// ——— Popover d'affectation de bloc — sliders par personne/matériel ———
-
-function BlockAssignPopover({
-  x,
-  y,
-  taskId,
-  blockId,
-  schedule,
-  onClose,
-}: {
-  x: number;
-  y: number;
-  taskId: string;
-  blockId: string;
-  schedule: Schedule;
-  onClose: () => void;
-}) {
-  const file = schedule.ctx.file;
-  const reviewDate = useAppStore((s) => s.reviewDate);
-  const block = file.tasks.find((t) => t.id === taskId)?.blocks.find((b) => b.id === blockId);
-  const [assignments, setAssignmentsState] = useState<Assignment[]>(
-    block?.assignments.map((a) => ({ ...a })) ?? [],
-  );
-  const [splitHisto, setSplitHisto] = useState(false);
-
-  const setUnits = (resourceId: string, units: number) => {
-    const u = Math.max(0, Math.min(1000, units));
-    setAssignmentsState((prev) => {
-      if (u === 0) return prev.filter((a) => a.resourceId !== resourceId);
-      if (prev.some((a) => a.resourceId === resourceId)) {
-        return prev.map((a) => (a.resourceId === resourceId ? { ...a, units: u } : a));
-      }
-      return [...prev, { resourceId, units: u }];
-    });
-  };
-
-  const toggle = (resourceId: string) => {
-    const cur = assignments.find((a) => a.resourceId === resourceId);
-    setUnits(resourceId, cur ? 0 : 100);
-  };
-
-  const handleSave = () => {
-    if (splitHisto) {
-      // Nouveau bloc à la date de revue : l'ancienne équipe reste figée dans le passé.
-      reassignTask(taskId, assignments, reviewDate ?? todayIso());
-    } else {
-      setBlockAssignments(taskId, blockId, assignments);
-    }
-    resyncRemaining(taskId);
-    onClose();
-  };
-
-  // Clic en dehors = fermer sans sauvegarder
-  const popRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (popRef.current && !popRef.current.contains(e.target as Node)) onCloseRef.current();
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const left = Math.min(x, window.innerWidth - 280);
-  const top = Math.min(y, window.innerHeight - 360);
-
-  return createPortal(
-    <div
-      ref={popRef}
-      className="fixed z-50 w-[260px] rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] shadow-xl"
-      style={{ left, top }}
-    >
-      <div className="border-b border-[var(--color-line)] px-3 py-2 text-[11px] font-semibold text-[var(--color-ink-soft)] uppercase tracking-wide">
-        {t('gantt.assignPopoverTitle')}
-      </div>
-      <div className="max-h-60 overflow-y-auto p-2 space-y-2">
-        {file.resources.map((r) => {
-          const units = assignments.find((a) => a.resourceId === r.id)?.units ?? 0;
-          const active = units > 0;
-          const { color, label } = resourceAvatar(r);
-          return (
-            <div key={r.id} className={`flex items-center gap-2 rounded px-1 py-0.5 ${active ? '' : 'opacity-40'}`}>
-              {/* Avatar = poignée / bouton bascule */}
-              <button
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white transition hover:scale-110 cursor-pointer"
-                style={{ background: color }}
-                title={active ? `${r.name} — cliquer pour retirer` : `Ajouter ${r.name}`}
-                onClick={() => toggle(r.id)}
-              >
-                {label}
-              </button>
-              <input
-                type="range"
-                min={0}
-                max={200}
-                step={5}
-                value={units}
-                onChange={(e) => setUnits(r.id, Number(e.target.value))}
-                className="flex-1 accent-[var(--color-accent)]"
-                title={`${r.name} : ${units} %`}
-              />
-              <span className="w-9 shrink-0 text-right font-mono text-[11px] text-[var(--color-ink-soft)]">
-                {units} %
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      <label className="flex items-center gap-2 border-t border-[var(--color-line)] px-3 py-2 text-[11.5px] text-[var(--color-ink-soft)]">
-        <input
-          type="checkbox"
-          checked={splitHisto}
-          onChange={(e) => setSplitHisto(e.target.checked)}
-          className="accent-[var(--color-accent)]"
-        />
-        {t('gantt.newBlockHisto')}
-      </label>
-      <div className="flex gap-2 border-t border-[var(--color-line)] px-3 py-2">
-        <button
-          className="flex-1 rounded bg-[var(--color-accent)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90"
-          onClick={handleSave}
-        >
-          {t('common.apply')}
-        </button>
-        <button
-          className="flex-1 rounded border border-[var(--color-line)] px-2 py-1 text-[11px] hover:bg-[var(--color-wash)]"
-          onClick={onClose}
-        >
-          {t('common.cancel')}
-        </button>
-      </div>
-    </div>,
-    document.body,
-  );
-}

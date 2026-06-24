@@ -13,10 +13,10 @@ Ce fichier décrit tous les types de conflits et avertissements que CrewGantt pe
 | `link-violated` | Lien violé | Barre rouge + lien rouge + badge rouge | Décaler la tâche, ou appliquer la proposition |
 | `project-overload` | Surcharge projet | Badge rouge + panneau Conflits + bande orange sur barres | Réduire les unités, décaler une tâche, ou ajouter un bloc |
 | `no-capacity` | Travail sans capacité | Barre rouge + badge rouge + panneau Conflits | Corriger l'absence ou déplacer le bloc |
-| `effort-overflow` | Effort non casé | Barre rouge + badge rouge + panneau Conflits | Appliquer la proposition, ou ajouter de la capacité |
+| `effort-overflow` | Effort non casé | **Marqueur flamme orange (bord gauche, épinglé)** + barre rouge + badge rouge + panneau Conflits | Appliquer la proposition, ou ajouter de la capacité |
 | `deadline` | Deadline menacée | Drapeau rouge + badge rouge + panneau Conflits | Réduire la portée, ajouter des ressources, ou réviser la deadline |
 | `milestone-untenable` | Jalon intenable | Losange rouge + badge rouge + panneau Conflits | Avancer le jalon ou décaler le prédécesseur |
-| `unassigned` | Tâche non affectée | Badge rouge + panneau Conflits | Affecter une personne au bloc ouvert |
+| `unassigned` | Tâche non affectée | **Marqueur personnage barré rouge (bord gauche, épinglé)** + badge rouge + panneau Conflits | Affecter une personne au bloc ouvert |
 | `unplanned` | Tâche non planifiée | Marqueur fantôme rouge (bord gauche, épinglé) + badge rouge + panneau Conflits | Cliquer un ghost de placement (ou double-clic) pour la matérialiser, ou ignorer |
 | sur-engagement | Sur-engagement *(avertissement)* | Panneau Conflits (orange) + vue Charge + bande orange sur barres | Rééquilibrer les affectations cross-projets |
 | cycle | Cycle de dépendances | Bandeau rouge dans le panneau Conflits | Supprimer un lien créant la boucle |

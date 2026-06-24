@@ -139,6 +139,9 @@ export const fr = {
     subtaskFromHereHint: 'Disponible sur une tâche datée (découpe son travail en deux).',
     effortBreakdown: 'Effort : propre {own} · sous-tâches {sub} · total {total} (j-h)',
     rowActions: 'Actions',
+    assigneesClickHint: 'Modifier l’affectation',
+    setSchedulingEffort: 'Passer en mode Pilotée (effort)',
+    setSchedulingFixed: 'Passer en mode Dates fixées',
     convertTo: {
       task: 'Convertir en tâche',
       group: 'Convertir en groupe',
@@ -189,6 +192,8 @@ export const fr = {
     placementNow: 'Planifier aujourd’hui (1 j) — clic pour valider',
     placementContinuity: 'Planifier dans la continuité — clic pour valider',
     unplannedMarker: 'Tâche non planifiée — cliquer pour la placer sur le Gantt',
+    unassignedMarker: 'Tâche sans affectation — cliquer pour voir le conflit',
+    effortOverflowMarker: 'Dépassement de capacité — cliquer pour voir le conflit',
   },
   links: {
     title: 'Liens (prédécesseurs)',

@@ -14,8 +14,9 @@
 > **Sources** — synthèse des transcripts de sessions agent (répertoire projet de Claude Code).
 > Périmètre : produit uniquement (les échanges sur l'usage de Claude Code ne sont pas inclus).
 >
-> **Dernière synthèse** : 2026-06-23 (couvre la genèse → Phase 8 → conflits/liens/propositions →
-> renommage `.cgan` → fusion de blocs de proposition → ghosts de placement / conflit « non planifiée »).
+> **Dernière synthèse** : 2026-06-24 (couvre la genèse → Phase 8 → conflits/liens/propositions →
+> renommage `.cgan` → fusion de blocs de proposition → ghosts de placement / conflit « non planifiée » →
+> jauge d'affectation, clic-droit planification, icônes conflits Gantt).
 >
 > Documents liés : [GDD.md](GDD.md) (rationale de design profond), [conflicts.md](conflicts.md)
 > (catalogue des conflits), [TODO.md](TODO.md).
@@ -26,6 +27,47 @@
 
 Pour chaque sujet : la **question**, l'**explication/raisonnement**, la **décision**, et un ou
 plusieurs **exemples** concrets.
+
+### 1.x Jauge d'affectation dans la colonne « Affectés »
+
+**Question.** Comment afficher visuellement le pourcentage d'affectation de chaque personne dans la colonne « Affectés » de la liste des tâches, sans dépasser la hauteur de ligne (18–20 px) ?
+
+**Raisonnement.** Plusieurs pistes explorées visuellement en session (prototype dans SettingsTab) :
+- **Anneau SVG** (stroke-dasharray autour du disque avatar) : élégant mais à 22 px le quart de cercle représentant 25 % ne fait que ~2 px d'arc — quasi invisible.
+- **Arc demi-cercle** (speedometer sous l'avatar) : correct mais ajoute de la hauteur, incompatible avec les lignes existantes.
+- **Barre horizontale sous l'avatar** : idem, problème de hauteur.
+- **Barre verticale 3 px collée à droite de l'avatar** : s'inscrit dans le même 18 px de hauteur que l'avatar. Retenu.
+
+**Pour le >100 %** : orange se confond avec la palette des avatars (couleur `#f7a24f` existante). Rouge danger sur fond rouge avatar idem. Alternatives testées :
+- Pointe blanche en haut de la barre : universel mais peu visible.
+- Micro-barre rouge séparée : ajoute de la largeur.
+- **Barre rayée** (`repeating-linear-gradient` diagonale blanche sur couleur avatar) : visible sur toutes les couleurs. Retenu.
+
+**Décision.** Chaque affecté est représenté par `[cercle 18px][barre verticale 3px]` sans gap. La barre se remplit de bas en haut à `min(units, 100)%` en couleur de l'avatar. Si >100 %, la barre est pleine avec un motif rayé diagonal blanc. Un clic sur la cellule ouvre le popover de réaffectation (`BlockAssignPopover` extrait en composant partagé `src/ui/common/BlockAssignPopover.tsx`). Icône crayon ✎ au survol.
+
+---
+
+### 1.y Changement de mode de planification (Pilotée/Dates fixées)
+
+**Question.** Comment permettre de changer le mode `scheduling` d'une tâche depuis la liste, sans risquer une modification accidentelle ?
+
+**Raisonnement.** Un `<select>` toujours visible est risqué : le passage `fixed → effort` réouvre tous les blocs fermés (supprime les dates de fin). L'utilisateur avait instinctivement essayé le clic droit, cohérent avec le comportement du Gantt (qui a déjà `onContextMenu`).
+
+**Décision.** Ajouter `onContextMenu` sur la ligne de la table (même pattern que le Gantt). Les entrées "Passer en mode Pilotée (effort)" et "Passer en mode Dates fixées" sont ajoutées dans le menu `addEntries` existant (déjà déclenché par le bouton ⋮). Elles n'apparaissent que si la tâche est de type `task` et si le mode n'est pas déjà actif. La colonne elle-même reste en lecture seule.
+
+---
+
+### 1.z Icônes de conflit dans le Gantt : `unassigned` et `effort-overflow`
+
+**Question.** Comment rendre immédiatement visibles les conflits `unassigned` (tâche effort sans affecté) et `effort-overflow` (dépassement de capacité), qui n'ont pas d'icône dédiée dans le Gantt (seulement un badge rouge dans la liste) ?
+
+**Raisonnement.** Le marqueur fantôme (`unplanned`) fonctionne bien : épinglé au bord gauche visible, indépendant du scroll horizontal, clic → panneau conflits. La même mécanique peut s'appliquer. `unplanned` et `unassigned` sont mutuellement exclusifs (une tâche sans bloc ne peut pas avoir de travail restant non affecté), donc même position x. `effort-overflow` peut coexister avec `unassigned`, d'où un décalage de +14 px.
+
+**Icônes :**
+- `unassigned` : silhouette personnage (cercle tête + arc épaules) avec trait diagonal barré, rouge.
+- `effort-overflow` : petite flamme, orange — universellement lisible à petite taille en SVG.
+
+**Décision.** Deux nouveaux composants SVG (`UnassignedMarker`, `EffortOverflowMarker`) ajoutés dans `GanttChart.tsx`. Deux props optionnelles `unassignedTaskIds` et `effortOverflowTaskIds` (sets dérivés dans `GanttTab` depuis `conflictsByTask`). Catalogue `conflicts.md` mis à jour.
 
 ### 1.1 Le modèle « effort » vs « dates fixées »
 

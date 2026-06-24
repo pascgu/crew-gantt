@@ -124,7 +124,7 @@ function GanttColumnsCard() {
           <div key={zone}>
             <p className="mb-1.5 text-[12px] font-medium text-ink-soft">{label}</p>
             <div className="flex flex-wrap gap-1.5">
-              {ALL_COL_KEYS.map((key) => {
+              {(zone === 'center' ? ALL_COL_KEYS.filter((k) => k !== 'assignees') : ALL_COL_KEYS).map((key) => {
                 const active = selected.includes(key);
                 return (
                   <button
