@@ -30,6 +30,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'dashboard', label: t('tabs.dashboard') },
   { id: 'team', label: t('tabs.team') },
   { id: 'settings', label: t('tabs.settings') },
+  { id: 'help', label: t('tabs.help') },
 ];
 
 export function TopBar() {

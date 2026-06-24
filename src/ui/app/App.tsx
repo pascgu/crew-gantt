@@ -9,6 +9,7 @@ import { GanttTab } from '@/ui/gantt/GanttTab';
 import { MeetingTab } from '@/ui/meeting/MeetingTab';
 import { SettingsTab } from '@/ui/settings/SettingsTab';
 import { TeamTab } from '@/ui/team/TeamTab';
+import { HelpTab } from '@/ui/help/HelpTab';
 import { ImpactsPanel } from '@/ui/proposal/ImpactsPanel';
 import { ConflictsPanel } from '@/ui/proposal/ConflictsPanel';
 import { IconClose } from '@/ui/common/icons';
@@ -23,6 +24,7 @@ const TAB_CONTENT: Record<string, () => ReactNode> = {
   dashboard: () => <DashboardTab />,
   team: () => <TeamTab />,
   settings: () => <SettingsTab />,
+  help: () => <HelpTab />,
 };
 
 export function App() {

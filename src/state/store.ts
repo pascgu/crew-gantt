@@ -5,7 +5,7 @@ import { createDemoTeamFile } from '@/core/model/demo';
 import { todayIso } from '@/core/calendar/dates';
 import type { IsoDate, TeamFile } from '@/core/model/types';
 
-export type TabId = 'gantt' | 'meeting' | 'dashboard' | 'team' | 'settings';
+export type TabId = 'gantt' | 'meeting' | 'dashboard' | 'team' | 'settings' | 'help';
 
 export interface AppState {
   file: TeamFile;

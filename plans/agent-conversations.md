@@ -16,7 +16,8 @@
 >
 > **Dernière synthèse** : 2026-06-24 (couvre la genèse → Phase 8 → conflits/liens/propositions →
 > renommage `.cgan` → fusion de blocs de proposition → ghosts de placement / conflit « non planifiée » →
-> jauge d'affectation, clic-droit planification, icônes conflits Gantt).
+> jauge d'affectation, clic-droit planification, icônes conflits Gantt → **refonte de l'aide**
+> (onglet dédié, MiniGantt/MiniList annotés, retrait de Mermaid)).
 >
 > Documents liés : [GDD.md](GDD.md) (rationale de design profond), [conflicts.md](conflicts.md)
 > (catalogue des conflits), [TODO.md](TODO.md).
@@ -343,16 +344,36 @@ tâche.
 
 ### 1.13 L'aide intégrée
 
-- Modal d'aide à plusieurs onglets : **« Prise en main »** (guide) et **« Planification tâches »**
-  (le modèle effort/dates), plus une **légende** des gestes/raccourcis (`LEGEND_KEYS`).
-- Schémas **Mermaid** + croquis SVG maison (`EffortSketch`, `GestureSketch`, mini-Gantt) pour
-  rendre le modèle clair. Leçons de polissage : taille de police lisible (aligner sur la section qui
-  rend bien) ; mettre **deux Mermaid côte à côte** plutôt qu'empilés quand ils sont petits.
-- Exemple pédagogique retenu : **« 2 personnes à 50 % = 4 jours »** (faire comprendre que la durée
-  dépend aussi du %age de temps). Légende de la barre : « Coins carrés = Dates fixées ».
-- Sections documentées au fil de l'eau : nomenclature des liens (s6), gestes non-évidents (ancre
-  Shift au départ **et** au drop, « sous-tâche à partir d'ici », « groupe englobant / dégrouper »,
-  « scinder »), trait orange, indépendance de l'avancement.
+**Refonte (2026-06-24).** L'aide passe de la **modale** à un **onglet principal dédié** (`HelpTab`,
+dans `src/ui/help/`), en **5 sous-onglets** : *Prise en main* (tuto pas-à-pas), *Concepts clés*,
+*Légende visuelle*, *Gestes & raccourcis*, *Où trouver / Comment faire*. Le bouton « ? » du bandeau
+reste comme **raccourci** (bascule sur l'onglet + infobulle légende au survol).
+
+**Mermaid supprimé** (dépendance npm + `Mermaid.tsx`) au profit de répliques maison fidèles, en
+lecture seule :
+- **`MiniGantt`** : réplique SVG du Gantt à partir d'une **scène déclarative** (index de jours, pas
+  de `computeSchedule` ni de store). Reproduit les tokens visuels de `RowBars` (coins ronds/carrés,
+  teintes réalisé/reste au trait de revue avec **opacité passé 0.6**, encoche d'avancement, losange,
+  crochets de groupe `rx=0`/`fill=border`, baseline grise, bande orange, marqueurs `unplanned`/
+  `unassigned`/`effort-overflow`, liens). Réutilise `timescale.ts` (constantes) et `color.ts`.
+- **`MiniList`** : réplique HTML statique de la table (réutilise `COLS` + libellés `tasks.columns.*`,
+  imite `TaskRowCells` : jauge d'affectation, badges, boutons « + »).
+- **`Annotated`** : primitives partagées — callouts (point → flèche → libellé) et **glyphes de
+  curseur** figés (resize ↔, déplacement, crosshair, pointeur) en SVG, superposables sur les deux
+  minis. **Décision interactivité** : aide figée + **animations CSS légères** (glissement de curseur)
+  sur les gestes clés, coupées par `prefers-reduced-motion`. Les vrais tutos interactifs sont
+  remis à un lot ultérieur.
+
+**Principe éditorial** (demande de Pascal) : ne pas être exhaustif — ce qui est évident ou couvert
+par une infobulle ne va pas dans l'aide ; l'aide répond surtout à « où trouver l'info / comment faire
+l'action (si elle existe) ». La *Légende visuelle* est tenue **en miroir de [conflicts.md](conflicts.md)**
+(source de vérité des marqueurs), et *Où trouver / Comment faire* s'appuie sur sa colonne *Résolution*.
+
+**Historique (avant refonte).** Modale à 2 onglets (« Prise en main » / « Planification tâches »),
+schémas Mermaid + croquis SVG maison (`EffortSketch`, `GestureSketch`). Exemple pédagogique conservé :
+**« 2 personnes à 50 % = 4 jours »**. Concepts documentés au fil de l'eau : nomenclature des liens,
+gestes non-évidents (ancre Shift au départ **et** au drop, « sous-tâche à partir d'ici », « groupe
+englobant / dégrouper », « scinder »), trait orange, indépendance de l'avancement.
 
 ### 1.14 Ghosts de placement (tâche/jalon non planifié)
 

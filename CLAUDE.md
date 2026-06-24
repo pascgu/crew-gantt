@@ -25,6 +25,16 @@ Run a single test file / test: `npx vitest run src/core/scheduler/blocks.test.ts
 
 There is no separate `typecheck` script — `npm run build` does it (`tsc -b`). After non-trivial changes, run `npm run build` **and** `npm test`.
 
+### Captures d'écran / vérification visuelle (Playwright)
+Pour vérifier visuellement un rendu (et pas seulement via les tests), utiliser **Playwright** — chromium
+est déjà installé et [playwright.config.ts](playwright.config.ts) démarre `npm run dev` automatiquement
+(`webServer.reuseExistingServer`, baseURL `http://localhost:5173`). Recette : créer un spec temporaire
+sous `tests/e2e/`, faire `await page.goto('/')`, naviguer (ex. cliquer l'onglet voulu), puis
+`await page.screenshot({ path: '<scratchpad>/vue.png' })` (ou `locator.screenshot()` pour un élément).
+Lancer avec `npm run e2e` (au besoin cibler : `npx playwright test tests/e2e/mon-spec.spec.ts`), **lire
+l'image générée**, itérer, puis **supprimer le spec jetable**. La démo embarquée se charge au 1er lancement,
+on a donc des données réelles à l'écran.
+
 ## Architecture
 
 ### The core/UI boundary is the central rule
