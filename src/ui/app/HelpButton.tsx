@@ -24,7 +24,6 @@ const LEGEND_KEYS = [
   'undoRedo',
   'cancelled',
   'ctrlDrag',
-  'orangeBand',
 ] as const;
 
 /**

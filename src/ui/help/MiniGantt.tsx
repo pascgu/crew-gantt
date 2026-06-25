@@ -8,7 +8,7 @@
  */
 import { ROW_HEIGHT } from '@/ui/gantt/timescale';
 import { darken, rgba } from '@/ui/common/color';
-import { Callout, CursorGlyph, type CursorKind, type Place } from './Annotated';
+import { Callout, CursorGlyph, NumberBadge, type CursorKind, type Place } from './Annotated';
 
 const BAR_H = 11;
 const ACCENT = 'var(--color-accent)';
@@ -64,27 +64,36 @@ export type MiniRow = MiniTaskRow | MiniMilestoneRow | MiniGroupRow;
 
 export interface MiniLink {
   fromRow: number;
+  /** Jour source : le trait part de la fin (bord droit) de ce jour. */
   fromDay: number;
   toRow: number;
+  /** Jour cible : la pointe arrive au début (bord gauche) de ce jour. */
   toDay: number;
   violated?: boolean;
 }
 
-export interface MiniGanttCallout {
-  day: number;
-  row: number;
-  edge?: 'start' | 'end' | 'mid';
-  /** Position verticale dans la ligne : milieu (défaut), moitié basse (poignées de resize) ou haute. */
-  yAnchor?: 'mid' | 'lower' | 'upper';
-  /** Décalages px fins (ex. cibler la poignée de lien décalée). */
-  dx?: number;
-  dy?: number;
+export interface MiniGanttCallout extends MiniGanttAnchor {
   label: string;
   place?: Place;
   /** Longueur du trait de rappel (défaut 22). */
   dist?: number;
   cursor?: CursorKind;
   animate?: boolean;
+}
+
+/** Ancre commune aux callouts et aux repères numérotés. */
+export interface MiniGanttAnchor {
+  day: number;
+  row: number;
+  edge?: 'start' | 'end' | 'mid';
+  yAnchor?: 'mid' | 'lower' | 'upper';
+  dx?: number;
+  dy?: number;
+}
+
+/** Repère numéroté posé sur un élément de la scène. */
+export interface MiniGanttNumber extends MiniGanttAnchor {
+  n: number;
 }
 
 /** Décalage horizontal de la poignée de lien après le bord droit de la barre. */
@@ -109,10 +118,11 @@ export interface MiniScene {
 interface Props {
   scene: MiniScene;
   callouts?: MiniGanttCallout[];
+  numbers?: MiniGanttNumber[];
   className?: string;
 }
 
-export function MiniGantt({ scene, callouts, className }: Props) {
+export function MiniGantt({ scene, callouts, numbers, className }: Props) {
   const dayWidth = scene.dayWidth ?? 20;
   const gutter = scene.labelWidth ?? 0;
   const x = (day: number) => gutter + day * dayWidth;
@@ -122,6 +132,11 @@ export function MiniGantt({ scene, callouts, className }: Props) {
   const width = gutter + scene.days * dayWidth;
   const height = scene.rows.length * ROW_HEIGHT;
   const reviewX = scene.today != null ? x(scene.today) : null;
+  const anchorXY = (a: MiniGanttAnchor) => {
+    const baseX = a.edge === 'end' ? xEnd(a.day) : a.edge === 'mid' ? x(a.day) + dayWidth / 2 : x(a.day);
+    const yShift = a.yAnchor === 'lower' ? 2.75 : a.yAnchor === 'upper' ? -2.75 : 0;
+    return { cx: baseX + (a.dx ?? 0), cy: rowMid(a.row) + yShift + (a.dy ?? 0) };
+  };
 
   return (
     <svg
@@ -177,16 +192,19 @@ export function MiniGantt({ scene, callouts, className }: Props) {
 
       {/* Callouts */}
       {callouts?.map((c, i) => {
-        const baseX = c.edge === 'end' ? xEnd(c.day) : c.edge === 'mid' ? x(c.day) + dayWidth / 2 : x(c.day);
-        const cx = baseX + (c.dx ?? 0);
-        const yShift = c.yAnchor === 'lower' ? 2.75 : c.yAnchor === 'upper' ? -2.75 : 0;
-        const cy = rowMid(c.row) + yShift + (c.dy ?? 0);
+        const { cx, cy } = anchorXY(c);
         return (
           <g key={`co${i}`}>
             {c.cursor && <CursorGlyph kind={c.cursor} x={cx} y={cy} animate={c.animate} />}
             <Callout ax={cx} ay={cy} label={c.label} place={c.place ?? 'top'} dist={c.dist} />
           </g>
         );
+      })}
+
+      {/* Repères numérotés */}
+      {numbers?.map((m, i) => {
+        const { cx, cy } = anchorXY(m);
+        return <NumberBadge key={`n${i}`} n={m.n} x={cx} y={cy} />;
       })}
     </svg>
   );
@@ -317,16 +335,22 @@ function Row({ row, i, x, xEnd, barY, rowMid, dayWidth, reviewX, gutter }: RowPr
       {/* Avancement (encoche noire centrée) */}
       {progW > 0 && <rect x={xStart} y={mid - 1.25} width={progW} height={2.5} rx={1} fill="var(--color-ink)" opacity={0.95} />}
 
-      {/* Deadline (drapeau rouge) */}
-      {row.deadline != null && (
-        <path
-          d={`M ${xEnd(row.deadline)} 4 v ${ROW_HEIGHT - 8} m 0 ${-(ROW_HEIGHT - 8)} h -5 M ${xEnd(row.deadline)} ${ROW_HEIGHT - 4} h -5`}
-          stroke="var(--color-danger)"
-          strokeWidth={1.5}
-          fill="none"
-          opacity={0.8}
-        />
-      )}
+      {/* Deadline (drapeau rouge) — ancré sur la ligne courante */}
+      {row.deadline != null &&
+        (() => {
+          const dxp = xEnd(row.deadline);
+          const top = mid - (ROW_HEIGHT / 2 - 4);
+          const bot = mid + (ROW_HEIGHT / 2 - 4);
+          return (
+            <path
+              d={`M ${dxp} ${top} V ${bot} M ${dxp} ${top} h -5 M ${dxp} ${bot} h -5`}
+              stroke="var(--color-danger)"
+              strokeWidth={1.5}
+              fill="none"
+              opacity={0.8}
+            />
+          );
+        })()}
 
       {/* Poignée de création de lien (cercle blanc décalé après le bord droit) */}
       {row.linkHandle && blocks.length > 0 && (
@@ -427,17 +451,28 @@ function Link({
   xEnd: (d: number) => number;
   rowMid: (i: number) => number;
 }) {
+  // Géométrie reprise telle quelle de GanttChart (RowLinks) : coude « droite-bas-droite » en
+  // marche avant, ou « retour en arrière » (pointe vers le bas) quand la cible est à gauche du coude.
   const sx = xEnd(link.fromDay);
   const sy = rowMid(link.fromRow);
   const tx = x(link.toDay);
   const ty = rowMid(link.toRow);
+  const targetTop = link.toRow * ROW_HEIGHT;
   const color = link.violated ? 'var(--color-danger)' : 'var(--color-ink-faint)';
-  const bend = Math.min(sx + 8, tx - 6);
-  const d = `M ${sx} ${sy} H ${Math.max(sx + 6, bend)} V ${ty} H ${tx - 4}`;
+  const sw = link.violated ? 1.8 : 1.2;
+  const bend = sx + 7;
+  const backward = tx - 4 < bend;
+  const d = backward
+    ? `M ${sx} ${sy} L ${bend} ${sy} L ${bend} ${targetTop + 3} L ${tx} ${targetTop + 3} L ${tx} ${ty}`
+    : `M ${sx} ${sy} L ${bend} ${sy} L ${bend} ${ty} L ${tx - 4} ${ty}`;
+  const ax = backward ? tx : tx - 4;
+  const arrowD = backward
+    ? `M ${ax} ${ty} l -3.5 -5 h 7 Z`
+    : `M ${ax} ${ty} l -5 -3.5 v 7 Z`;
   return (
     <g pointerEvents="none">
-      <path d={d} fill="none" stroke={color} strokeWidth={link.violated ? 1.8 : 1.2} />
-      <path d={`M ${tx} ${ty} L ${tx - 5} ${ty - 3} L ${tx - 5} ${ty + 3} Z`} fill={color} />
+      <path d={d} fill="none" stroke={color} strokeWidth={sw} />
+      <path d={arrowD} fill={color} />
     </g>
   );
 }

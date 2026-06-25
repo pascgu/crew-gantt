@@ -108,6 +108,19 @@ export function Callout({
   );
 }
 
+/** Petit badge numéroté (repère) — posé sur un élément, renvoie à une légende numérotée. */
+export function NumberBadge({ n, x, y, r = 6.5 }: { n: number; x: number; y: number; r?: number }) {
+  return (
+    <g transform={`translate(${x}, ${y})`} pointerEvents="none">
+      <circle r={r + 1} fill="white" />
+      <circle r={r} fill="var(--color-accent)" />
+      <text x={0} y={0} textAnchor="middle" dominantBaseline="central" fontSize={r + 2.5} fontWeight="bold" fill="white">
+        {n}
+      </text>
+    </g>
+  );
+}
+
 interface CursorGlyphProps {
   kind: CursorKind;
   x: number;

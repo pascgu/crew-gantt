@@ -9,7 +9,7 @@ import { COLS } from '@/ui/table/columns';
 import type { ColKey } from '@/ui/table/tableStore';
 import { t } from '@/i18n/fr';
 import { IconChevronDown, IconChevronRight, IconDiamond, IconDots, IconPlus } from '@/ui/common/icons';
-import { Callout, CursorGlyph, type CursorKind, type Place } from './Annotated';
+import { Callout, CursorGlyph, NumberBadge, type CursorKind, type Place } from './Annotated';
 
 const HEADER_H = 22;
 const ROW_H = 21;
@@ -44,16 +44,23 @@ export interface MiniListRow {
   showAdd?: boolean;
 }
 
-export interface MiniListCallout {
+export interface MiniListAnchor {
   col: ColKey;
   row: number; // -1 = en-tête
   /** Décalages px fins pour viser un élément précis (ex. le « ⋯ » à droite, les « + » sous la ligne). */
   dx?: number;
   dy?: number;
+}
+
+export interface MiniListCallout extends MiniListAnchor {
   label: string;
   place?: Place;
   cursor?: CursorKind;
   animate?: boolean;
+}
+
+export interface MiniListNumber extends MiniListAnchor {
+  n: number;
 }
 
 const DEFAULT_COLS: ColKey[] = [
@@ -73,10 +80,11 @@ interface Props {
   rows: MiniListRow[];
   columns?: ColKey[];
   callouts?: MiniListCallout[];
+  numbers?: MiniListNumber[];
   className?: string;
 }
 
-export function MiniList({ rows, columns = DEFAULT_COLS, callouts, className }: Props) {
+export function MiniList({ rows, columns = DEFAULT_COLS, callouts, numbers, className }: Props) {
   const widths = columns.map((c) => COLS[c]);
   const tableWidth = widths.reduce((a, b) => a + b, 0);
   const colLeft = (key: ColKey): number => {
@@ -117,18 +125,23 @@ export function MiniList({ rows, columns = DEFAULT_COLS, callouts, className }: 
         </div>
       ))}
 
-      {/* Overlay callouts/curseurs */}
-      {callouts && callouts.length > 0 && (
+      {/* Overlay callouts / repères numérotés / curseurs */}
+      {((callouts && callouts.length > 0) || (numbers && numbers.length > 0)) && (
         <svg className="pointer-events-none absolute left-0 top-0" style={{ overflow: 'visible' }} width={tableWidth} height={overlayH} viewBox={`0 0 ${tableWidth} ${overlayH}`}>
-          {callouts.map((c, i) => {
+          {callouts?.map((c, i) => {
             const cx = colCenter(c.col) + (c.dx ?? 0);
             const cy = (c.row < 0 ? HEADER_H / 2 : HEADER_H + c.row * ROW_H + ROW_H / 2) + (c.dy ?? 0);
             return (
-              <Fragment key={i}>
+              <Fragment key={`c${i}`}>
                 {c.cursor && <CursorGlyph kind={c.cursor} x={cx} y={cy} animate={c.animate} />}
                 <Callout ax={cx} ay={cy} label={c.label} place={c.place ?? 'top'} />
               </Fragment>
             );
+          })}
+          {numbers?.map((m, i) => {
+            const cx = colCenter(m.col) + (m.dx ?? 0);
+            const cy = (m.row < 0 ? HEADER_H / 2 : HEADER_H + m.row * ROW_H + ROW_H / 2) + (m.dy ?? 0);
+            return <NumberBadge key={`n${i}`} n={m.n} x={cx} y={cy} />;
           })}
         </svg>
       )}

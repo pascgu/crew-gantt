@@ -3,15 +3,17 @@
  * Les illustrations sont des MiniGantt / MiniList (répliques fidèles, lecture seule) annotés —
  * plus de Mermaid. Voir plans/agent-conversations.md §1.13 et plans/conflicts.md.
  */
-import { useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { t } from '@/i18n/fr';
 import { IconSettings } from '@/ui/common/icons';
+import { usePersistedState } from '@/ui/common/persist';
 import { ANNOTATION_CSS } from './Annotated';
-import { MiniGantt } from './MiniGantt';
-import { MiniList, type MiniListRow } from './MiniList';
+import { MiniGantt, type MiniGanttNumber } from './MiniGantt';
+import { MiniList, type MiniListRow, type MiniListNumber } from './MiniList';
 
 type SubTab = 'guide' | 'concepts' | 'legend' | 'gestures' | 'howto';
 const SUBTABS: SubTab[] = ['guide', 'concepts', 'legend', 'gestures', 'howto'];
+
 
 const BLUE = '#4f8ef7';
 const ORANGE = '#e0863c';
@@ -19,14 +21,34 @@ const GREEN = '#3fae6b';
 const PURPLE = '#8b6fd6';
 
 const LEGEND_KEYS = [
-  'dragBar', 'dragEdge', 'progressDrag', 'linkHandle', 'shiftDrag', 'shiftDrop',
-  'enclosingGroup', 'cycleSplit', 'rightClickBar', 'rightClickRow', 'panDrag',
-  'middleClick', 'ctrlWheel', 'doubleClick', 'arrows', 'insertKey', 'altArrows',
-  'undoRedo', 'cancelled', 'ctrlDrag', 'orangeBand',
+  // Colonne 1 — interactions Gantt
+  'dragBar', 'dragEdge', 'progressDrag', 'ctrlDrag',
+  'linkHandle', 'shiftDrag', 'shiftDrop',
+  'rightClickBar', 'rightClickRow', 'enclosingGroup', 'cycleSplit',
+  // Colonne 2 — navigation & clavier
+  'panDrag', 'middleClick', 'ctrlWheel', 'doubleClick',
+  'arrows', 'altArrows', 'insertKey',
+  'undoRedo', 'ctrlS',
+  'cancelled',
 ] as const;
 
 export function HelpTab() {
-  const [tab, setTab] = useState<SubTab>('guide');
+  const [tab, setTab] = usePersistedState<SubTab>('crewgantt.ui.helpSubtab', 'guide');
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (scrollRef.current) {
+      const saved = sessionStorage.getItem(`crewgantt.help.scroll.${tab}`);
+      scrollRef.current.scrollTop = saved ? Number(saved) : 0;
+    }
+  }, [tab]);
+
+  const selectTab = (id: SubTab) => {
+    if (scrollRef.current)
+      sessionStorage.setItem(`crewgantt.help.scroll.${tab}`, String(scrollRef.current.scrollTop));
+    setTab(id);
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-paper-deep/30">
       <style>{ANNOTATION_CSS}</style>
@@ -39,7 +61,7 @@ export function HelpTab() {
           {SUBTABS.map((id) => (
             <button
               key={id}
-              onClick={() => setTab(id)}
+              onClick={() => selectTab(id)}
               className={`border-b-2 px-3 py-2 text-[12.5px] font-medium transition ${
                 tab === id ? 'border-accent text-accent' : 'border-transparent text-ink-soft hover:text-ink'
               }`}
@@ -50,7 +72,11 @@ export function HelpTab() {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto px-6 py-5"
+        onScroll={(e) => { sessionStorage.setItem(`crewgantt.help.scroll.${tab}`, String(e.currentTarget.scrollTop)); }}
+      >
         <div className="mx-auto max-w-4xl">
           {tab === 'guide' && <GuideTab />}
           {tab === 'concepts' && <ConceptsTab />}
@@ -69,12 +95,13 @@ function Lead({ children }: { children: ReactNode }) {
   return <p className="mb-5 text-[13px] leading-relaxed text-ink-soft">{children}</p>;
 }
 
-function Block({ title, children, figure }: { title: string; children: ReactNode; figure?: ReactNode }) {
+function Block({ title, children, figure, legend }: { title: string; children?: ReactNode; figure?: ReactNode; legend?: ReactNode }) {
   return (
     <section className="mb-7">
       <h3 className="mb-1.5 font-display text-[14px] font-semibold text-ink">{title}</h3>
       <div className="text-[12.5px] leading-relaxed text-ink-soft">{children}</div>
       {figure && <Figure>{figure}</Figure>}
+      {legend}
     </section>
   );
 }
@@ -87,20 +114,52 @@ function Figure({ children }: { children: ReactNode }) {
   );
 }
 
+/** Rend un texte en paragraphes : coupe sur les sauts `\n\n` (lisibilité). */
+function Prose({ text, className }: { text: string; className?: string }) {
+  return (
+    <>
+      {text.split('\n\n').map((para, i) => (
+        <p key={i} className={i > 0 ? `mt-2 ${className ?? ''}`.trim() : className}>
+          {para}
+        </p>
+      ))}
+    </>
+  );
+}
+
+/** Liste numérotée (légende des repères ①②③ posés sur une figure). Flux colonne par colonne. */
+function NumberedLegend({ items }: { items: { n: number; label: string }[] }) {
+  const half = Math.ceil(items.length / 2);
+  const renderItem = (it: { n: number; label: string }) => (
+    <li key={it.n} className="flex items-start gap-2 text-[12px] leading-snug text-ink-soft">
+      <span className="mt-px inline-flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-full bg-accent text-[9px] font-bold text-white">
+        {it.n}
+      </span>
+      <span>{it.label}</span>
+    </li>
+  );
+  return (
+    <div className="mt-3 flex gap-6">
+      <ol className="flex flex-1 flex-col gap-1.5">{items.slice(0, half).map(renderItem)}</ol>
+      <ol className="flex flex-1 flex-col gap-1.5" start={half + 1}>{items.slice(half).map(renderItem)}</ol>
+    </div>
+  );
+}
+
 /* ——— 1. Prise en main ——— */
 
 function GuideTab() {
   return (
     <div>
       <section className="mb-6">
-        <p className="mb-3 text-[13px] leading-relaxed text-ink-soft">{t('help.guide.overviewBody')}</p>
+        <Prose text={t('help.guide.overviewBody')} className="mb-3 text-[13px] leading-relaxed text-ink-soft" />
         <Figure><LayoutSketch /></Figure>
       </section>
 
       <Lead>{t('help.guideIntro')}</Lead>
 
       <Block title={t('help.guide.s1Title')} figure={sceneStart()}>
-        {t('help.guide.s1Body')}
+        <Prose text={t('help.guide.s1Body')} />
       </Block>
 
       <Block title={t('help.guide.s2Title')} figure={
@@ -118,7 +177,7 @@ function GuideTab() {
           ]}
         />
       }>
-        {t('help.guide.s2Body')}
+        <Prose text={t('help.guide.s2Body')} />
       </Block>
 
       <Block title={t('help.guide.s3Title')} figure={
@@ -134,7 +193,7 @@ function GuideTab() {
           callouts={[{ day: 3, row: 0, edge: 'end', dx: 8, label: t('help.guide.caLink'), place: 'top', cursor: 'crosshair' }]}
         />
       }>
-        {t('help.guide.s3Body')}
+        <Prose text={t('help.guide.s3Body')} />
       </Block>
 
       <Block title={t('help.guide.s4Title')} figure={
@@ -144,7 +203,7 @@ function GuideTab() {
           callouts={[{ col: 'assignees', row: 0, label: t('help.visual.list.assignees'), place: 'bottom' }]}
         />
       }>
-        {t('help.guide.s4Body')}
+        <Prose text={t('help.guide.s4Body')} />
       </Block>
 
       <Block title={t('help.guide.s5Title')} figure={
@@ -153,10 +212,16 @@ function GuideTab() {
           callouts={[{ day: 1, row: 0, edge: 'start', yAnchor: 'lower', dy: 6, label: t('help.guide.caBaseline'), place: 'bottom' }]}
         />
       }>
-        <span>{t('help.guide.s5Body')}</span>
-        <span className="ml-1 inline-flex items-center gap-1 rounded border border-line bg-paper-deep/60 px-1.5 py-0.5 align-middle text-[11px] text-ink-soft">
-          <IconSettings size={12} /> {t('help.guide.caControls')}
-        </span>
+        {t('help.guide.s5Body').split('\n\n').map((para, i, arr) => (
+          <p key={i} className={i > 0 ? 'mt-2' : undefined}>
+            {para}
+            {i === arr.length - 1 && (
+              <span className="ml-1 inline-flex items-center gap-1 rounded border border-line bg-paper-deep/60 px-1.5 py-0.5 align-middle text-[11px] text-ink-soft">
+                <IconSettings size={12} /> {t('help.guide.caControls')}
+              </span>
+            )}
+          </p>
+        ))}
       </Block>
 
       <Block title={t('help.guide.s6Title')} figure={
@@ -169,7 +234,7 @@ function GuideTab() {
           ]}
         />
       }>
-        {t('help.guide.s6Body')}
+        <Prose text={t('help.guide.s6Body')} />
       </Block>
 
       <Block title={t('help.guide.s7Title')} figure={
@@ -185,7 +250,7 @@ function GuideTab() {
           callouts={[{ day: 1, row: 0, edge: 'start', label: t('help.visual.gantt.group'), place: 'top' }]}
         />
       }>
-        {t('help.guide.s7Body')}
+        <Prose text={t('help.guide.s7Body')} />
       </Block>
 
       <Block title={t('help.guide.s8Title')} figure={
@@ -201,7 +266,7 @@ function GuideTab() {
           />
         </div>
       }>
-        {t('help.guide.s8Body')}
+        <Prose text={t('help.guide.s8Body')} />
       </Block>
     </div>
   );
@@ -260,25 +325,27 @@ function LayoutSketch() {
 /* ——— 2. Concepts clés ——— */
 
 function ConceptsTab() {
+  const effortItems: (MiniGanttNumber & { label: string })[] = [
+    { n: 1, day: 4, row: 0, edge: 'start', label: t('help.visual.gantt.realized') },
+    { n: 2, day: 8, row: 0, edge: 'start', label: t('help.visual.gantt.remaining') },
+    { n: 3, day: 1, row: 0, edge: 'mid', dy: 7, label: t('help.visual.gantt.progress') },
+    { n: 4, day: 5, row: 0, edge: 'start', dy: -9, label: t('help.visual.gantt.reviewLine') },
+  ];
   return (
     <div>
       <Lead>{t('help.concepts.intro')}</Lead>
 
       <Block
         title={t('help.concepts.effortTitle')}
+        legend={<NumberedLegend items={effortItems} />}
         figure={
           <MiniGantt
+            numbers={effortItems}
             scene={{ days: 12, labelWidth: 70, today: 5, todayLine: 5, rows: [{ kind: 'task', name: 'Dev', color: GREEN, scheduling: 'effort', blocks: [{ from: 1, to: 9 }], progress: 0.3 }] }}
-            callouts={[
-              { day: 3, row: 0, edge: 'start', label: t('help.visual.gantt.realized'), place: 'top' },
-              { day: 7, row: 0, edge: 'start', label: t('help.visual.gantt.remaining'), place: 'top' },
-              { day: 1, row: 0, edge: 'mid', label: t('help.visual.gantt.progress'), place: 'bottom' },
-              { day: 5, row: 0, edge: 'start', label: t('help.visual.gantt.reviewLine'), place: 'bottom' },
-            ]}
           />
         }
       >
-        <p>{t('help.concepts.effortBody')}</p>
+        <Prose text={t('help.concepts.effortBody')} />
         <ul className="mt-2 space-y-1">
           <li className="rounded-md bg-paper-deep/60 px-2.5 py-1.5">{t('help.concepts.effortEx1')}</li>
           <li className="rounded-md bg-paper-deep/60 px-2.5 py-1.5">{t('help.concepts.effortEx2')}</li>
@@ -300,7 +367,7 @@ function ConceptsTab() {
           />
         }
       >
-        {t('help.concepts.halfBarBody')}
+        <Prose text={t('help.concepts.halfBarBody')} />
       </Block>
 
       <Block
@@ -321,7 +388,7 @@ function ConceptsTab() {
           />
         }
       >
-        {t('help.concepts.typesBody')}
+        <Prose text={t('help.concepts.typesBody')} />
       </Block>
 
       <Block
@@ -340,7 +407,7 @@ function ConceptsTab() {
           />
         }
       >
-        {t('help.concepts.equationBody')}
+        <Prose text={t('help.concepts.equationBody')} />
       </Block>
 
       <Block
@@ -355,29 +422,52 @@ function ConceptsTab() {
           />
         }
       >
-        {t('help.concepts.blocksBody')}
+        <Prose text={t('help.concepts.blocksBody')} />
       </Block>
 
       <Block
         title={t('help.concepts.linksTitle')}
         figure={
+          <div className="flex flex-col gap-9">
+            <MiniGantt
+              scene={{
+                days: 11, labelWidth: 26,
+                rows: [
+                  { kind: 'task', name: 'A', color: GREEN, scheduling: 'fixed',  blocks: [{ from: 1, to: 4 }] },
+                  { kind: 'task', name: 'B', color: GREEN, scheduling: 'effort', blocks: [{ from: 5, to: 9 }] },
+                ],
+                links: [{ fromRow: 0, fromDay: 4, toRow: 1, toDay: 5 }],
+              }}
+              callouts={[{ day: 5, row: 1, edge: 'start', label: 'FD', place: 'bottom' }]}
+            />
+            <MiniGantt
+              scene={{
+                days: 12, labelWidth: 26,
+                rows: [
+                  { kind: 'task', name: 'C', color: BLUE, scheduling: 'fixed',  blocks: [{ from: 1, to: 7 }] },
+                  { kind: 'task', name: 'D', color: BLUE, scheduling: 'effort', blocks: [{ from: 5, to: 10 }] },
+                ],
+                links: [{ fromRow: 0, fromDay: 1, toRow: 1, toDay: 8 }],
+              }}
+              callouts={[{ day: 4, row: 1, edge: 'start', label: 'P1D3', place: 'bottom' }]}
+            />
+          </div>
+        }
+      >
+        <Prose text={t('help.concepts.linksBody')} />
+      </Block>
+
+      <Block
+        title={t('help.concepts.loadTitle')}
+        figure={
           <MiniGantt
-            scene={{
-              days: 12, labelWidth: 70,
-              rows: [
-                { kind: 'task', name: 'A', color: BLUE, scheduling: 'fixed', blocks: [{ from: 1, to: 4 }] },
-                { kind: 'task', name: 'B', color: GREEN, scheduling: 'effort', blocks: [{ from: 6, to: 10 }] },
-              ],
-              links: [{ fromRow: 0, fromDay: 4, toRow: 1, toDay: 6 }],
-            }}
-            callouts={[{ day: 5, row: 0, edge: 'end', label: 'FD', place: 'bottom' }]}
+            scene={{ days: 11, labelWidth: 70, rows: [{ kind: 'task', name: 'Dev', color: GREEN, scheduling: 'effort', blocks: [{ from: 1, to: 8 }], overload: { from: 4, to: 6 } }] }}
+            callouts={[{ day: 5, row: 0, edge: 'start', label: t('help.visual.gantt.orange'), place: 'top' }]}
           />
         }
       >
-        {t('help.concepts.linksBody')}
+        <Prose text={t('help.concepts.loadBody')} />
       </Block>
-
-      <Block title={t('help.concepts.loadTitle')}>{t('help.concepts.loadBody')}</Block>
 
       <Block
         title={t('help.concepts.proposalTitle')}
@@ -385,13 +475,13 @@ function ConceptsTab() {
           <MiniGantt
             scene={{
               days: 13, labelWidth: 70,
-              rows: [{ kind: 'task', name: 'Dev', color: GREEN, scheduling: 'effort', blocks: [{ from: 2, to: 6 }], ghosts: [{ from: 5, to: 9 }] }],
+              rows: [{ kind: 'task', name: 'Dev', color: ORANGE, scheduling: 'effort', blocks: [{ from: 2, to: 6 }], conflict: true, proposal: { from: 5, to: 9, delta: '+3 j' } }],
             }}
-            callouts={[{ day: 5, row: 0, edge: 'start', label: t('help.visual.gantt.ghost') + ' → +3 j', place: 'top' }]}
+            callouts={[{ day: 8, row: 0, edge: 'mid', dy: -7, label: t('help.guide.caProposal'), place: 'top' }]}
           />
         }
       >
-        {t('help.concepts.proposalBody')}
+        <Prose text={t('help.concepts.proposalBody')} />
       </Block>
     </div>
   );
@@ -417,78 +507,89 @@ function LegendTab() {
       assignees: [{ label: 'BM', color: ORANGE, units: 120 }], start: '09/06', status: { label: 'À faire', color: 'var(--color-ink-faint)' },
     },
   ];
+
+  // Repères de la liste (badge sur l'en-tête de colonne, ou sur la cellule concernée).
+  const listItems: (MiniListNumber & { label: string })[] = [
+    { n: 1, col: 'name', row: 1, dx: -55, label: t('help.visual.list.name') },
+    { n: 2, col: 'scheduling', row: -1, dy: -9, label: t('help.visual.list.scheduling') },
+    { n: 3, col: 'effort', row: -1, dy: -9, label: t('help.visual.list.effort') },
+    { n: 4, col: 'realized', row: -1, dy: -9, label: t('help.visual.list.realized') },
+    { n: 5, col: 'remaining', row: -1, dy: -9, label: t('help.visual.list.remaining') },
+    { n: 6, col: 'progress', row: -1, dy: -9, label: t('help.visual.list.progress') },
+    { n: 7, col: 'assignees', row: 1, label: t('help.visual.list.assignees') },
+    { n: 8, col: 'status', row: -1, dy: -9, label: t('help.visual.list.status') },
+  ];
+
+  // Repères de l'anatomie du Gantt.
+  const ganttItems: (MiniGanttNumber & { label: string })[] = [
+    { n: 1,  day: 8,  row: 0, edge: 'end',   dx: 9,         label: t('help.visual.gantt.rounded') },
+    { n: 2,  day: 4,  row: 0, edge: 'mid',                  label: t('help.visual.gantt.realized') },
+    { n: 3,  day: 7,  row: 0, edge: 'mid',                  label: t('help.visual.gantt.remaining') },
+    { n: 4,  day: 2,  row: 0, edge: 'mid',   dy: -9,        label: t('help.visual.gantt.progress') },
+    { n: 5,  day: 0,  row: 0, edge: 'mid',   dy: 14,        label: t('help.visual.gantt.baseline') },
+    { n: 6,  day: 6,  row: 3, edge: 'start', dy: 7,         label: t('help.visual.gantt.todayLine') },
+    { n: 7,  day: 10, row: 3, edge: 'start', dy: 7,         label: t('help.visual.gantt.reviewLine') },
+    { n: 8,  day: 6,  row: 1, edge: 'end',   dx: 9,         label: t('help.visual.gantt.square') },
+    { n: 9,  day: 8,  row: 1, edge: 'end',   dy: 15,        label: t('help.visual.gantt.deadline') },
+    { n: 10, day: 12, row: 2, edge: 'mid',   dy: -14,       label: t('help.visual.gantt.milestone') },
+    { n: 11, day: 14, row: 3, edge: 'mid',                  label: t('help.visual.gantt.group') },
+  ];
+
+  // Repères des marqueurs & conflits.
+  const markerItems: (MiniGanttNumber & { label: string })[] = [
+    { n: 1, day: 4, row: 0, edge: 'end', dx: 17, dy: 7, label: t('help.visual.gantt.link') },
+    { n: 2, day: 8, row: 1, edge: 'start', label: t('help.visual.gantt.conflict') },
+    { n: 3, day: 6, row: 2, edge: 'mid', label: t('help.visual.gantt.orange') },
+    { n: 4, day: 0, row: 3, edge: 'start', dx: 24, label: t('help.visual.gantt.unplanned') },
+    { n: 5, day: 0, row: 4, edge: 'start', dx: 24, label: t('help.visual.gantt.unassigned') },
+    { n: 6, day: 0, row: 5, edge: 'start', dx: 24, label: t('help.visual.gantt.overflow') },
+    { n: 7, day: 4, row: 6, edge: 'mid', label: t('help.visual.gantt.cancelled') },
+    { n: 8, day: 9, row: 7, edge: 'end', dx: 9, label: t('help.visual.gantt.ghost') },
+  ];
+
   return (
     <div>
       <Lead>{t('help.visual.intro')}</Lead>
 
-      <Block title={t('help.visual.listTitle')} figure={
-        <MiniList
-          rows={listRows}
-          callouts={[
-            { col: 'name', row: 1, label: t('help.visual.list.name'), place: 'top' },
-            { col: 'scheduling', row: 0, label: t('help.visual.list.scheduling'), place: 'top' },
-            { col: 'effort', row: 0, label: t('help.visual.list.effort'), place: 'top' },
-            { col: 'realized', row: 2, label: t('help.visual.list.realized'), place: 'bottom' },
-            { col: 'remaining', row: 2, label: t('help.visual.list.remaining'), place: 'bottom' },
-            { col: 'progress', row: 0, label: t('help.visual.list.progress'), place: 'top' },
-            { col: 'assignees', row: 2, label: t('help.visual.list.assignees'), place: 'bottom' },
-            { col: 'status', row: 0, label: t('help.visual.list.status'), place: 'top' },
-          ]}
-        />
-      }>
+      <Block title={t('help.visual.listTitle')} figure={<MiniList rows={listRows} numbers={listItems} />} legend={<NumberedLegend items={listItems} />}>
         {t('help.visual.list.addButtons')} · {t('help.visual.list.resize')}.
       </Block>
 
-      <Block title={t('help.visual.ganttTitle')} figure={
+      <Block title={t('help.visual.ganttTitle')} legend={<NumberedLegend items={ganttItems} />} figure={
         <MiniGantt
+          numbers={ganttItems}
           scene={{
-            days: 16, labelWidth: 64, today: 6, todayLine: 6,
+            days: 17, labelWidth: 64, today: 6, todayLine: 6, reviewLine: 10,
             rows: [
-              { kind: 'task', name: 'Effort', color: GREEN, scheduling: 'effort', blocks: [{ from: 1, to: 9 }], progress: 0.3, baseline: { from: 0, to: 7 } },
-              { kind: 'task', name: 'Dates', color: ORANGE, scheduling: 'fixed', blocks: [{ from: 2, to: 7 }], deadline: 6 },
-              { kind: 'milestone', name: 'Jalon', color: PURPLE, day: 11 },
-              { kind: 'group', name: 'Groupe', color: BLUE, intervals: [{ from: 12, to: 14 }] },
+              { kind: 'task', name: 'Effort', color: GREEN, scheduling: 'effort', blocks: [{ from: 1, to: 8 }], progress: 0.3, baseline: { from: 0, to: 6 } },
+              { kind: 'task', name: 'Dates', color: ORANGE, scheduling: 'fixed', blocks: [{ from: 2, to: 6 }], deadline: 8 },
+              { kind: 'milestone', name: 'Jalon', color: PURPLE, day: 12 },
+              { kind: 'group', name: 'Groupe', color: BLUE, intervals: [{ from: 13, to: 15 }] },
             ],
           }}
-          callouts={[
-            { day: 9, row: 0, edge: 'end', label: t('help.visual.gantt.rounded'), place: 'right' },
-            { day: 3, row: 0, edge: 'start', label: t('help.visual.gantt.realized'), place: 'top' },
-            { day: 8, row: 0, edge: 'start', label: t('help.visual.gantt.remaining'), place: 'top' },
-            { day: 1, row: 0, edge: 'mid', label: t('help.visual.gantt.progress'), place: 'bottom' },
-            { day: 0, row: 0, edge: 'start', label: t('help.visual.gantt.baseline'), place: 'bottom' },
-            { day: 7, row: 1, edge: 'end', label: t('help.visual.gantt.square'), place: 'bottom' },
-            { day: 6, row: 1, edge: 'end', label: t('help.visual.gantt.deadline'), place: 'right' },
-            { day: 6, row: 3, edge: 'start', label: t('help.visual.gantt.todayLine'), place: 'bottom' },
-            { day: 11, row: 2, edge: 'mid', label: t('help.visual.gantt.milestone'), place: 'top' },
-            { day: 12, row: 3, edge: 'start', label: t('help.visual.gantt.group'), place: 'top' },
-          ]}
         />
       }>
-        {t('help.visual.gantt.reviewLine')}.
       </Block>
 
-      <Block title={t('help.visual.markersTitle')} figure={
+      <Block title={t('help.visual.markersTitle')} legend={<NumberedLegend items={markerItems} />} figure={
         <MiniGantt
+          numbers={markerItems}
           scene={{
-            days: 14, labelWidth: 74, today: 5, todayLine: 5,
+            days: 14, labelWidth: 86, today: 5, todayLine: 5,
+            links: [{ fromRow: 0, fromDay: 4, toRow: 1, toDay: 6, violated: true }],
             rows: [
+              { kind: 'task', name: 'Prédécesseur', color: BLUE, scheduling: 'fixed', blocks: [{ from: 1, to: 4 }], linkHandle: true },
+              { kind: 'task', name: 'Conflit (lien)', color: GREEN, scheduling: 'effort', blocks: [{ from: 6, to: 9 }], conflict: true },
               { kind: 'task', name: 'Surcharge', color: GREEN, scheduling: 'effort', blocks: [{ from: 2, to: 8 }], overload: { from: 5, to: 7 } },
-              { kind: 'task', name: 'Conflit', color: ORANGE, scheduling: 'fixed', blocks: [{ from: 3, to: 7 }], conflict: true },
               { kind: 'task', name: 'Non planifiée', color: BLUE, scheduling: 'effort', blocks: [], marker: 'unplanned' },
               { kind: 'task', name: 'Non affectée', color: BLUE, scheduling: 'effort', blocks: [{ from: 9, to: 12 }], marker: 'unassigned' },
+              { kind: 'task', name: 'Effort non casé', color: BLUE, scheduling: 'effort', blocks: [{ from: 9, to: 12 }], marker: 'effort-overflow' },
               { kind: 'task', name: 'Annulée', color: BLUE, scheduling: 'fixed', blocks: [{ from: 2, to: 6 }], status: 'cancelled' },
+              { kind: 'task', name: 'Non planifiée (ghost)', color: PURPLE, scheduling: 'effort', blocks: [], ghosts: [{ from: 9, to: 9 }] },
             ],
           }}
-          callouts={[
-            { day: 5, row: 0, edge: 'start', label: t('help.visual.gantt.orange'), place: 'top' },
-            { day: 7, row: 1, edge: 'end', label: t('help.visual.gantt.conflict'), place: 'right' },
-            { day: 0, row: 2, edge: 'start', label: t('help.visual.gantt.unplanned'), place: 'top' },
-            { day: 0, row: 3, edge: 'start', label: t('help.visual.gantt.unassigned'), place: 'bottom' },
-            { day: 4, row: 4, edge: 'mid', label: t('help.visual.gantt.cancelled'), place: 'bottom' },
-          ]}
         />
       }>
-        {t('help.visual.gantt.link')} · {t('help.visual.gantt.overflow')} · {t('help.visual.gantt.ghost')}.
       </Block>
     </div>
   );
@@ -497,16 +598,21 @@ function LegendTab() {
 /* ——— 4. Gestes & raccourcis ——— */
 
 function GesturesTab() {
+  const half = Math.ceil(LEGEND_KEYS.length / 2);
+  const col1 = LEGEND_KEYS.slice(0, half);
+  const col2 = LEGEND_KEYS.slice(half);
+  const renderItem = (k: typeof LEGEND_KEYS[number]) => (
+    <li key={k} className="rounded-md bg-surface px-2.5 py-1.5 text-[12px] leading-snug text-ink-soft ring-1 ring-line">
+      {t(`help.legend.${k}`)}
+    </li>
+  );
   return (
     <div>
       <Lead>{t('help.legendTitle')}</Lead>
-      <ul className="grid gap-1.5 sm:grid-cols-2">
-        {LEGEND_KEYS.map((k) => (
-          <li key={k} className="rounded-md bg-surface px-2.5 py-1.5 text-[12px] leading-snug text-ink-soft ring-1 ring-line">
-            {t(`help.legend.${k}`)}
-          </li>
-        ))}
-      </ul>
+      <div className="flex gap-1.5">
+        <ul className="flex flex-1 flex-col gap-1.5">{col1.map(renderItem)}</ul>
+        <ul className="flex flex-1 flex-col gap-1.5">{col2.map(renderItem)}</ul>
+      </div>
     </div>
   );
 }
@@ -525,7 +631,9 @@ function HowtoTab() {
         {HOWTO_KEYS.map((k) => (
           <div key={k} className="px-4 py-3">
             <dt className="font-display text-[13px] font-semibold text-ink">{t(`help.howto.${k}Q`)}</dt>
-            <dd className="mt-0.5 text-[12.5px] leading-relaxed text-ink-soft">{t(`help.howto.${k}A`)}</dd>
+            <dd className="mt-0.5 text-[12.5px] leading-relaxed text-ink-soft">
+              <Prose text={t(`help.howto.${k}A`)} />
+            </dd>
           </div>
         ))}
       </dl>

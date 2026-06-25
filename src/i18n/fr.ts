@@ -500,42 +500,42 @@ export const fr = {
       doubleClick: 'Double-clic sur une tâche — ouvrir le panneau de détail',
       arrows: '↑ / ↓ — changer de tâche · Entrée — détail · Suppr — supprimer',
       altArrows: 'ALT + ↑/↓ — déplacer la tâche · ALT + ←/→ — changer de niveau',
-      undoRedo: 'Ctrl+Z / Ctrl+Y — annuler / rétablir · Ctrl+S — enregistrer',
+      undoRedo: 'Ctrl+Z / Ctrl+Y — annuler / rétablir',
+      ctrlS: 'Ctrl+S — enregistrer',
       insertKey: 'Inser — insérer une tâche sœur après la sélection',
       cancelled: 'Statut Annulé — barre hacturée, exclue des calculs de charge',
       ctrlDrag: 'Ctrl + glisser — déplacer (tâche ou jalon)',
-      orangeBand: "Trait orange en haut d'une barre — ressource surchargée ce(s) jour(s) : surcharge projet ou sur-engagement cross-projets",
     },
     guide: {
       overviewBody:
-        "CrewGantt, c'est trois zones. En haut : la barre d'outils (fichier, onglets, actions). À gauche : la liste des tâches — le « quoi », « qui » et les chiffres. À droite : le diagramme de Gantt — le « quand ». La liste et le Gantt partagent les mêmes lignes, alignées.",
+        "CrewGantt, c'est trois zones.\n\nEn haut : la barre d'outils (fichier, onglets, actions). À gauche : la liste des tâches — le « quoi », « qui » et les chiffres. À droite : le diagramme de Gantt — le « quand ».\n\nLa liste et le Gantt partagent les mêmes lignes, alignées.",
       overviewTop: 'Barre d’outils',
       overviewLeft: 'Liste : quoi · qui · chiffres',
       overviewRight: 'Gantt : le « quand »',
       s1Title: '1. Démarrer',
       s1Body:
-        "Créez un ou plusieurs projets dans Paramètres, puis ajoutez des tâches depuis la liste de gauche : le menu « ⋯ » d'une ligne, ou les boutons ronds « + » qui apparaissent sous la ligne sélectionnée (un par niveau : même niveau, sous-tâche…). Maintenez CTRL sur un « + » pour créer un groupe, SHIFT pour un jalon.",
+        "Créez un ou plusieurs projets dans Paramètres, puis ajoutez des tâches depuis la liste de gauche : le menu « ⋯ » d'une ligne, ou les boutons ronds « + » qui apparaissent sous la ligne sélectionnée (un par niveau : même niveau, sous-tâche…).\n\nMaintenez CTRL sur un « + » pour créer un groupe, SHIFT pour un jalon.",
       s2Title: '2. Planifier le travail',
       s2Body:
-        "Une tâche est une suite de blocs de travail datés. Tant qu'elle n'a pas de bloc, des « ghosts » de placement apparaissent sur sa ligne : cliquez-en un (ou glissez-le) pour poser un premier bloc, puis étirez ses bords pour ajuster. Le dernier bloc peut rester « à fin calculée » : il absorbe le reste à faire selon les affectations.",
+        "Une tâche est une suite de blocs de travail datés.\n\nTant qu'elle n'a pas de bloc, des « ghosts » de placement apparaissent sur sa ligne : cliquez-en un (ou glissez-le) pour poser un premier bloc, puis étirez ses bords pour ajuster.\n\nLe dernier bloc peut rester « à fin calculée » : il absorbe le reste à faire selon les affectations.",
       s3Title: '3. Lier les tâches',
       s3Body:
-        "Attrapez la poignée ronde en bout de barre et relâchez sur la tâche qui doit attendre. Le lien est une borne « au plus tôt » : il empêche de démarrer trop tôt, mais ne déplace rien tout seul. On peut aussi l'ancrer « après N jours » plutôt qu'à la fin ou au début (voir Gestes & raccourcis). Un lien qui boucle est refusé.",
+        "Attrapez la poignée ronde en bout de barre et relâchez sur la tâche qui doit attendre.\n\nLe lien est une borne « au plus tôt » : il empêche de démarrer trop tôt, mais ne déplace rien tout seul. On peut aussi l'ancrer « après N jours » plutôt qu'à la fin ou au début (voir Gestes & raccourcis).\n\nUn lien qui boucle est refusé.",
       s4Title: '4. Affecter les personnes',
       s4Body:
-        "Double-clic sur une tâche pour ouvrir son panneau : chaque bloc porte ses affectations (% du temps projet). L'onglet Équipe gère calendriers personnels et parts projet ; le bandeau de charge en bas du Gantt montre qui est chargé ou libre.",
+        "Double-clic sur une tâche pour ouvrir son panneau : chaque bloc porte ses affectations (% du temps projet).\n\nL'onglet Équipe gère calendriers personnels et parts projet ; le bandeau de charge en bas du Gantt montre qui est chargé ou libre.",
       s5Title: '5. Figer une référence (baseline)',
       s5Body:
-        "Sous l'en-tête du Gantt, ouvrez les contrôles (bouton ⚙) puis « Figer le plan actuel » : le plan du jour devient la référence, affichée en gris fin sous les barres. La dérive se mesure dans le Tableau de bord.",
+        "Sous l'en-tête du Gantt, ouvrez les contrôles (bouton ⚙) puis « Figer le plan actuel » : le plan du jour devient la référence, affichée en gris fin sous les barres.\n\nLa dérive se mesure dans le Tableau de bord.",
       s6Title: '6. Suivre chaque semaine',
       s6Body:
-        "L'onglet Réunion sert au rituel hebdo : mettre à jour les restes à faire, saisir les absences, réaffecter. L'outil signale les conflits et propose un réordonnancement — vous l'appliquez, l'ajustez ou l'ignorez.",
+        "L'onglet Réunion sert au rituel hebdo : mettre à jour les restes à faire, saisir les absences, réaffecter.\n\nL'outil signale les conflits et propose un réordonnancement — vous l'appliquez, l'ajustez ou l'ignorez.",
       s7Title: '7. Grouper',
       s7Body:
-        "Clic droit sur une sélection (même une seule ligne) → « Créer un groupe englobant » ; « Dégrouper » fait l'inverse. L'effort « propre · sous-tâches · total » d'un parent s'affiche en infobulle (colonne Effort) et dans le panneau de détail.",
+        "Clic droit sur une sélection (même une seule ligne) → « Créer un groupe englobant » ; « Dégrouper » fait l'inverse.\n\nL'effort « propre · sous-tâches · total » d'un parent s'affiche en infobulle (colonne Effort) et dans le panneau de détail.",
       s8Title: '8. Conflits & propositions',
       s8Body:
-        "Quand quelque chose cloche (lien violé, surcharge, effort qui déborde…), l'outil le signale : un badge rouge sur la ligne et des marqueurs sur la barre. Il ne corrige jamais tout seul — il dessine une proposition de réordonnancement (bande pointillée, « +X j », bouton ✓) que vous appliquez ou ignorez. Le détail est dans « Où trouver / Comment faire » et le panneau Conflits.",
+        "Quand quelque chose cloche (lien violé, surcharge, effort qui déborde…), l'outil le signale : un badge rouge sur la ligne et des marqueurs sur la barre.\n\nIl ne corrige jamais tout seul — il dessine une proposition de réordonnancement (bande pointillée, « +X j », bouton ✓) que vous appliquez ou ignorez.\n\nLe détail est dans « Où trouver / Comment faire » et le panneau Conflits.",
       // libellés de callouts (vignettes)
       caMenu: 'Menu d’actions',
       caAdd: 'Boutons « + » (au survol)',
@@ -555,7 +555,7 @@ export const fr = {
         "Les quelques idées qui font la logique de l'outil. Une fois celles-ci comprises, le reste se déduit des infobulles.",
       effortTitle: 'Effort · Réalisé · Reste · Avancement',
       effortBody:
-        "Quatre nombres, deux dimensions. Côté budget (j-h) : l'Effort est le travail total prévu (référence libre, qu'on ré-estime quand ça dérape), le Reste est ce qu'il reste à faire (il pilote la fin de la barre), et le Réalisé = Effort − Reste (le passé, figé). Côté métier : l'Avancement (%) est un champ saisi à part — « à quel point c'est fait » — totalement indépendant des j-h.",
+        "Quatre nombres, deux dimensions.\n\nCôté budget (j-h) : l'Effort est le travail total prévu (référence libre, qu'on ré-estime quand ça dérape), le Reste est ce qu'il reste à faire (il pilote la fin de la barre), et le Réalisé = Effort − Reste (le passé, figé).\n\nCôté métier : l'Avancement (%) est un champ saisi à part — « à quel point c'est fait » — totalement indépendant des j-h.",
       effortEx1:
         "Exemple 1 — Effort 5, Réalisé ~2, on déclare « Reste 1 » : Réalisé + Reste = 3 ≠ Effort. Normal : l'Effort est une estimation, pas la somme du vécu.",
       effortEx2:
@@ -566,28 +566,28 @@ export const fr = {
         "Limite assumée : l'outil ne mesure pas un « réel » d'heures. La seule comparaison qui fait foi est Estim (vendu) ↔ Effort (ré-estimé) — encore faut-il monter l'Effort quand ça dérape. C'est un outil de planification, pas de pointage.",
       halfBarTitle: 'Les deux moitiés d’une barre',
       halfBarBody:
-        "Le bord d'un bloc réagit différemment selon la moitié où l'on clique. En bas (les deux bords) : on redimensionne. En haut à gauche : on règle l'avancement (l'encoche). En haut à droite : on déplace la tâche. C'est subtil, mais ça évite de redimensionner quand on voulait juste déplacer.",
+        "Le bord d'un bloc réagit différemment selon la moitié où l'on clique.\n\nEn bas (les deux bords) : on redimensionne. En haut à gauche : on règle l'avancement (l'encoche). En haut à droite : on déplace la tâche.\n\nC'est subtil, mais ça évite de redimensionner quand on voulait juste déplacer. Maintenir CTRL force le déplacement de la barre, où qu'on l'attrape.",
       halfBarResize: 'Bas = redimensionner',
       halfBarProgress: 'Haut-gauche = avancement',
       halfBarMove: 'Haut-droite = déplacer',
       typesTitle: 'Deux types de tâches',
       typesBody:
-        "Pilotée par l'effort (coins ronds) : vous saisissez le travail en j-h, l'outil calcule la fin selon les affectations. Dates fixées (coins carrés) : vous posez vous-même début et fin (réunions, jalons contractuels). On reconnaît le type à la forme des coins de la barre.",
+        "Pilotée par l'effort (coins ronds) : vous saisissez le travail en j-h, l'outil calcule la fin selon les affectations.\n\nDates fixées (coins carrés) : vous posez vous-même début et fin (réunions, jalons contractuels) — les affectations n'ont alors aucun impact sur les dates.\n\nOn reconnaît le type à la forme des coins de la barre. Le type par défaut d'un projet se règle dans Paramètres → Projets.",
       equationTitle: 'Travail = Durée × Capacité',
       equationBody:
-        "La capacité, c'est la somme des affectations sur la période (1 personne à 100 % = 1 j-h par jour ouvré). En mode effort le Travail est fixé : ajouter du monde raccourcit la barre. Exemple : 4 j-h de travail tiennent en 4 jours à 1 personne, 2 jours à 2 personnes… mais encore 4 jours pour 2 personnes à 50 %.",
+        "La capacité, c'est la somme des affectations sur la période (1 personne à 100 % = 1 j-h par jour ouvré).\n\nEn mode effort le Travail est fixé : ajouter du monde raccourcit la barre.\n\nExemple : 4 j-h de travail tiennent en 4 jours à 1 personne, 2 jours à 2 personnes… mais encore 4 jours pour 2 personnes à 50 %.",
       blocksTitle: 'Une tâche = des blocs datés',
       blocksBody:
-        "Une tâche n'est pas une barre continue mais une suite de blocs { début, fin, affectés } ; les trous sont réels. Chaque bloc garde ses propres affectations : c'est ainsi qu'on retient « qui a fait quoi, quand ». Réaffecter en cours de route = fermer le bloc courant, en ouvrir un nouveau.",
+        "Une tâche n'est pas une barre continue mais une suite de blocs { début, fin, affectés } ; les trous sont réels.\n\nChaque bloc garde ses propres affectations : c'est ainsi qu'on retient « qui a fait quoi, quand ». Réaffecter en cours de route = fermer le bloc courant, en ouvrir un nouveau.",
       linksTitle: 'Les liens sont « au plus tôt »',
       linksBody:
-        "Un lien borne le début au plus tôt d'une tâche : démarrer après est permis, seul démarrer avant est un conflit. Jamais un aimant qui déplace tout seul. L'infobulle donne un code compact : F = fin, D = début (P = après N jours travaillés) + un décalage en jours ouvrés sans le zéro. Ex. : FD = fin → début ; F1D3 = fin +1 j → début +3 j.",
+        "Un lien borne le début au plus tôt d'une tâche : démarrer après est permis, seul démarrer avant est un conflit. Jamais un aimant qui déplace tout seul.\n\nL'infobulle donne un code compact : F = fin, D = début (P = après N jours travaillés) + un décalage en jours ouvrés sans le zéro. Ex. : FD = fin → début ; P1D3 = après 1 j travaillé → début +3 j.\n\nPendant la création d'un lien, maintenir SHIFT permet d'ancrer « après N jours » sur le prédécesseur (au départ) ou sur le successeur (à l'arrivée).",
       loadTitle: 'Charge & capacité',
       loadBody:
-        "La capacité d'une personne un jour donné se calcule à deux étages : présence (calendrier perso) × part projet (%) × affectation (%). Le bandeau de charge en bas du Gantt montre qui est chargé ou libre ; une bande orange sur les barres signale les jours en surcharge.",
+        "La capacité d'une personne un jour donné se calcule à deux étages : présence (calendrier perso) × part projet (%) × affectation (%).\n\nLe bandeau de charge en bas du Gantt montre qui est chargé ou libre ; une bande orange en haut des barres signale les jours en surcharge — surcharge projet ou sur-engagement cross-projets.\n\nUtilisez le bouton « Afficher la charge » en bas au centre (flèche vers le haut) pour le réafficher s'il a été masqué.",
       proposalTitle: 'L’outil propose, l’humain dispose',
       proposalBody:
-        "Le moteur ne déplace jamais rien tout seul : il détecte les conflits et, par-dessus le plan, dessine une proposition de réordonnancement (le « +X j » et le ✓). Vous l'appliquez en entier, tâche par tâche, ou vous l'ignorez. Chaque application recalcule et propose à nouveau jusqu'à stabilité.",
+        "Le moteur ne déplace jamais rien tout seul : il détecte les conflits et, par-dessus le plan, dessine une proposition de réordonnancement (le « +X j » et le ✓).\n\nVous l'appliquez en entier, tâche par tâche, ou vous l'ignorez. Chaque application recalcule et propose à nouveau jusqu'à stabilité.\n\nToutes les propositions en attente sont accessibles depuis le bouton « Plan proposé » en haut de l'écran.",
     },
     visual: {
       intro:
@@ -619,11 +619,11 @@ export const fr = {
         group: 'Crochets = barre de groupe',
         baseline: 'Trait gris fin = référence (baseline)',
         orange: 'Bande orange = ressource surchargée',
-        deadline: 'Drapeau rouge = deadline',
-        conflict: 'Bordure rouge = conflit',
+        deadline: 'Crochet fermant rouge = deadline',
+        conflict: 'Bordure orange = conflit',
         link: 'Flèche = lien (au plus tôt)',
         unplanned: 'Fantôme rouge = tâche non planifiée',
-        unassigned: 'Personnage barré = tâche non affectée',
+        unassigned: 'Personnage dans rond rouge = tâche non affectée',
         overflow: 'Éclair orange = effort non casé',
         cancelled: 'Hachures = tâche annulée',
         ghost: 'Barre pointillée = ghost de placement',
@@ -633,29 +633,29 @@ export const fr = {
       intro:
         "Pour faire X, où aller ? Si une action n'est pas listée ici ni dans une infobulle, c'est souvent qu'elle n'existe pas — l'outil reste volontairement simple.",
       addTaskQ: 'Ajouter une tâche ou une sous-tâche',
-      addTaskA: 'Liste : boutons ronds « + » au survol (un par niveau) ou menu « ⋯ » de la ligne. Touche Inser = une sœur après la sélection.',
+      addTaskA: 'Liste : boutons ronds « + » au survol (un par niveau) ou menu « ⋯ » de la ligne.\n\nTouche Inser = une sœur après la sélection.',
       placeQ: 'Placer le travail dans le temps',
-      placeA: 'Gantt : clic droit sur la ligne → « Ajouter un bloc », puis glisser / étirer la barre. Ou cliquer un ghost de placement d’une tâche non planifiée.',
+      placeA: 'Gantt : clic droit sur la ligne → « Ajouter un bloc », puis glisser / étirer la barre.\n\nOu cliquer un ghost de placement d’une tâche non planifiée.',
       assignQ: 'Affecter des personnes',
-      assignA: 'Double-clic sur la tâche (panneau de détail) ou clic sur la cellule « Affectés ». L’onglet Équipe gère calendriers et parts projet.',
+      assignA: 'Double-clic sur la tâche (panneau de détail) ou clic sur la cellule « Affectés ».\n\nL’onglet Équipe gère calendriers et parts projet.',
       linkQ: 'Lier deux tâches',
-      linkA: 'Tirer la poignée ronde en bout de barre vers la tâche qui doit suivre. Shift au départ / à l’arrivée pour ancrer « après N jours ».',
+      linkA: 'Tirer la poignée ronde en bout de barre vers la tâche qui doit suivre.\n\nShift au départ / à l’arrivée pour ancrer « après N jours ».',
       modeQ: 'Changer Pilotée ↔ Dates fixées',
       modeA: 'Clic droit sur la ligne (ou menu « ⋯ »), ou Ctrl+P. La colonne Planification est en lecture seule.',
       splitQ: 'Interrompre une tâche en cours',
-      splitA: 'Clic droit sur sa barre → « Créer une sous-tâche à partir d’ici » : la tâche devient un groupe, l’effort propre est réparti.',
+      splitA: 'Clic droit sur sa barre → « Créer une sous-tâche à partir d’ici ».\n\nLa tâche devient un groupe, l’effort propre est réparti.',
       groupQ: 'Grouper / dégrouper',
       groupA: 'Clic droit sur la sélection → « Créer un groupe englobant » ; « Dégrouper » fait l’inverse.',
       baselineQ: 'Figer une référence (baseline)',
-      baselineA: 'Coin haut-droit du Gantt → « Figer le plan actuel ». La dérive se mesure dans le Tableau de bord.',
+      baselineA: 'Coin haut-droit du Gantt → « Figer le plan actuel ».\n\nLa dérive se mesure dans le Tableau de bord.',
       reviewQ: 'Faire le suivi hebdomadaire',
-      reviewA: 'Onglet Réunion : mettre à jour les restes, saisir les absences, réaffecter ; bouton « Revenir à aujourd’hui » à la clôture.',
+      reviewA: 'Onglet Réunion : mettre à jour les restes, saisir les absences, réaffecter.\n\nBouton « Revenir à aujourd’hui » à la clôture.',
       conflictQ: 'Comprendre / résoudre un conflit',
-      conflictA: 'Cliquer le badge rouge ou le marqueur de la barre → panneau Conflits (un fait par ligne). Souvent : appliquer la proposition de réordonnancement.',
+      conflictA: 'Cliquer le badge rouge ou le marqueur de la barre → panneau Conflits (un fait par ligne).\n\nSouvent : appliquer la proposition de réordonnancement.',
       navQ: 'Zoomer et se déplacer',
-      navA: 'Ctrl+molette = zoom (jour ↔ trimestre) ; glisser le fond du Gantt = se déplacer ; clic milieu = défilement automatique.',
+      navA: 'Ctrl+molette = zoom (jour ↔ trimestre).\n\nGlisser le fond du Gantt = se déplacer ; clic milieu = défilement automatique.',
       ioQ: 'Importer / exporter',
-      ioA: 'Bouton import/export du bandeau : interop GanttProject (.gan), export CSV des tâches, export PNG du Gantt.',
+      ioA: 'Bouton import/export du bandeau.\n\nInterop GanttProject (.gan), export CSV des tâches, export PNG du Gantt.',
     },
   },
   common: {

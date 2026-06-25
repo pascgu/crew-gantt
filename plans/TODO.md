@@ -1,0 +1,1 @@
+- gantt : quand un lien P est à la fois : après 2 jours travaillés et avec un délai de 1j, son code vaut P21D ce qui est source de confusion avec "après 21j travaillés". Il faut ajouter un petit "+" s'il y a un délai pour avoir P2+1D (et en cas de délai négatif, ça fonctionne déjà avec P2-1D)
