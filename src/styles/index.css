@@ -1,0 +1,76 @@
+@import 'tailwindcss';
+
+/* ——— Design tokens CrewGantt — « utilitaire éditorial », thème papier ——— */
+@theme {
+  --font-display: 'Bricolage Grotesque Variable', 'IBM Plex Sans', sans-serif;
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Papier & encres */
+  --color-paper: #f5f3ed;
+  --color-paper-deep: #ece9e0;
+  --color-surface: #fffefb;
+  --color-ink: #211f1a;
+  --color-ink-soft: #6b675c;
+  --color-ink-faint: #9d988a;
+  --color-line: #e0dcd0;
+  --color-line-strong: #c8c3b4;
+
+  /* Accent encre bleue (chrome UI) — les couleurs vives sont celles des projets */
+  --color-accent: #3050c8;
+  --color-accent-deep: #243c98;
+  --color-accent-wash: #e9edfb;
+
+  /* États */
+  --color-ok: #2e7d4f;
+  --color-warn: #b97d10;
+  --color-warn-wash: #fdf3df;
+  --color-danger: #c03a2e;
+  --color-danger-wash: #fbe9e7;
+
+  --shadow-panel: 0 1px 2px rgb(33 31 26 / 0.06), 0 8px 24px -12px rgb(33 31 26 / 0.18);
+  --shadow-float: 0 2px 6px rgb(33 31 26 / 0.08), 0 16px 40px -16px rgb(33 31 26 / 0.28);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+/* Trame de papier discrète sous l'application */
+#root {
+  background-image: radial-gradient(rgb(33 31 26 / 0.035) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+::selection {
+  background: var(--color-accent-wash);
+  color: var(--color-accent-deep);
+}
+
+/* Scrollbars sobres */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+/* Champs : pas de spinners numériques (densité tableur) */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}

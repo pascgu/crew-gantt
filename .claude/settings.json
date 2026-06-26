@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run format:*)",
+      "Bash(npm run coverage:*)",
+      "Bash(npx vitest run:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npx tsc:*)",
+      "Bash(tail:*)",
+      "Bash(head:*)",
+      "Bash(grep:*)",
+      "Bash(wc:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "PowerShell(npm test:*)",
+      "PowerShell(npm run build:*)",
+      "PowerShell(npm run lint:*)",
+      "PowerShell(npm run format:*)",
+      "PowerShell(npm run coverage:*)",
+      "PowerShell(npx vitest run:*)",
+      "PowerShell(npx vitest:*)",
+      "PowerShell(npx tsc:*)",
+      "PowerShell(git status:*)",
+      "PowerShell(git log:*)",
+      "PowerShell(git diff:*)",
+      "PowerShell(git add:*)",
+      "PowerShell(git commit:*)",
+      "PowerShell(git branch:*)"
+    ]
+  }
+}

@@ -260,7 +260,7 @@ Onglets : **Gantt** · **Réunion** · **Tableau de bord** · **Équipe** (resso
 
 ### Persistance & sécurité des données (la promesse n°1)
 
-- **Format** : un fichier **JSON versionné** par équipe. Convention : `monequipe.crewgantt.json`.
+- **Format** : un fichier **JSON versionné** par équipe. Convention : `monequipe.cgan`.
 - **Ouverture/sauvegarde** : **File System Access API** (Chrome/Edge) — lecture/écriture directe du fichier, comme un logiciel desktop. **Fallback** (Firefox/Safari) : import par sélection/glisser-déposer + export téléchargement. À noter : cette API exige un contexte sécurisé (HTTPS ou `localhost`) ; servie en HTTP simple sur le réseau, l'app bascule automatiquement sur le fallback.
 - **Auto-save** : écriture après chaque modification (debounce ~2 s).
 - **Sauvegarde de secours** : copie IndexedDB à chaque modification ; au démarrage, si plus récente que le fichier → proposition de restauration. **Un crash du navigateur ne perd jamais rien.**
@@ -389,7 +389,7 @@ src/
     proposal/       # bandeau proposition, panneau Impacts, panneau Conflits
     common/         # panneau latéral, inputs, jauges, tooltips…
   styles/           # tokens, thème
-tests/              # fixtures d'équipes exemples (.crewgantt.json)
+tests/              # fixtures d'équipes exemples (.cgan)
 ```
 
 **Règle d'or : `core/` ne dépend de rien d'autre.** L'UI consomme le core, jamais l'inverse.
