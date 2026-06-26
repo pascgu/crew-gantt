@@ -14,10 +14,12 @@
 > **Sources** — synthèse des transcripts de sessions agent (répertoire projet de Claude Code).
 > Périmètre : produit uniquement (les échanges sur l'usage de Claude Code ne sont pas inclus).
 >
-> **Dernière synthèse** : 2026-06-24 (couvre la genèse → Phase 8 → conflits/liens/propositions →
+> **Dernière synthèse** : 2026-06-26 (couvre la genèse → Phase 8 → conflits/liens/propositions →
 > renommage `.cgan` → fusion de blocs de proposition → ghosts de placement / conflit « non planifiée » →
 > jauge d'affectation, clic-droit planification, icônes conflits Gantt → **refonte de l'aide**
-> (onglet dédié, MiniGantt/MiniList annotés, retrait de Mermaid)).
+> (onglet dédié, MiniGantt/MiniList annotés, retrait de Mermaid) → **affinages de l'aide**
+> (repères numérotés, géométrie des liens reprise du vrai Gantt, deadline ancrée, mémoire de scroll) →
+> **v1.1** : désambiguïsation du code de lien `P` avec délai positif (`P2+1D`, cf. §1.5)).
 >
 > Documents liés : [GDD.md](GDD.md) (rationale de design profond), [conflicts.md](conflicts.md)
 > (catalogue des conflits), [TODO.md](TODO.md).
@@ -205,6 +207,14 @@ déplacement silencieux.
 **Nomenclature d'infobulle (compacte).** `F`/`D`/`P` (Fin/Début/Progress) + chiffre de décalage,
 **sans zéro** : `FD` = fin→début +0, `F1D3` = fin+1j→début+3j, `DD1` = début+0→début+1j.
 L'infobulle montre aussi le **groupe parent** du prédécesseur. Documenté dans l'aide (section s6).
+Code extrait dans `src/ui/gantt/linkCode.ts` (pur, testé `linkCode.test.ts`).
+
+**Désambiguïsation du `+` sur un lien `P` (2026-06-26).** Quand un lien « après N j travaillés »
+porte *en plus* un délai positif, l'ancre se terminait déjà par un chiffre : `P2` + délai `1` →
+`P21D`, lisible à tort « après 21 j ». Décision : préfixer le délai d'un **`+`** quand l'ancre
+finit par un chiffre **et** que le délai est positif → `P2+1D`. Un délai **négatif** était déjà
+sans ambiguïté (le signe sépare : `P2-1D`), donc inchangé. Le `+` n'est **pas** ajouté sur `F`/`D`
+(l'ancre ne finit pas par un chiffre : `F1D`, `D1D` restent tels quels).
 
 **UX de création du lien « vers N j » (règle par-extrémité, pilotée par Shift) :**
 - Départ **avec Shift** → ancre prédécesseur « après N j » ; sans Shift (poignée de lien) → « après
@@ -368,6 +378,50 @@ lecture seule :
 par une infobulle ne va pas dans l'aide ; l'aide répond surtout à « où trouver l'info / comment faire
 l'action (si elle existe) ». La *Légende visuelle* est tenue **en miroir de [conflicts.md](conflicts.md)**
 (source de vérité des marqueurs), et *Où trouver / Comment faire* s'appuie sur sa colonne *Résolution*.
+
+**Affinages après relecture (2026-06-26).** Plusieurs tours de feedback visuel de Pascal, écran par
+écran. Décisions et apprentissages clés :
+
+- **Repères numérotés pour les figures denses.** Sur la *Légende visuelle* (et la figure Effort/
+  Réalisé/Reste/Avancement), les callouts fléchés se chevauchaient (boîtes de texte larges). Décision :
+  petits badges ①②③ (`NumberBadge`) posés sur la figure + **liste numérotée** à côté (`NumberedLegend`),
+  pilotés par **un seul tableau source** (`{ n, …ancre…, label }`) pour éviter toute désync. On garde
+  les callouts fléchés là où une figure = un concept (Prise en main). Flux de la liste **colonne par
+  colonne** (1→N/2 à gauche, suite à droite), pas en zig-zag ligne par ligne.
+
+- **Géométrie des liens du `MiniGantt` reprise *verbatim* de `GanttChart` (RowLinks).** Apprentissage
+  (après plusieurs essais ratés où l'on réinventait le coude) : pour coller au rendu réel, **copier la
+  logique exacte**. `bend = sx + 7` ; **marche avant** si la cible est à droite du coude → « droite-bas-
+  droite », pointe **vers la droite** ; **retour en arrière** si `tx-4 < bend` (cible adjacente/à gauche,
+  ex. lien FD sans écart) → coude qui repart à gauche, pointe **vers le bas**. Les deux mini-diagrammes
+  de *Concepts → Liens* utilisent cette logique sans drapeau ad hoc.
+
+- **Exemple de lien `P1D3` (et non `F1D3`).** Pascal a jugé `F1D3` peu parlant. Retenu : **`P1D3`** =
+  « après 1 j travaillé sur le prédécesseur → début +3 j » ; la flèche **part à 1 j dans le prédécesseur**
+  et **pointe loin à l'intérieur du successeur** (3 j après son début). FD : aucun jour d'écart entre les
+  deux tâches + le « retour en arrière ».
+
+- **Deadline : bug de rendu corrigé.** Le `MiniGantt` dessinait le drapeau deadline en **Y absolu**
+  (toujours sur la 1ʳᵉ ligne, masqué par la barre) — copie fautive du Gantt. Corrigé : ancré sur la
+  ligne de la tâche, posé en zone dégagée. Libellé reformulé en **« crochet fermant rouge »** (`]`).
+  Au passage, la bordure de conflit est désormais nommée « orange » dans la légende (le `#c03a2e` se lit
+  orangé à l'écran).
+
+- **Mémoire de navigation de l'aide (deux niveaux).** Le **sous-onglet actif** est persistant
+  (`localStorage`, comme les autres préférences UI) ; la **position de défilement par sous-onglet** est
+  volontairement éphémère (**`sessionStorage`**) — on retombe au même endroit en revenant du Gantt dans
+  la même session, mais un F5 repart en haut (un scroll figé après plusieurs jours serait déroutant).
+  *Note de vigilance :* le bandeau « sauvegarde de secours » au démarrage dépend d'IndexedDB + du flag
+  `dirty` (cf. `BackupPrompt`/`autosave`), **rien à voir** avec ce `sessionStorage`.
+
+- **Aération des paragraphes.** Les corps de texte « phrases bout à bout » sont coupés en paragraphes
+  via un helper `Prose` (split sur `\n\n` dans les chaînes i18n), appliqué à *Prise en main*, *Concepts
+  clés* et *Où trouver / Comment faire*.
+
+- **Renvois ajoutés.** *Concepts → Charge* pointe vers le **bandeau de charge** (bouton « Afficher la
+  charge », en bas au centre) et précise surcharge projet / sur-engagement cross-projets ; *Concepts →
+  L'outil propose* pointe vers le panneau **« Plan proposé »**. En contrepartie, la redite « bande
+  orange » est retirée des *Gestes* (où **Ctrl+S** a été sorti sur sa propre ligne).
 
 **Historique (avant refonte).** Modale à 2 onglets (« Prise en main » / « Planification tâches »),
 schémas Mermaid + croquis SVG maison (`EffortSketch`, `GestureSketch`). Exemple pédagogique conservé :

@@ -41,6 +41,7 @@ import type { GanttRow } from './rows';
 import { useGanttColumnsStore } from './ganttColumnsStore';
 import { useTableStore, type ColKey } from '@/ui/table/tableStore';
 import { fmtDate } from '@/ui/gantt/format';
+import { linkCode } from '@/ui/gantt/linkCode';
 import { resourceAvatar } from '@/ui/common/Avatar';
 import { BlockAssignPopover } from '@/ui/common/BlockAssignPopover';
 
@@ -2265,22 +2266,6 @@ interface LinkPathEntry {
   midY: number;
   arrowFromX: number;
   arrowFromY: number;
-}
-
-/**
- * Code compact d'un lien pour l'infobulle : [ancre prédécesseur][délai][ancre successeur][délai].
- * F = fin, D = début, P = après N j travaillés. Délais en j ouvrés, 0 omis.
- * Ex. : FD (fin→début), F1D3 (fin+1→début+3), DD1 (début→début+1).
- */
-function linkCode(link: TaskLink): string {
-  let pred: string;
-  if (link.type === 'with-start') pred = 'D';
-  else if (link.type === 'after-progress') pred = `P${link.progressDays ?? 0}`;
-  else pred = 'F';
-  if (link.lag) pred += `${link.lag}`; // 0 omis ; signe conservé pour les délais négatifs
-  let succ = 'D';
-  if (link.targetDays) succ += `${link.targetDays}`;
-  return pred + succ;
 }
 
 function LinksLayer({
