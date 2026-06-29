@@ -17,6 +17,7 @@ import { TopBar } from './TopBar';
 import { ToastStack } from './ToastStack';
 import { useFileActions } from './useFileActions';
 import { BackupPrompt } from './BackupPrompt';
+import { RestoreBanner } from './RestoreBanner';
 
 const TAB_CONTENT: Record<string, () => ReactNode> = {
   gantt: () => <GanttTab />,
@@ -102,6 +103,7 @@ export function App() {
     <div className="flex h-full flex-col">
       <TopBar />
       <BackupPrompt />
+      <RestoreBanner />
       <main className="relative min-h-0 flex-1">{renderTab()}</main>
 
       {/* Panneaux flottants ancrés en haut à droite */}

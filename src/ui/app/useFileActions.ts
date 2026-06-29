@@ -8,6 +8,7 @@ import {
   openFromBlob,
   openWithPicker,
   pickFileFallback,
+  requestAndRestoreHandle,
   saveTeamFile,
   supportsFileSystemAccess,
   unlinkFile,
@@ -88,5 +89,15 @@ export function useFileActions() {
     void clearBackup();
   }, []);
 
-  return { newFile, openFile, openDropped, save };
+  const openRecent = useCallback(async (handle: FileSystemFileHandle) => {
+    if (!confirmDiscardIfDirty()) return;
+    const opened = await requestAndRestoreHandle(handle);
+    if (!opened) {
+      window.alert(t('file.openError'));
+      return;
+    }
+    applyOpened(opened);
+  }, []);
+
+  return { newFile, openFile, openDropped, save, openRecent };
 }

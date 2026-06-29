@@ -1,5 +1,6 @@
 import { parseTeamFile, serializeTeamFile } from '@/core/model/migrate';
 import type { TeamFile } from '@/core/model/types';
+import { pushRecentFile, supportsHandlePersistence } from './handleStore';
 
 const FILE_TYPES = [
   {
@@ -10,6 +11,17 @@ const FILE_TYPES = [
 
 /** Poignée du fichier lié (non sérialisable — vit hors du store). */
 let currentHandle: FileSystemFileHandle | null = null;
+
+/** Handle en attente de permission utilisateur (geste requis). Vit hors du store. */
+let pendingHandle: FileSystemFileHandle | null = null;
+
+export function getPendingHandle(): FileSystemFileHandle | null {
+  return pendingHandle;
+}
+
+export function setPendingHandle(h: FileSystemFileHandle | null): void {
+  pendingHandle = h;
+}
 
 export function supportsFileSystemAccess(): boolean {
   return typeof window !== 'undefined' && typeof window.showOpenFilePicker === 'function';
@@ -45,6 +57,7 @@ export async function openWithPicker(): Promise<OpenedFile | null> {
   const blob = await handle.getFile();
   const file = parseTeamFile(await blob.text());
   currentHandle = handle;
+  void pushRecentFile(handle);
   return { file, name: blob.name, linked: true };
 }
 
@@ -106,6 +119,7 @@ export async function saveTeamFile(
           suggestedName,
           types: FILE_TYPES,
         });
+        void pushRecentFile(currentHandle);
       } catch {
         return { mode: 'cancelled' };
       }
@@ -129,6 +143,52 @@ export async function writeLinkedFile(file: TeamFile): Promise<boolean> {
   await writable.close();
   return true;
 }
+
+export type RestoreResult =
+  | { status: 'ok'; opened: OpenedFile }
+  | { status: 'prompt' }
+  | { status: 'error' };
+
+/**
+ * Tente de restaurer un handle stocké en IDB sans geste utilisateur.
+ * - 'ok'     : permission déjà accordée, fichier lu → lié.
+ * - 'prompt' : permission à demander (bannière à afficher).
+ * - 'error'  : fichier introuvable ou accès refusé définitivement.
+ */
+export async function restoreHandle(handle: FileSystemFileHandle): Promise<RestoreResult> {
+  if (!supportsHandlePersistence) return { status: 'error' };
+  try {
+    const perm = await handle.queryPermission({ mode: 'readwrite' });
+    if (perm === 'prompt') return { status: 'prompt' };
+    if (perm !== 'granted') return { status: 'error' };
+    const blob = await handle.getFile();
+    const file = parseTeamFile(await blob.text());
+    currentHandle = handle;
+    return { status: 'ok', opened: { file, name: blob.name, linked: true } };
+  } catch {
+    return { status: 'error' };
+  }
+}
+
+/**
+ * Demande explicitement la permission (nécessite un geste utilisateur).
+ * Retourne le fichier si accordé, null sinon.
+ */
+export async function requestAndRestoreHandle(handle: FileSystemFileHandle): Promise<OpenedFile | null> {
+  if (!supportsHandlePersistence) return null;
+  try {
+    const perm = await handle.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') return null;
+    const blob = await handle.getFile();
+    const file = parseTeamFile(await blob.text());
+    currentHandle = handle;
+    return { file, name: blob.name, linked: true };
+  } catch {
+    return null;
+  }
+}
+
+export { supportsHandlePersistence };
 
 function downloadJson(json: string, name: string): void {
   const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));

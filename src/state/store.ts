@@ -22,6 +22,11 @@ export interface AppState {
   focusResourceId: string | null;
   /** Date de réunion active — frontière passé/futur dans le Gantt (hors undo). Null = aujourd'hui. */
   reviewDate: IsoDate | null;
+  /**
+   * Nom du fichier récent en attente de permission (hors undo).
+   * Le handle lui-même est dans fileAccess.getPendingHandle() pour éviter Immer.
+   */
+  pendingRestoreName: string | null;
 }
 
 export interface AppActions {
@@ -41,6 +46,8 @@ export interface AppActions {
   /** Ouvre l'onglet Équipe et met en évidence la ressource `id`. */
   focusResource: (id: string) => void;
   clearFocusResource: () => void;
+  /** Nom du fichier récent en attente de permission (bannière de restauration). */
+  setPendingRestoreName: (name: string | null) => void;
   /** Pose la date de réunion comme frontière passé/futur. */
   setReviewDate: (date: IsoDate) => void;
   clearReviewDate: () => void;
@@ -60,6 +67,7 @@ export const useAppStore = create<AppStore>()(
       selectedTaskIds: [],
       focusResourceId: null,
       reviewDate: null,
+      pendingRestoreName: null,
 
       replaceFile: (file, fileName) =>
         set((s) => {
@@ -138,6 +146,11 @@ export const useAppStore = create<AppStore>()(
       clearReviewDate: () =>
         set((s) => {
           s.reviewDate = null;
+        }),
+
+      setPendingRestoreName: (name) =>
+        set((s) => {
+          s.pendingRestoreName = name;
         }),
     })),
     {
