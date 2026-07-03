@@ -79,6 +79,9 @@ React 18 + Tailwind v4. The Gantt is **hand-rolled SVG** (no Gantt library) — 
 - Path alias `@/` → `src/`.
 - Tests sit next to sources (`*.test.ts`); the engine in `core/` is covered heavily — keep it that way when changing scheduling logic.
 
+## Distribution Windows (Tauri)
+App native Windows via Tauri v2 (`src-tauri/`) — prérequis, commandes et procédure de release complète dans [README.md](README.md#application-windows-native-tauri). Seule règle à retenir ici : la version vient **uniquement de `package.json`** — ne jamais toucher `src-tauri/Cargo.toml` (son `version` est figé à `0.0.0` à dessein).
+
 # commits
 
 n'indique pas Co-Authored-By dans les commits

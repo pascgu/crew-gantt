@@ -1,6 +1,9 @@
 [package]
 name = "crew-gantt"
-version = "1.1.0"
+# Version figée : sans effet sur l'app livrée (voir tauri.conf.json qui pointe vers
+# ../package.json, seule source de vérité pour la version — cf. CLAUDE.md/AGENTS.md).
+# Cargo exige un champ version, mais Rust/Cargo ne l'utilisent que pour ce crate lui-même.
+version = "0.0.0"
 description = "CrewGantt - outil de pilotage d'équipe multi-projets"
 edition = "2021"
 

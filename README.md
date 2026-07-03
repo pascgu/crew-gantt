@@ -80,6 +80,40 @@ npm run tauri:dev     # lance l'app native en mode développement
 npm run tauri:build   # génère l'installeur NSIS (.exe) sous src-tauri/target/release/bundle/nsis/
 ```
 
+**Association de fichier** : après installation, double-cliquer un `.cgan` dans l'explorateur ouvre
+directement CrewGantt dessus. Si l'app tourne déjà, le fichier est transmis à la fenêtre existante
+(pas de deuxième fenêtre) grâce au plugin *single-instance*.
+
+**Binaire non signé** : Windows SmartScreen affiche un avertissement « éditeur inconnu » au premier
+lancement de l'installeur (pas de certificat de signature de code) — c'est attendu, cliquer sur
+*Informations complémentaires → Exécuter quand même*.
+
+### Publier une release Windows
+
+La version livrée (nom de l'installeur, numéro affiché par Windows) vient **uniquement de
+`package.json`** — `src-tauri/tauri.conf.json` pointe dessus (`"version": "../package.json"`).
+`src-tauri/Cargo.toml` a un champ `version` figé à `0.0.0` : Cargo l'exige mais Tauri ne s'en sert
+pas pour l'app livrée (vérifié y compris sur la ressource de version Windows embarquée dans l'exe),
+donc **ne jamais le modifier**.
+
+Les tags de release se posent sur `main` (jamais `develop`) :
+
+1. Merger `develop` → `main`.
+2. Bumper la version dans `package.json` uniquement, commit sur `main`.
+3. Tag + push :
+   ```bash
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+4. [.github/workflows/release.yml](.github/workflows/release.yml) se déclenche sur ce tag (runner
+   Windows fourni par GitHub, aucun outillage local requis) : `npm test` → build → bundle NSIS →
+   release GitHub créée en **brouillon** avec l'installeur `.exe` en pièce jointe.
+5. Relire/ajuster les notes sur GitHub → *Releases*, puis **Publish** manuellement — rien n'est
+   public tant que ce n'est pas fait.
+
+Déclenchement manuel possible aussi depuis l'onglet *Actions* du dépôt (`workflow_dispatch`), sans
+poser de tag.
+
 ## Déploiement
 
 Site 100 % statique servi par nginx :
