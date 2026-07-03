@@ -43,6 +43,8 @@ export default defineConfig({
     },
   },
   server: {
+    port: 5173,
+    strictPort: true,
     watch: {
       ignored: ['**/plans/**', '**/shots/**', '**/coverage/**', '**/dist/**', '**/test-results/**', '**/node_modules/**'],
     },

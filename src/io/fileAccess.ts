@@ -1,6 +1,8 @@
 import { parseTeamFile, serializeTeamFile } from '@/core/model/migrate';
 import type { TeamFile } from '@/core/model/types';
 import { pushRecentFile, supportsHandlePersistence } from './handleStore';
+import type { RecentFile } from './handleStore';
+import { isTauriRuntime } from './tauri';
 
 const FILE_TYPES = [
   {
@@ -9,22 +11,24 @@ const FILE_TYPES = [
   },
 ];
 
-/** Poignée du fichier lié (non sérialisable — vit hors du store). */
-let currentHandle: FileSystemFileHandle | null = null;
+type FileRef = { kind: 'web'; handle: FileSystemFileHandle } | { kind: 'native'; path: string };
 
-/** Handle en attente de permission utilisateur (geste requis). Vit hors du store. */
-let pendingHandle: FileSystemFileHandle | null = null;
+/** Référence du fichier lié (non sérialisable — vit hors du store). */
+let currentHandle: FileRef | null = null;
 
-export function getPendingHandle(): FileSystemFileHandle | null {
+/** Entrée en attente de permission utilisateur (geste requis). Vit hors du store. */
+let pendingHandle: RecentFile | null = null;
+
+export function getPendingHandle(): RecentFile | null {
   return pendingHandle;
 }
 
-export function setPendingHandle(h: FileSystemFileHandle | null): void {
+export function setPendingHandle(h: RecentFile | null): void {
   pendingHandle = h;
 }
 
 export function supportsFileSystemAccess(): boolean {
-  return typeof window !== 'undefined' && typeof window.showOpenFilePicker === 'function';
+  return isTauriRuntime() || (typeof window !== 'undefined' && typeof window.showOpenFilePicker === 'function');
 }
 
 export function hasLinkedFile(): boolean {
@@ -42,8 +46,39 @@ export interface OpenedFile {
   linked: boolean;
 }
 
-/** Ouverture via la boîte de dialogue native (File System Access). */
+function basename(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path;
+}
+
+/**
+ * Ouvre un fichier natif à un chemin déjà connu (association de fichier, double-clic, ré-ouverture
+ * depuis une autre instance) : lit directement, sans boîte de dialogue.
+ */
+export async function openNativePath(path: string): Promise<OpenedFile | null> {
+  try {
+    const { readTextFile } = await import('@tauri-apps/plugin-fs');
+    const file = parseTeamFile(await readTextFile(path));
+    currentHandle = { kind: 'native', path };
+    const name = basename(path);
+    void pushRecentFile({ kind: 'native', path, name });
+    return { file, name, linked: true };
+  } catch {
+    return null;
+  }
+}
+
+/** Ouverture via la boîte de dialogue native (Tauri, ou File System Access dans le navigateur). */
 export async function openWithPicker(): Promise<OpenedFile | null> {
+  if (isTauriRuntime()) {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const path = await open({
+      multiple: false,
+      filters: [{ name: 'Fichier CrewGantt', extensions: ['cgan'] }],
+    });
+    if (!path || Array.isArray(path)) return null;
+    return openNativePath(path);
+  }
+
   if (!window.showOpenFilePicker) return null;
   let handles: FileSystemFileHandle[];
   try {
@@ -56,8 +91,8 @@ export async function openWithPicker(): Promise<OpenedFile | null> {
   if (!handle) return null;
   const blob = await handle.getFile();
   const file = parseTeamFile(await blob.text());
-  currentHandle = handle;
-  void pushRecentFile(handle);
+  currentHandle = { kind: 'web', handle };
+  void pushRecentFile({ kind: 'web', handle, name: handle.name });
   return { file, name: blob.name, linked: true };
 }
 
@@ -102,8 +137,8 @@ export type SaveOutcome =
   | { mode: 'cancelled' };
 
 /**
- * Enregistre le fichier : réécriture directe si lié, sinon boîte « enregistrer
- * sous » (FS Access), sinon téléchargement.
+ * Enregistre le fichier : réécriture directe si lié (Tauri natif ou FS Access),
+ * sinon boîte « enregistrer sous », sinon téléchargement.
  */
 export async function saveTeamFile(
   file: TeamFile,
@@ -112,22 +147,40 @@ export async function saveTeamFile(
 ): Promise<SaveOutcome> {
   const json = serializeTeamFile(file);
 
+  if (isTauriRuntime()) {
+    if (!currentHandle || currentHandle.kind !== 'native' || options.saveAs) {
+      const { save } = await import('@tauri-apps/plugin-dialog');
+      const path = await save({
+        defaultPath: suggestedName,
+        filters: [{ name: 'Fichier CrewGantt', extensions: ['cgan'] }],
+      });
+      if (!path) return { mode: 'cancelled' };
+      currentHandle = { kind: 'native', path };
+      void pushRecentFile({ kind: 'native', path, name: basename(path) });
+    }
+    const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+    await writeTextFile(currentHandle.path, json);
+    return { mode: 'linked', name: basename(currentHandle.path) };
+  }
+
   if (supportsFileSystemAccess()) {
-    if (!currentHandle || options.saveAs) {
+    if (!currentHandle || currentHandle.kind !== 'web' || options.saveAs) {
       try {
-        currentHandle = await window.showSaveFilePicker!({
+        const handle = await window.showSaveFilePicker!({
           suggestedName,
           types: FILE_TYPES,
         });
-        void pushRecentFile(currentHandle);
+        currentHandle = { kind: 'web', handle };
+        void pushRecentFile({ kind: 'web', handle, name: handle.name });
       } catch {
         return { mode: 'cancelled' };
       }
     }
-    const writable = await currentHandle.createWritable();
+    const handle = (currentHandle as { kind: 'web'; handle: FileSystemFileHandle }).handle;
+    const writable = await handle.createWritable();
     await writable.write(json);
     await writable.close();
-    return { mode: 'linked', name: currentHandle.name };
+    return { mode: 'linked', name: handle.name };
   }
 
   downloadJson(json, suggestedName);
@@ -138,7 +191,12 @@ export async function saveTeamFile(
 export async function writeLinkedFile(file: TeamFile): Promise<boolean> {
   if (!currentHandle) return false;
   const json = serializeTeamFile(file);
-  const writable = await currentHandle.createWritable();
+  if (currentHandle.kind === 'native') {
+    const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+    await writeTextFile(currentHandle.path, json);
+    return true;
+  }
+  const writable = await currentHandle.handle.createWritable();
   await writable.write(json);
   await writable.close();
   return true;
@@ -150,20 +208,30 @@ export type RestoreResult =
   | { status: 'error' };
 
 /**
- * Tente de restaurer un handle stocké en IDB sans geste utilisateur.
- * - 'ok'     : permission déjà accordée, fichier lu → lié.
- * - 'prompt' : permission à demander (bannière à afficher).
+ * Tente de restaurer une entrée récente sans geste utilisateur.
+ * - 'ok'     : fichier lu → lié (natif Tauri, ou permission navigateur déjà accordée).
+ * - 'prompt' : permission à demander (bannière à afficher) — navigateur uniquement.
  * - 'error'  : fichier introuvable ou accès refusé définitivement.
  */
-export async function restoreHandle(handle: FileSystemFileHandle): Promise<RestoreResult> {
+export async function restoreHandle(entry: RecentFile): Promise<RestoreResult> {
+  if (entry.kind === 'native') {
+    try {
+      const { readTextFile } = await import('@tauri-apps/plugin-fs');
+      const file = parseTeamFile(await readTextFile(entry.path));
+      currentHandle = { kind: 'native', path: entry.path };
+      return { status: 'ok', opened: { file, name: entry.name, linked: true } };
+    } catch {
+      return { status: 'error' };
+    }
+  }
   if (!supportsHandlePersistence) return { status: 'error' };
   try {
-    const perm = await handle.queryPermission({ mode: 'readwrite' });
+    const perm = await entry.handle.queryPermission({ mode: 'readwrite' });
     if (perm === 'prompt') return { status: 'prompt' };
     if (perm !== 'granted') return { status: 'error' };
-    const blob = await handle.getFile();
+    const blob = await entry.handle.getFile();
     const file = parseTeamFile(await blob.text());
-    currentHandle = handle;
+    currentHandle = { kind: 'web', handle: entry.handle };
     return { status: 'ok', opened: { file, name: blob.name, linked: true } };
   } catch {
     return { status: 'error' };
@@ -171,17 +239,22 @@ export async function restoreHandle(handle: FileSystemFileHandle): Promise<Resto
 }
 
 /**
- * Demande explicitement la permission (nécessite un geste utilisateur).
- * Retourne le fichier si accordé, null sinon.
+ * Demande explicitement la permission (nécessite un geste utilisateur, navigateur uniquement).
+ * Sous Tauri, aucune permission OS à demander : équivaut à `restoreHandle`.
+ * Retourne le fichier si accordé/lu, null sinon.
  */
-export async function requestAndRestoreHandle(handle: FileSystemFileHandle): Promise<OpenedFile | null> {
+export async function requestAndRestoreHandle(entry: RecentFile): Promise<OpenedFile | null> {
+  if (entry.kind === 'native') {
+    const result = await restoreHandle(entry);
+    return result.status === 'ok' ? result.opened : null;
+  }
   if (!supportsHandlePersistence) return null;
   try {
-    const perm = await handle.requestPermission({ mode: 'readwrite' });
+    const perm = await entry.handle.requestPermission({ mode: 'readwrite' });
     if (perm !== 'granted') return null;
-    const blob = await handle.getFile();
+    const blob = await entry.handle.getFile();
     const file = parseTeamFile(await blob.text());
-    currentHandle = handle;
+    currentHandle = { kind: 'web', handle: entry.handle };
     return { file, name: blob.name, linked: true };
   } catch {
     return null;

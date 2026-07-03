@@ -21,8 +21,8 @@ import {
   IconWarning,
 } from '@/ui/common/icons';
 import { downloadBlob, exportGanttPng, exportTasksCsv } from '@/io/export';
-import { defaultFileName, supportsHandlePersistence } from '@/io/fileAccess';
-import { getRecentFiles, removeRecentFile, type RecentFile } from '@/io/handleStore';
+import { defaultFileName } from '@/io/fileAccess';
+import { getRecentFiles, removeRecentFile, supportsRecentFiles, type RecentFile } from '@/io/handleStore';
 import { exportGanttProjectXml, ganttProjectSlug, importGanttProjectXml } from '@/io/ganttproject';
 
 const TABS: { id: TabId; label: string }[] = [
@@ -53,7 +53,7 @@ export function TopBar() {
   const openButtonRef = useRef<HTMLButtonElement>(null);
 
   const openRecentMenu = useCallback(async () => {
-    if (!supportsHandlePersistence) return;
+    if (!supportsRecentFiles) return;
     const files = await getRecentFiles();
     setRecentFiles(files);
     setRecentMenuOpen(true);
@@ -241,19 +241,19 @@ export function TopBar() {
           ref={openButtonRef}
           className={iconBtn}
           onClick={(e) => {
-            if (e.shiftKey && supportsHandlePersistence) {
+            if (e.shiftKey && supportsRecentFiles) {
               void openRecentMenu();
             } else {
               void openFile();
             }
           }}
           onContextMenu={(e) => {
-            if (!supportsHandlePersistence) return;
+            if (!supportsRecentFiles) return;
             e.preventDefault();
             void openRecentMenu();
           }}
           title={
-            supportsHandlePersistence
+            supportsRecentFiles
               ? `${t('file.open')} — ${t('file.recentHint')}`
               : `${t('file.open')} — ${t('file.recentUnavailable')}`
           }
@@ -313,7 +313,7 @@ export function TopBar() {
                   <button
                     key={rf.name}
                     className="flex w-full items-baseline justify-between gap-4 rounded-md px-3 py-1.5 text-left text-ink hover:bg-paper-deep"
-                    onClick={() => { closeRecentMenu(); void openRecent(rf.handle); }}
+                    onClick={() => { closeRecentMenu(); void openRecent(rf); }}
                   >
                     <span className="truncate">{rf.name}</span>
                     <span className="shrink-0 text-[10px] text-ink-faint">

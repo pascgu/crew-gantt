@@ -16,6 +16,7 @@ import {
 import type { SaveOutcome } from '@/io/fileAccess';
 import { clearBackup } from '@/io/backup';
 import type { OpenedFile } from '@/io/fileAccess';
+import type { RecentFile } from '@/io/handleStore';
 
 function confirmDiscardIfDirty(): boolean {
   const { dirty } = useAppStore.getState();
@@ -89,9 +90,9 @@ export function useFileActions() {
     void clearBackup();
   }, []);
 
-  const openRecent = useCallback(async (handle: FileSystemFileHandle) => {
+  const openRecent = useCallback(async (entry: RecentFile) => {
     if (!confirmDiscardIfDirty()) return;
-    const opened = await requestAndRestoreHandle(handle);
+    const opened = await requestAndRestoreHandle(entry);
     if (!opened) {
       window.alert(t('file.openError'));
       return;

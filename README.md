@@ -34,12 +34,12 @@ Architecture : `src/core/` (modèle, calendrier, ordonnanceur, conflits, proposi
 
 ## Application de bureau / PWA (Windows)
 
-CrewGantt peut être installé comme application de bureau via le mécanisme PWA — **sans Electron, sans installeur**.
+CrewGantt peut être installé comme application de bureau via le mécanisme PWA — sans Electron, sans installeur classique.
 
 ### Prérequis
 
 - **Edge ou Chrome** sur Windows (recommandé — expérience complète).
-- Firefox : fonctionne en onglet (File System Access de base), mais sans installation PWA native ni fichiers récents. Extensions communautaires optionnelles : [File System Access](https://addons.mozilla.org/fr/firefox/addon/file-system-access/) pour les fichiers récents, [PWAsForFirefox](https://addons.mozilla.org/firefox/addon/pwas-for-firefox/) pour l'installation (setup plus complexe, non supporté officiellement).
+- Firefox : fonctionne en onglet (File System Access de base), mais sans installation PWA native ni fichiers récents, et Ctrl+S retélécharge une copie au lieu d'écraser le fichier lié. Extensions communautaires optionnelles : [File System Access](https://addons.mozilla.org/fr/firefox/addon/file-system-access/) pour les fichiers récents, [PWAsForFirefox](https://addons.mozilla.org/firefox/addon/pwas-for-firefox/) pour l'installation (setup plus complexe, non supporté officiellement) — ou utiliser l'**application Windows native** ci-dessous, qui contourne le problème sans dépendre du navigateur.
 
 ### Installation
 
@@ -63,6 +63,22 @@ npm run gen-icons
 ```
 
 Nécessite Node.js ≥ 18. Les PNG résultants sont versionnés dans le dépôt.
+
+### Application Windows native (Tauri)
+
+Pour un Ctrl+S fiable quel que soit le navigateur par défaut (notamment sur Firefox), CrewGantt peut aussi
+être empaqueté en application Windows native via [Tauri](https://tauri.app) — code natif dans
+`src-tauri/`. L'app native utilise les dialogues et l'accès disque du système, sans jamais retomber sur
+un téléchargement.
+
+Prérequis (installation locale, une seule fois) : [Rust](https://rustup.rs) (toolchain
+`stable-x86_64-pc-windows-msvc`), les *Build Tools* Visual Studio (workload « Desktop development with
+C++ »), et le WebView2 Runtime (généralement déjà présent sur Windows 11). Vérifier avec `npx tauri info`.
+
+```bash
+npm run tauri:dev     # lance l'app native en mode développement
+npm run tauri:build   # génère l'installeur NSIS (.exe) sous src-tauri/target/release/bundle/nsis/
+```
 
 ## Déploiement
 

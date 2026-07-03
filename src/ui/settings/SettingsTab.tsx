@@ -10,8 +10,7 @@ import { fmtDayFull } from '@/ui/gantt/format';
 import { useTableStore, type ColKey } from '@/ui/table/tableStore';
 import type { DateFormat } from '@/ui/gantt/format';
 import { useGanttColumnsStore, type CenterOverflow } from '@/ui/gantt/ganttColumnsStore';
-import { readMaxRecent, setMaxRecent } from '@/io/handleStore';
-import { supportsHandlePersistence } from '@/io/fileAccess';
+import { readMaxRecent, setMaxRecent, supportsRecentFiles } from '@/io/handleStore';
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -35,7 +34,7 @@ export function SettingsTab() {
         <GanttColumnsCard />
         <CalendarCard />
         <ProjectsCard />
-        {supportsHandlePersistence && <RecentFilesCard />}
+        {supportsRecentFiles && <RecentFilesCard />}
       </div>
     </div>
   );
