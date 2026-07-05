@@ -1,0 +1,10 @@
+{
+  "name": "app-icon-designer-skill",
+  "private": true,
+  "type": "module",
+  "description": "Outillage local du skill app-icon-designer (sharp, png-to-ico) — sans rapport avec un projet cible, ne pas publier.",
+  "dependencies": {
+    "sharp": "^0.33.5",
+    "png-to-ico": "^3.0.1"
+  }
+}

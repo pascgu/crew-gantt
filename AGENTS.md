@@ -78,6 +78,21 @@ Régénération :
    24/32/48/256 rasterisés du SVG, via `png-to-ico`) — sinon l'étape 2 écrase la frame 16px par un
    simple downscale flou. Voir le skill `app-icon-designer` pour le script.
 
+**Si après un `npm run tauri:build` l'exe Windows affiche encore l'ancienne icône** (barre des
+tâches / Explorateur — la barre de titre et Alt+Tab, eux, se mettent à jour normalement) : un
+`cargo clean -p crew-gantt` **ne suffit pas toujours** — des dossiers de cache de build orphelins
+s'accumulent dans `src-tauri/target/release/build/` au fil des sessions et peuvent faire relier une
+ancienne ressource icône compilée. Il faut alors un `cargo clean` **complet** (sans `-p`) dans
+`src-tauri/`, puis relancer `npm run tauri:build`. Vérifier l'icône réellement embarquée dans l'exe
+avec PowerShell plutôt que de faire confiance à l'œil :
+```powershell
+Add-Type -AssemblyName System.Drawing
+[System.Drawing.Icon]::ExtractAssociatedIcon("src-tauri\target\release\crew-gantt.exe").ToBitmap().Save("C:\temp\check.png")
+```
+(Extraire depuis une **copie** du fichier sous un nom jamais vu, pas le chemin original, pour
+écarter tout doute sur un cache d'icônes Windows côté Explorateur plutôt qu'un vrai problème de
+build.)
+
 Pas de favicon SVG servi par le navigateur (`index.html`) : Chrome/Edge/Firefox préfèrent
 systématiquement un lien `type="image/svg+xml"` s'il existe, ce qui empêcherait le bitmap 16px
 retouché de s'afficher dans l'onglet — voir `references/browser-favicon-behavior.md` du skill.

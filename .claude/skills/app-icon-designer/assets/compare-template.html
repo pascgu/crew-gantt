@@ -1,0 +1,205 @@
+<!--
+  Template de planche de comparaison d'icône — à copier dans le scratchpad du projet cible et
+  adapter à chaque itération (titre, jeu de tailles, légende). Injecter les images avec
+  scripts/inject-images.mjs (tokens {{...}} ci-dessous). Ouvrir le résultat en local — ne JAMAIS
+  publier via un outil d'artifact/hébergement pour cette boucle de relecture, sauf demande
+  explicite de l'utilisateur (voir SKILL.md, phase 5).
+
+  Jeu de tokens par défaut (adapter au projet — ajouter/retirer des <div class="card"> si les
+  tailles cibles diffèrent) :
+    {{SIZE_512}} {{SIZE_192}} {{SIZE_64}} {{SIZE_32}} {{SIZE_16}} {{SIZE_16_DEDICATED}}
+-->
+<!doctype html>
+<title>Icône — planche de comparaison</title>
+<style>
+  :root {
+    --paper: #f5f3ed;
+    --surface: #fffefb;
+    --ink: #211f1a;
+    --ink-soft: #6b675c;
+    --ink-faint: #9d988a;
+    --line: #e0dcd0;
+    --accent: #3050c8;
+    --swatch-dark: #14141a;
+    --swatch-light: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #1c1b18;
+      --surface: #26251f;
+      --ink: #f0ede4;
+      --ink-soft: #b7b2a4;
+      --ink-faint: #8a857a;
+      --line: #38362f;
+      --accent: #7d97ea;
+    }
+  }
+  :root[data-theme='dark'] {
+    --paper: #1c1b18;
+    --surface: #26251f;
+    --ink: #f0ede4;
+    --ink-soft: #b7b2a4;
+    --ink-faint: #8a857a;
+    --line: #38362f;
+    --accent: #7d97ea;
+  }
+  :root[data-theme='light'] {
+    --paper: #f5f3ed;
+    --surface: #fffefb;
+    --ink: #211f1a;
+    --ink-soft: #6b675c;
+    --ink-faint: #9d988a;
+    --line: #e0dcd0;
+    --accent: #3050c8;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2.5rem 1.5rem 4rem;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: ui-sans-serif, 'Segoe UI', system-ui, sans-serif;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  header { margin-bottom: 2.25rem; }
+  h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 0.4rem; text-wrap: balance; }
+  .sub { color: var(--ink-soft); font-size: 0.92rem; max-width: 62ch; line-height: 1.5; margin: 0; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1rem; margin-bottom: 2.5rem; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.1rem 1rem 1.25rem;
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent);
+  }
+  .card.highlight { border-color: var(--accent); }
+  .card .size-label {
+    font-family: ui-monospace, 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    margin-bottom: 0.65rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .card .size-label b { color: var(--ink); font-size: 0.82rem; font-weight: 700; }
+  .swatches { display: flex; gap: 0.5rem; }
+  .swatch { flex: 1; border-radius: 7px; display: flex; align-items: center; justify-content: center; padding: 0.6rem 0; }
+  .swatch.light { background: var(--swatch-light); border: 1px solid var(--line); }
+  .swatch.dark { background: var(--swatch-dark); }
+  .swatch img { image-rendering: pixelated; display: block; }
+  .context-note { font-size: 0.74rem; color: var(--ink-faint); margin-top: 0.6rem; line-height: 1.4; }
+
+  .verdict {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 999px; margin-top: 0.55rem;
+  }
+  .verdict.ok { background: color-mix(in srgb, #2e7d4f 16%, transparent); color: #2e7d4f; }
+  .verdict.warn { background: color-mix(in srgb, #b97d10 16%, transparent); color: #b97d10; }
+  .verdict.bad { background: color-mix(in srgb, #c03a2e 16%, transparent); color: #c03a2e; }
+
+  section.detail {
+    display: flex; gap: 2rem; align-items: flex-start;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.5rem; margin-bottom: 2rem; flex-wrap: wrap;
+  }
+  section.detail img { border-radius: 22%; box-shadow: 0 8px 24px -12px color-mix(in srgb, var(--ink) 30%, transparent); }
+  section.detail .legend { flex: 1; min-width: 240px; font-size: 0.88rem; line-height: 1.6; color: var(--ink-soft); }
+  section.detail .legend h2 { font-size: 1rem; color: var(--ink); margin: 0 0 0.6rem; }
+  .swatch-key { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; }
+  .swatch-key .dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+  footer { font-size: 0.78rem; color: var(--ink-faint); border-top: 1px solid var(--line); padding-top: 1rem; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1><!-- Titre : nom du projet + variante --></h1>
+    <p class="sub"><!-- 1-2 phrases : ce qui a changé depuis la dernière itération --></p>
+  </header>
+
+  <section class="detail">
+    <img src="data:image/png;base64,{{SIZE_512}}" width="220" height="220" alt="Icône grande taille">
+    <div class="legend">
+      <h2>Légende</h2>
+      <!-- Une ligne par élément visuel significatif, avec sa couleur et ce qu'il représente. -->
+      <div class="swatch-key"><span class="dot" style="background:#000"></span> <!-- élément 1 --></div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <div class="card">
+      <div class="size-label"><span>Taille réelle</span><b>512 px</b></div>
+      <div class="swatches">
+        <div class="swatch light"><img src="data:image/png;base64,{{SIZE_512}}" width="80" height="80"></div>
+        <div class="swatch dark"><img src="data:image/png;base64,{{SIZE_512}}" width="80" height="80"></div>
+      </div>
+      <div class="context-note"><!-- usage : splash, store... --></div>
+      <span class="verdict ok">Net</span>
+    </div>
+
+    <div class="card">
+      <div class="size-label"><span>Taille réelle</span><b>192 px</b></div>
+      <div class="swatches">
+        <div class="swatch light"><img src="data:image/png;base64,{{SIZE_192}}" width="80" height="80"></div>
+        <div class="swatch dark"><img src="data:image/png;base64,{{SIZE_192}}" width="80" height="80"></div>
+      </div>
+      <div class="context-note"><!-- usage --></div>
+      <span class="verdict ok">Net</span>
+    </div>
+
+    <div class="card">
+      <div class="size-label"><span>Taille réelle</span><b>64 px</b></div>
+      <div class="swatches">
+        <div class="swatch light"><img src="data:image/png;base64,{{SIZE_64}}" width="64" height="64"></div>
+        <div class="swatch dark"><img src="data:image/png;base64,{{SIZE_64}}" width="64" height="64"></div>
+      </div>
+      <div class="context-note"><!-- usage : .ico, Explorateur... --></div>
+      <span class="verdict ok">Net</span>
+    </div>
+
+    <div class="card">
+      <div class="size-label"><span>Taille réelle</span><b>32 px</b></div>
+      <div class="swatches">
+        <div class="swatch light"><img src="data:image/png;base64,{{SIZE_32}}" width="32" height="32"></div>
+        <div class="swatch dark"><img src="data:image/png;base64,{{SIZE_32}}" width="32" height="32"></div>
+      </div>
+      <div class="context-note"><!-- usage : barre des tâches Windows... --></div>
+      <span class="verdict ok">Net</span>
+    </div>
+
+    <div class="card">
+      <div class="size-label"><span>Redimensionnée</span><b>16 px</b></div>
+      <div class="swatches">
+        <div class="swatch light"><img src="data:image/png;base64,{{SIZE_16}}" width="16" height="16"></div>
+        <div class="swatch dark"><img src="data:image/png;base64,{{SIZE_16}}" width="16" height="16"></div>
+      </div>
+      <div class="context-note">Simple resize du SVG — gardée pour comparaison.</div>
+      <span class="verdict warn">Flou (attendu)</span>
+    </div>
+
+    <div class="card highlight">
+      <div class="size-label"><span>Dédiée</span><b>16 px</b></div>
+      <div class="swatches">
+        <div class="swatch light"><img src="data:image/png;base64,{{SIZE_16_DEDICATED}}" width="16" height="16"></div>
+        <div class="swatch dark"><img src="data:image/png;base64,{{SIZE_16_DEDICATED}}" width="16" height="16"></div>
+      </div>
+      <div class="context-note">Retouchée à la main, pixels bruts.</div>
+      <span class="verdict ok">Nette</span>
+    </div>
+  </div>
+
+  <section class="detail" style="align-items: center;">
+    <img src="data:image/png;base64,{{SIZE_16_DEDICATED}}" width="192" height="192" alt="16px agrandie" style="image-rendering: pixelated; border-radius: 22%;">
+    <div class="legend">
+      <h2>Détail 16 px, agrandi pixel à pixel</h2>
+      <p><!-- Ce qui a été fait pour tenir à cette taille : marges, coins adoucis, poignées... --></p>
+    </div>
+  </section>
+
+  <footer>Maquette jetable — aucun fichier de production modifié à ce stade.</footer>
+</div>
