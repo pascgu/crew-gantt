@@ -28,6 +28,12 @@ export const fr = {
     dropHint: 'Déposer un fichier .cgan',
     fsUnavailable:
       'Enregistrement direct indisponible dans ce navigateur : le fichier sera téléchargé.',
+    recentFiles: 'Fichiers récents',
+    recentHint: 'Shift+clic ou clic droit : fichiers récents',
+    recentUnavailable: 'Fichiers récents non disponibles dans ce navigateur',
+    clearRecents: 'Effacer la liste',
+    reopen: 'Reprendre {name} ?',
+    reopenConfirm: 'Ouvrir',
   },
   backup: {
     title: 'Sauvegarde de secours détectée',
@@ -439,6 +445,8 @@ export const fr = {
     overflowNone: 'Ne pas afficher',
     overflowBefore: 'Avant la barre',
     overflowAfter: 'Après la barre',
+    recentFiles: 'Fichiers récents',
+    recentFilesCount: 'Nombre de fichiers récents',
   },
   notifications: {
     title: 'Messages',
@@ -667,6 +675,7 @@ export const fr = {
     apply: 'Appliquer',
     name: 'Nom',
     none: '—',
+    dismiss: 'Fermer',
   },
 } as const;
 

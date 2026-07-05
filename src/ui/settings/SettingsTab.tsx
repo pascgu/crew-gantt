@@ -10,6 +10,7 @@ import { fmtDayFull } from '@/ui/gantt/format';
 import { useTableStore, type ColKey } from '@/ui/table/tableStore';
 import type { DateFormat } from '@/ui/gantt/format';
 import { useGanttColumnsStore, type CenterOverflow } from '@/ui/gantt/ganttColumnsStore';
+import { readMaxRecent, setMaxRecent, supportsRecentFiles } from '@/io/handleStore';
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -33,6 +34,7 @@ export function SettingsTab() {
         <GanttColumnsCard />
         <CalendarCard />
         <ProjectsCard />
+        {supportsRecentFiles && <RecentFilesCard />}
       </div>
     </div>
   );
@@ -287,6 +289,36 @@ function CalendarCard() {
             {t('settings.addHoliday')}
           </button>
         </span>
+      </div>
+    </Card>
+  );
+}
+
+function RecentFilesCard() {
+  const [count, setCount] = useState(readMaxRecent);
+
+  const update = (n: number) => {
+    const clamped = Math.max(1, Math.min(20, n));
+    setCount(clamped);
+    void setMaxRecent(clamped);
+  };
+
+  return (
+    <Card title={t('settings.recentFiles')}>
+      <div className="flex items-center gap-3">
+        <span className="text-[13px] text-ink-soft">{t('settings.recentFilesCount')}</span>
+        <button
+          className="flex h-6 w-6 items-center justify-center rounded border border-line text-ink-soft hover:border-accent hover:text-accent"
+          onClick={() => update(count - 1)}
+          disabled={count <= 1}
+        >−</button>
+        <span className="min-w-[2rem] text-center font-mono text-[13px]">{count}</span>
+        <button
+          className="flex h-6 w-6 items-center justify-center rounded border border-line text-ink-soft hover:border-accent hover:text-accent"
+          onClick={() => update(count + 1)}
+          disabled={count >= 20}
+        >+</button>
+        <span className="text-[11px] text-ink-faint">(1 – 20)</span>
       </div>
     </Card>
   );

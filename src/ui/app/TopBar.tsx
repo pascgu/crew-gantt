@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { redo, undo, useAppStore, type TabId } from '@/state/store';
 import { clearHistory } from '@/state/store';
@@ -22,6 +22,7 @@ import {
 } from '@/ui/common/icons';
 import { downloadBlob, exportGanttPng, exportTasksCsv } from '@/io/export';
 import { defaultFileName } from '@/io/fileAccess';
+import { getRecentFiles, removeRecentFile, supportsRecentFiles, type RecentFile } from '@/io/handleStore';
 import { exportGanttProjectXml, ganttProjectSlug, importGanttProjectXml } from '@/io/ganttproject';
 
 const TABS: { id: TabId; label: string }[] = [
@@ -40,12 +41,25 @@ export function TopBar() {
   const fileName = useAppStore((s) => s.fileName);
   const dirty = useAppStore((s) => s.dirty);
   const mutate = useAppStore((s) => s.mutate);
-  const { newFile, openFile, save } = useFileActions();
+  const { newFile, openFile, save, openRecent } = useFileActions();
   const schedule = useSchedule();
   const file = useAppStore((s) => s.file);
   const replaceFile = useAppStore((s) => s.replaceFile);
   const [ioMenuOpen, setIoMenuOpen] = useState(false);
   const ioButtonRef = useRef<HTMLButtonElement>(null);
+
+  const [recentMenuOpen, setRecentMenuOpen] = useState(false);
+  const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
+  const openButtonRef = useRef<HTMLButtonElement>(null);
+
+  const openRecentMenu = useCallback(async () => {
+    if (!supportsRecentFiles) return;
+    const files = await getRecentFiles();
+    setRecentFiles(files);
+    setRecentMenuOpen(true);
+  }, []);
+
+  const closeRecentMenu = useCallback(() => setRecentMenuOpen(false), []);
 
   const handleExportGp = () => {
     setIoMenuOpen(false);
@@ -109,6 +123,7 @@ export function TopBar() {
   return (
     <header className="flex h-10 shrink-0 items-center gap-2 border-b border-line bg-surface px-3 shadow-[0_1px_0_rgb(33_31_26/0.03)]">
       <div className="flex items-baseline gap-2">
+        <img src="/icon-source.svg" alt="" className="h-5 w-5 self-center" />
         <span className="font-display text-[16px] font-bold tracking-tight text-ink">
           Crew<span className="text-accent">Gantt</span>
         </span>
@@ -224,9 +239,25 @@ export function TopBar() {
           <IconPlus size={14} />
         </button>
         <button
+          ref={openButtonRef}
           className={iconBtn}
-          onClick={() => void openFile()}
-          title={t('file.open')}
+          onClick={(e) => {
+            if (e.shiftKey && supportsRecentFiles) {
+              void openRecentMenu();
+            } else {
+              void openFile();
+            }
+          }}
+          onContextMenu={(e) => {
+            if (!supportsRecentFiles) return;
+            e.preventDefault();
+            void openRecentMenu();
+          }}
+          title={
+            supportsRecentFiles
+              ? `${t('file.open')} — ${t('file.recentHint')}`
+              : `${t('file.open')} — ${t('file.recentUnavailable')}`
+          }
           aria-label={t('file.open')}
         >
           <IconFolder size={14} />
@@ -253,6 +284,61 @@ export function TopBar() {
           <IconSave size={14} />
         </button>
       </div>
+      {recentMenuOpen && createPortal(
+        <>
+          <div className="fixed inset-0 z-40" onClick={closeRecentMenu} />
+          <div
+            className="fixed z-50 min-w-56 rounded-lg border border-line bg-surface p-1 shadow-float text-[12.5px]"
+            style={{
+              right: openButtonRef.current
+                ? window.innerWidth - openButtonRef.current.getBoundingClientRect().right
+                : 16,
+              top: openButtonRef.current
+                ? openButtonRef.current.getBoundingClientRect().bottom + 4
+                : 44,
+            }}
+          >
+            <button
+              className="w-full rounded-md px-3 py-1.5 text-left text-ink hover:bg-paper-deep"
+              onClick={() => { closeRecentMenu(); void openFile(); }}
+            >
+              {t('file.open')}
+            </button>
+            {recentFiles.length > 0 && (
+              <>
+                <div className="my-1 h-px bg-line" />
+                <div className="px-3 py-1 text-[11px] font-medium text-ink-faint">
+                  {t('file.recentFiles')}
+                </div>
+                {recentFiles.map((rf) => (
+                  <button
+                    key={rf.name}
+                    className="flex w-full items-baseline justify-between gap-4 rounded-md px-3 py-1.5 text-left text-ink hover:bg-paper-deep"
+                    onClick={() => { closeRecentMenu(); void openRecent(rf); }}
+                  >
+                    <span className="truncate">{rf.name}</span>
+                    <span className="shrink-0 text-[10px] text-ink-faint">
+                      {new Date(rf.openedAt).toLocaleDateString('fr-FR')}
+                    </span>
+                  </button>
+                ))}
+                <div className="my-1 h-px bg-line" />
+                <button
+                  className="w-full rounded-md px-3 py-1.5 text-left text-danger hover:bg-danger-wash"
+                  onClick={async () => {
+                    closeRecentMenu();
+                    for (const rf of recentFiles) await removeRecentFile(rf.name);
+                    setRecentFiles([]);
+                  }}
+                >
+                  {t('file.clearRecents')}
+                </button>
+              </>
+            )}
+          </div>
+        </>,
+        document.body,
+      )}
       {ioMenuOpen && createPortal(
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIoMenuOpen(false)} />

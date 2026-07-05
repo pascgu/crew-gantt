@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Fond squircle : jaune pâle dérivé de la palette avatars (#e8c04f éclairci) -->
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="#f7e9c1"/>
+
+  <!-- Barre 1 (projet bleu #4f8ef7) : réalisé (clair) + restant (foncé) -->
+  <!-- Géométrie reprise à l'identique (× 30, sur l'intérieur du squircle) de la version 16×16 dédiée -->
+  <clipPath id="bar1clip">
+    <rect x="76" y="106" width="330" height="120" rx="30"/>
+  </clipPath>
+  <g clip-path="url(#bar1clip)">
+    <rect x="76" y="106" width="330" height="120" fill="#4f8ef7" opacity="0.6"/>
+    <rect x="256" y="106" width="150" height="120" fill="#4f8ef7" opacity="0.95"/>
+  </g>
+  <!-- Poignée, en retrait d'une graduation par rapport au bord réel de la barre -->
+  <circle cx="106" cy="166" r="30" fill="#211f1a"/>
+
+  <!-- Barre 2 (projet vert #7bc47f) en 2 blocs — multi-bloc : les trous entre blocs sont réels -->
+  <!-- Contrairement à la version 16×16 (contrainte à toucher les bords), on garde ici au moins
+       32px d'écart avec le squircle de chaque côté (≈ 1px une fois réduit à 32×32). -->
+  <!-- Bloc A (réalisé) -->
+  <rect x="48" y="286" width="156" height="120" rx="30" fill="#7bc47f" opacity="0.6"/>
+  <!-- Pont : lien visuel entre les 2 blocs, sans continuité de travail -->
+  <rect x="204" y="316" width="130" height="60" fill="#7bc47f" opacity="0.4"/>
+  <!-- Bloc B (restant) -->
+  <rect x="334" y="286" width="130" height="120" rx="30" fill="#7bc47f" opacity="0.95"/>
+  <!-- Poignée du bloc A seulement (le bloc B est une continuation, pas un nouveau départ) -->
+  <circle cx="78" cy="346" r="30" fill="#211f1a"/>
+</svg>

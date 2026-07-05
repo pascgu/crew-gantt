@@ -79,6 +79,48 @@ React 18 + Tailwind v4. The Gantt is **hand-rolled SVG** (no Gantt library) — 
 - Path alias `@/` → `src/`.
 - Tests sit next to sources (`*.test.ts`); the engine in `core/` is covered heavily — keep it that way when changing scheduling logic.
 
+## Distribution Windows (Tauri)
+App native Windows via Tauri v2 (`src-tauri/`) — prérequis, commandes et procédure de release complète dans [README.md](README.md#application-windows-native-tauri). Seule règle à retenir ici : la version vient **uniquement de `package.json`** — ne jamais toucher `src-tauri/Cargo.toml` (son `version` est figé à `0.0.0` à dessein).
+
+## Icônes
+Source unique : [public/icon-source.svg](public/icon-source.svg) (512×512, sert à tout sauf le 16px)
++ [public/favicon-16x16-source.png](public/favicon-16x16-source.png) (bitmap retouché à la main,
+pixel par pixel — un resize du SVG à cette taille bave, voir `references/pixel-art-techniques.md`
+du skill ci-dessous).
+
+Régénération :
+1. `npm run gen-icons` → régénère tout `public/*.png` + `public/favicon.ico` depuis les 2 sources
+   ci-dessus ([scripts/gen-icons.mjs](scripts/gen-icons.mjs)).
+2. Rasteriser `icon-source.svg` en 1024×1024 puis `npx tauri icon <path-1024.png>` → régénère
+   `src-tauri/icons/*` (icns, pngs, tuiles Windows/Android/iOS).
+3. `src-tauri/icons/icon.ico` doit ensuite être **reconstruit à la main** (frames 16 retouché +
+   24/32/48/256 rasterisés du SVG, via `png-to-ico`) — sinon l'étape 2 écrase la frame 16px par un
+   simple downscale flou. Voir le skill `app-icon-designer` pour le script.
+
+**Si après un `npm run tauri:build` l'exe Windows affiche encore l'ancienne icône** (barre des
+tâches / Explorateur — la barre de titre et Alt+Tab, eux, se mettent à jour normalement) : un
+`cargo clean -p crew-gantt` **ne suffit pas toujours** — des dossiers de cache de build orphelins
+s'accumulent dans `src-tauri/target/release/build/` au fil des sessions et peuvent faire relier une
+ancienne ressource icône compilée. Il faut alors un `cargo clean` **complet** (sans `-p`) dans
+`src-tauri/`, puis relancer `npm run tauri:build`. Vérifier l'icône réellement embarquée dans l'exe
+avec PowerShell plutôt que de faire confiance à l'œil :
+```powershell
+Add-Type -AssemblyName System.Drawing
+[System.Drawing.Icon]::ExtractAssociatedIcon("src-tauri\target\release\crew-gantt.exe").ToBitmap().Save("C:\temp\check.png")
+```
+(Extraire depuis une **copie** du fichier sous un nom jamais vu, pas le chemin original, pour
+écarter tout doute sur un cache d'icônes Windows côté Explorateur plutôt qu'un vrai problème de
+build.)
+
+Pas de favicon SVG servi par le navigateur (`index.html`) : Chrome/Edge/Firefox préfèrent
+systématiquement un lien `type="image/svg+xml"` s'il existe, ce qui empêcherait le bitmap 16px
+retouché de s'afficher dans l'onglet — voir `references/browser-favicon-behavior.md` du skill.
+
+**Pour toute refonte de l'icône (nouveau thème, nouvelles tailles), invoquer le skill
+`app-icon-designer`** plutôt que de retoucher les PNG à la main — il reprend toute la méthode
+(critique → variantes → itération → retouche pixel dédiée du petit format → report vers les grands
+formats → page de comparaison) élaborée pour cette icône.
+
 # commits
 
 n'indique pas Co-Authored-By dans les commits

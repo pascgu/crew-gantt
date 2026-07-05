@@ -6,3 +6,5 @@ test-results/
 *.local
 .claude/settings.local.json
 .DS_Store
+src-tauri/target/
+src-tauri/gen/

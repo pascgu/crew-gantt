@@ -25,11 +25,94 @@ npm run coverage   # couverture du core
 npm run e2e        # Playwright (chromium) — parcours clés
 npm run lint       # ESLint (core/ sans import React/DOM, vérifié)
 npm run build      # tsc + vite → dist/
+npm run gen-icons  # régénère les icônes PNG dans public/ depuis les SVG sources
 ```
 
 Stack : TypeScript strict · React 18 + Vite · Zustand/Immer/zundo · Zod · date-fns · Tailwind CSS v4 · SVG custom (aucune lib Gantt).
 
 Architecture : `src/core/` (modèle, calendrier, ordonnanceur, conflits, propositions, diff) est du TypeScript pur **sans aucune dépendance UI** — l'interface le consomme, jamais l'inverse.
+
+## Application de bureau / PWA (Windows)
+
+CrewGantt peut être installé comme application de bureau via le mécanisme PWA — sans Electron, sans installeur classique.
+
+### Prérequis
+
+- **Edge ou Chrome** sur Windows (recommandé — expérience complète).
+- Firefox : fonctionne en onglet (File System Access de base), mais sans installation PWA native ni fichiers récents, et Ctrl+S retélécharge une copie au lieu d'écraser le fichier lié. Extensions communautaires optionnelles : [File System Access](https://addons.mozilla.org/fr/firefox/addon/file-system-access/) pour les fichiers récents, [PWAsForFirefox](https://addons.mozilla.org/firefox/addon/pwas-for-firefox/) pour l'installation (setup plus complexe, non supporté officiellement) — ou utiliser l'**application Windows native** ci-dessous, qui contourne le problème sans dépendre du navigateur.
+
+### Installation
+
+1. Ouvrir l'URL dans Edge ou Chrome.
+2. Cliquer l'icône **Installer** dans la barre d'adresse (ou menu ⋮ → *Installer CrewGantt*).
+3. Une fenêtre autonome s'ouvre, sans barre navigateur.
+
+### Avantages
+
+- **Ctrl+S** écrase directement le fichier `.cgan` — plus de téléchargement renommé par le navigateur.
+- **Fichiers récents** : Shift+clic ou clic droit sur le bouton Ouvrir pour rouvrir un fichier récent en un clic.
+- **Restauration automatique** : au relancement de la PWA, le dernier fichier ouvert est restauré sans avoir à le repicker (si la permission était déjà accordée).
+- **Nombre de fichiers récents** configurable dans l'onglet Paramètres (1 – 20, défaut 5).
+
+### Icônes
+
+Les icônes sont précompilées dans `public/`. Pour les régénérer depuis les SVG sources (`public/icon-source.svg` et `public/favicon-source.svg`) :
+
+```bash
+npm run gen-icons
+```
+
+Nécessite Node.js ≥ 18. Les PNG résultants sont versionnés dans le dépôt.
+
+### Application Windows native (Tauri)
+
+Pour un Ctrl+S fiable quel que soit le navigateur par défaut (notamment sur Firefox), CrewGantt peut aussi
+être empaqueté en application Windows native via [Tauri](https://tauri.app) — code natif dans
+`src-tauri/`. L'app native utilise les dialogues et l'accès disque du système, sans jamais retomber sur
+un téléchargement.
+
+Prérequis (installation locale, une seule fois) : [Rust](https://rustup.rs) (toolchain
+`stable-x86_64-pc-windows-msvc`), les *Build Tools* Visual Studio (workload « Desktop development with
+C++ »), et le WebView2 Runtime (généralement déjà présent sur Windows 11). Vérifier avec `npx tauri info`.
+
+```bash
+npm run tauri:dev     # lance l'app native en mode développement
+npm run tauri:build   # génère l'installeur NSIS (.exe) sous src-tauri/target/release/bundle/nsis/
+```
+
+**Association de fichier** : après installation, double-cliquer un `.cgan` dans l'explorateur ouvre
+directement CrewGantt dessus. Si l'app tourne déjà, le fichier est transmis à la fenêtre existante
+(pas de deuxième fenêtre) grâce au plugin *single-instance*.
+
+**Binaire non signé** : Windows SmartScreen affiche un avertissement « éditeur inconnu » au premier
+lancement de l'installeur (pas de certificat de signature de code) — c'est attendu, cliquer sur
+*Informations complémentaires → Exécuter quand même*.
+
+### Publier une release Windows
+
+La version livrée (nom de l'installeur, numéro affiché par Windows) vient **uniquement de
+`package.json`** — `src-tauri/tauri.conf.json` pointe dessus (`"version": "../package.json"`).
+`src-tauri/Cargo.toml` a un champ `version` figé à `0.0.0` : Cargo l'exige mais Tauri ne s'en sert
+pas pour l'app livrée (vérifié y compris sur la ressource de version Windows embarquée dans l'exe),
+donc **ne jamais le modifier**.
+
+Les tags de release se posent sur `main` (jamais `develop`) :
+
+1. Merger `develop` → `main`.
+2. Bumper la version dans `package.json` uniquement, commit sur `main`.
+3. Tag + push :
+   ```bash
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+4. [.github/workflows/release.yml](.github/workflows/release.yml) se déclenche sur ce tag (runner
+   Windows fourni par GitHub, aucun outillage local requis) : `npm test` → build → bundle NSIS →
+   release GitHub créée en **brouillon** avec l'installeur `.exe` en pièce jointe.
+5. Relire/ajuster les notes sur GitHub → *Releases*, puis **Publish** manuellement — rien n'est
+   public tant que ce n'est pas fait.
+
+Déclenchement manuel possible aussi depuis l'onglet *Actions* du dépôt (`workflow_dispatch`), sans
+poser de tag.
 
 ## Déploiement
 
