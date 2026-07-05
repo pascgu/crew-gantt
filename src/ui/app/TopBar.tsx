@@ -123,6 +123,7 @@ export function TopBar() {
   return (
     <header className="flex h-10 shrink-0 items-center gap-2 border-b border-line bg-surface px-3 shadow-[0_1px_0_rgb(33_31_26/0.03)]">
       <div className="flex items-baseline gap-2">
+        <img src="/icon-source.svg" alt="" className="h-5 w-5 self-center" />
         <span className="font-display text-[16px] font-bold tracking-tight text-ink">
           Crew<span className="text-accent">Gantt</span>
         </span>

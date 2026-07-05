@@ -19,7 +19,7 @@ export default defineConfig({
         short_name: 'CrewGantt',
         description: "Outil de pilotage d'équipe multi-projets",
         theme_color: '#3050c8',
-        background_color: '#4f8ef7',
+        background_color: '#f7e9c1',
         display: 'standalone',
         start_url: './',
         icons: [

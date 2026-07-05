@@ -82,6 +82,30 @@ React 18 + Tailwind v4. The Gantt is **hand-rolled SVG** (no Gantt library) — 
 ## Distribution Windows (Tauri)
 App native Windows via Tauri v2 (`src-tauri/`) — prérequis, commandes et procédure de release complète dans [README.md](README.md#application-windows-native-tauri). Seule règle à retenir ici : la version vient **uniquement de `package.json`** — ne jamais toucher `src-tauri/Cargo.toml` (son `version` est figé à `0.0.0` à dessein).
 
+## Icônes
+Source unique : [public/icon-source.svg](public/icon-source.svg) (512×512, sert à tout sauf le 16px)
++ [public/favicon-16x16-source.png](public/favicon-16x16-source.png) (bitmap retouché à la main,
+pixel par pixel — un resize du SVG à cette taille bave, voir `references/pixel-art-techniques.md`
+du skill ci-dessous).
+
+Régénération :
+1. `npm run gen-icons` → régénère tout `public/*.png` + `public/favicon.ico` depuis les 2 sources
+   ci-dessus ([scripts/gen-icons.mjs](scripts/gen-icons.mjs)).
+2. Rasteriser `icon-source.svg` en 1024×1024 puis `npx tauri icon <path-1024.png>` → régénère
+   `src-tauri/icons/*` (icns, pngs, tuiles Windows/Android/iOS).
+3. `src-tauri/icons/icon.ico` doit ensuite être **reconstruit à la main** (frames 16 retouché +
+   24/32/48/256 rasterisés du SVG, via `png-to-ico`) — sinon l'étape 2 écrase la frame 16px par un
+   simple downscale flou. Voir le skill `app-icon-designer` pour le script.
+
+Pas de favicon SVG servi par le navigateur (`index.html`) : Chrome/Edge/Firefox préfèrent
+systématiquement un lien `type="image/svg+xml"` s'il existe, ce qui empêcherait le bitmap 16px
+retouché de s'afficher dans l'onglet — voir `references/browser-favicon-behavior.md` du skill.
+
+**Pour toute refonte de l'icône (nouveau thème, nouvelles tailles), invoquer le skill
+`app-icon-designer`** plutôt que de retoucher les PNG à la main — il reprend toute la méthode
+(critique → variantes → itération → retouche pixel dédiée du petit format → report vers les grands
+formats → page de comparaison) élaborée pour cette icône.
+
 # commits
 
 n'indique pas Co-Authored-By dans les commits
