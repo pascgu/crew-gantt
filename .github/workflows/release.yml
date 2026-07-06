@@ -26,11 +26,21 @@ jobs:
       - name: Tests
         run: npm test
 
+      - name: Déterminer le tag (déclenchement manuel = version de package.json)
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
+          tagName: ${{ steps.version.outputs.tag }}
           releaseName: 'CrewGantt v__VERSION__'
           releaseBody: 'Voir les changements de cette version.'
           releaseDraft: true

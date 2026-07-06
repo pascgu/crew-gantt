@@ -111,8 +111,17 @@ Les tags de release se posent sur `main` (jamais `develop`) :
 5. Relire/ajuster les notes sur GitHub → *Releases*, puis **Publish** manuellement — rien n'est
    public tant que ce n'est pas fait.
 
-Déclenchement manuel possible aussi depuis l'onglet *Actions* du dépôt (`workflow_dispatch`), sans
-poser de tag.
+**Déclenchement 100% depuis l'UI GitHub, sans terminal** : onglet *Actions* → workflow *"Release
+Windows"* → **Run workflow**. Pas de tag à créer à la main — le workflow lit lui-même la version
+dans `package.json` de la branche choisie et tague/publie en conséquence (`vX.Y.Z`), donc bien
+penser à bumper `package.json` et merger sur `main` **avant** de lancer le workflow ainsi. Sur un
+déclenchement par tag poussé (`git push origin vX.Y.Z`), c'est ce tag qui fait foi à la place.
+
+L'UI Releases de GitHub (*Draft a new release* → taper un nouveau nom de tag) fonctionne aussi pour
+créer un tag sans terminal, mais **le tag n'est créé qu'au moment de cliquer Publish** (pas à
+l'enregistrement du brouillon) — ça ne déclenche donc le workflow qu'après coup, et ça revient à
+publier une release avant même que l'exe soit construit. Préférer `workflow_dispatch` pour un
+déclenchement purement depuis le web.
 
 ## Déploiement
 
