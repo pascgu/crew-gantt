@@ -9,12 +9,15 @@ import '@fontsource/ibm-plex-mono/500.css';
 import './styles/index.css';
 import { App } from './ui/app/App';
 import { ErrorBoundary } from './ui/app/ErrorBoundary';
+import { checkStartupBackups } from './ui/app/BackupPrompt';
 import { startAutosave } from './io/autosave';
 import { getRecentFiles, removeRecentFile, supportsRecentFiles } from './io/handleStore';
-import { openNativePath, restoreHandle, setPendingHandle } from './io/fileAccess';
+import { currentBackupKey, openNativePath, restoreHandle, setPendingHandle } from './io/fileAccess';
+import { isOpenElsewhere, setOpenDocument } from './io/instances';
+import { UNTITLED_PREFIX } from './io/backup';
 import { isTauriRuntime } from './io/tauri';
-import { clearBackup } from './io/backup';
-import { clearHistory, useAppStore } from './state/store';
+import { useAppStore } from './state/store';
+import { useNotifications } from './state/notifications';
 import { t } from './i18n/fr';
 
 startAutosave();
@@ -51,37 +54,48 @@ async function restoreMostRecent(): Promise<void> {
   }
 }
 
-// Priorité : fichier passé au lancement (association .cgan) > dernier fichier ouvert.
+/**
+ * Un programme par fichier (T6) : chaque fenêtre déclare son document aux autres ; à l'ouverture
+ * d'un fichier déjà ouvert dans une autre fenêtre, on prévient (les deux écriraient le même fichier).
+ */
+function trackOpenDocument(): void {
+  const announce = (warn: boolean) => {
+    const { fileName } = useAppStore.getState();
+    const key = currentBackupKey(fileName);
+    const shareable = !key.startsWith(UNTITLED_PREFIX);
+    setOpenDocument(shareable ? key : null);
+    if (!warn || !shareable) return;
+    void isOpenElsewhere(key).then((elsewhere) => {
+      if (!elsewhere) return;
+      useNotifications.getState().push({
+        kind: 'warn',
+        message: t('file.alreadyOpen', { name: fileName ?? '' }),
+        sticky: true,
+      });
+    });
+  };
+  announce(true);
+  useAppStore.subscribe((s, prev) => {
+    // nouveau document ouvert (replaceFile) ou renommé (Enregistrer sous)
+    if (s.fileAtLoad !== prev.fileAtLoad || s.fileName !== prev.fileName) announce(s.fileAtLoad !== prev.fileAtLoad);
+  });
+}
+
+// Priorité : fichier passé au lancement (association .cgan) > dernier fichier ouvert. Ensuite
+// seulement, on cherche une sauvegarde de secours — celle de CE fichier (une par fichier).
 void takeStartupFile().then(async (startupPath) => {
+  let launchedOnFile = false;
   if (startupPath) {
     const opened = await openNativePath(startupPath);
     if (opened) {
       useAppStore.getState().replaceFile(opened.file, opened.name);
-      return;
+      launchedOnFile = true;
     }
   }
-  await restoreMostRecent();
+  if (!launchedOnFile) await restoreMostRecent();
+  await checkStartupBackups(launchedOnFile);
+  trackOpenDocument();
 });
-
-// Deuxième instance lancée depuis l'explorateur pendant que l'app tourne déjà :
-// le fichier est transmis à la fenêtre existante au lieu d'ouvrir une nouvelle instance.
-if (isTauriRuntime()) {
-  void (async () => {
-    const { listen } = await import('@tauri-apps/api/event');
-    await listen<string>('open-file', async (event) => {
-      const { dirty } = useAppStore.getState();
-      if (dirty && !window.confirm(t('file.confirmDiscard'))) return;
-      const opened = await openNativePath(event.payload);
-      if (!opened) {
-        window.alert(t('file.openError'));
-        return;
-      }
-      useAppStore.getState().replaceFile(opened.file, opened.name);
-      clearHistory();
-      void clearBackup();
-    });
-  })();
-}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

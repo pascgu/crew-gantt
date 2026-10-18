@@ -27,9 +27,9 @@ const LEGEND_KEYS = [
   'rightClickBar', 'rightClickRow', 'enclosingGroup', 'cycleSplit',
   // Colonne 2 — navigation & clavier
   'panDrag', 'middleClick', 'ctrlWheel', 'doubleClick',
-  'arrows', 'altArrows', 'insertKey',
+  'arrows', 'altArrows', 'insertKey', 'f2',
   'undoRedo', 'ctrlS',
-  'cancelled',
+  'cancelled', 'hiddenPriority',
 ] as const;
 
 export function HelpTab() {
@@ -620,7 +620,8 @@ function GesturesTab() {
 /* ——— 5. Où trouver / Comment faire ——— */
 
 const HOWTO_KEYS = [
-  'addTask', 'place', 'assign', 'link', 'mode', 'split', 'group', 'baseline', 'review', 'conflict', 'nav', 'io',
+  'addTask', 'place', 'assign', 'link', 'mode', 'split', 'group', 'priority', 'archive', 'hidePerson',
+  'ganttLabels', 'baseline', 'review', 'conflict', 'nav', 'io',
 ] as const;
 
 function HowtoTab() {

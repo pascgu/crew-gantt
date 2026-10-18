@@ -4,6 +4,7 @@ import { t } from '@/i18n/fr';
 import { useUiStore } from '@/state/uiStore';
 import { useNotifications } from '@/state/notifications';
 import { useProposal } from '@/state/proposalActions';
+import { useTableStore } from '@/ui/table/tableStore';
 import { DashboardTab } from '@/ui/dashboard/DashboardTab';
 import { GanttTab } from '@/ui/gantt/GanttTab';
 import { MeetingTab } from '@/ui/meeting/MeetingTab';
@@ -16,7 +17,6 @@ import { IconClose } from '@/ui/common/icons';
 import { TopBar } from './TopBar';
 import { ToastStack } from './ToastStack';
 import { useFileActions } from './useFileActions';
-import { BackupPrompt } from './BackupPrompt';
 import { RestoreBanner } from './RestoreBanner';
 
 const TAB_CONTENT: Record<string, () => ReactNode> = {
@@ -98,13 +98,15 @@ export function App() {
   }, [save]);
 
   const renderTab = TAB_CONTENT[activeTab] ?? TAB_CONTENT['gantt']!;
+  // Format des dates (Paramètres) : lu par tous les formateurs ; on remonte l'onglet courant quand
+  // il change pour que chaque date affichée suive le réglage (A3).
+  const dateFormat = useTableStore((s) => s.dateFormat);
 
   return (
     <div className="flex h-full flex-col">
       <TopBar />
-      <BackupPrompt />
       <RestoreBanner />
-      <main className="relative min-h-0 flex-1">{renderTab()}</main>
+      <main key={dateFormat} className="relative min-h-0 flex-1">{renderTab()}</main>
 
       {/* Panneaux flottants ancrés en haut à droite */}
       {panel === 'conflicts' && (

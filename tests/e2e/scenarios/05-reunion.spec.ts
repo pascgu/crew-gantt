@@ -40,12 +40,15 @@ test('réunion : date de revue, restes, statuts, note, absence, part projet, cl�
   expect.soft(await back.getAttribute('title'), 'libellé du bouton').toBe('Revenir à aujourd’hui');
 
   // — Mise à jour du reste (inline) —
-  const remBefore = (await app.task('Dév. back'))?.remaining as number;
-  expect.soft(remBefore, 'changer la date recale le reste (réalisé ↑)').toBeLessThan(12);
+  // R1 : le reste est VU à la date de réunion (il baisse du travail prévu d'ici là) sans rien écrire.
+  const seen = (n: string) => app.crew((c, name) => c.seen(name)?.remaining as number, n);
+  const remBefore = await seen('Dév. back');
+  expect.soft(remBefore, 'à une date plus tard, le reste vu baisse (réalisé ↑)').toBeLessThan(12);
+  expect.soft((await app.task('Dév. back'))?.remaining, 'le reste stocké, lui, ne bouge pas').toBe(12);
   await line('Dév. back').locator('span.w-\\[58px\\]').click();
   await line('Dév. back').locator('input').fill('10');
   await line('Dév. back').locator('input').press('Enter');
-  expect.soft((await app.task('Dév. back'))?.remaining).toBe(10);
+  expect.soft(await seen('Dév. back'), 'saisie à la date de réunion').toBe(10);
 
   // — Statuts : Terminé / Bloqué —
   await line('Script de reporting').hover();
@@ -81,8 +84,13 @@ test('réunion : date de revue, restes, statuts, note, absence, part projet, cl�
   const chloeShares = (await app.crew((c) => c.file())).resources.find((r: { id: string }) => r.id === 'r-chloe').projectShares;
   expect.soft(chloeShares.some((s: { projectId: string; percent: number }) => s.projectId === 'p-portail' && s.percent === 60)).toBe(true);
 
-  // — « Réaffecter » (cité par l'aide §6 et « Où trouver ») : présent dans la réunion ? —
-  await expect.soft(page.getByRole('button', { name: /Réaffecter/ }), 'action Réaffecter annoncée par l’aide').toHaveCount(1);
+  // — « Réaffecter » (cité par l'aide §6 et « Où trouver ») : un bouton par ligne (A2) —
+  await line('Dév. back').hover();
+  await line('Dév. back').getByRole('button', { name: 'Réaffecter' }).click();
+  await expect.soft(page.getByText('Affectation du bloc'), 'Réaffecter ouvre l’affectation').toBeVisible();
+  await page.keyboard.press('Escape');
+  // Tâches sans personne (« Intégration API partenaires », bloc sans affecté) listées à part (A2)
+  await expect.soft(page.locator('section', { hasText: 'Sans personne (à affecter)' }).getByText('Intégration API partenaires')).toBeVisible();
 
   // — Filtre projet : seules les tâches du projet restent —
   await page.getByRole('button', { name: 'Outils internes' }).first().click();

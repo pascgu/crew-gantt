@@ -62,22 +62,29 @@ test('conflits & propositions : panneau, ignorer, marqueurs, appliquer, annuler,
   expect.soft(reasonsWithoutConflict, 'propositions dont la raison ne correspond à aucun conflit actif').toEqual([]);
   await page.getByRole('button', { name: 'Plan proposé' }).click();
 
-  // Bouton ✓ au survol d'une bande (Migration CI) : il est collé au BOUT de la dernière bande,
-  // donc hors écran pour une tâche longue → faire défiler le Gantt jusqu'à la fin de la tâche.
-  await page.locator('#gantt-chart-svg').evaluate((svg) => {
-    (svg.parentElement as HTMLElement).scrollLeft += 450;
-  });
-  const ciRow = (await (await app.bar('Migration CI')).boundingBox())!;
-  await page.mouse.move(ciRow.x + ciRow.width - 8, ciRow.y - 1);
-  const check = page.locator('#gantt-chart-svg g[style*="pointer"] > circle[r="7"]').first();
+  // A4 : le « +X j » d'une proposition qui décale est visible sans survol
+  await expect.soft(page.locator('#gantt-chart-svg text', { hasText: /^[+-]\d+ j$/ }).first(), '« +X j » visible sans survol').toBeVisible();
+  // R3 : plus de proposition « gratuite » sur une tâche saine (Migration CI : mercredis d'Alice)
+  expect.soft(cardTexts.some((txt) => txt.startsWith('Migration CI')), 'aucune proposition sur Migration CI').toBe(false);
+
+  // Bouton ✓ au survol d'une bande : il reste dans la vue même si la bande déborde à droite (A4).
+  const scroller = page.locator('#gantt-chart-svg').locator('xpath=..');
+  const viewBox = (await scroller.evaluate((el) => el.getBoundingClientRect().toJSON())) as DOMRect;
+  // amener le début de la première bande dans la vue
+  const first = (await bands.first().boundingBox())!;
+  await scroller.evaluate((el, dx) => { el.scrollLeft += dx; }, first.x - viewBox.left - 80);
+  const band = (await bands.first().boundingBox())!;
+  await page.mouse.move(band.x + 40, band.y + band.height / 2); // loin du trait de lien entrant
+  const check = page.locator('#gantt-chart-svg g[data-proposal-apply] > circle').first();
   await expect.soft(check, 'bouton ✓ au survol de la bande').toBeVisible();
   if (await check.isVisible()) {
     const cb = (await check.boundingBox())!;
+    const view = (await page.locator('#gantt-chart-svg').evaluate((svg) => (svg.parentElement as HTMLElement).getBoundingClientRect().toJSON())) as DOMRect;
+    expect.soft(cb.x + cb.width <= view.right, '✓ dans la zone visible').toBe(true);
     await page.mouse.move(cb.x + cb.width / 2, cb.y + cb.height / 2);
     await page.mouse.down();
     await page.mouse.up();
     expect.soft(await bands.count(), '✓ applique la proposition (moins de bandes)').toBeLessThan(nBands);
-    expect.soft((await app.blocks('Migration CI'))?.length, 'Migration CI découpée par la proposition').toBeGreaterThan(1);
   }
 
   // — Figer une référence (⚙ → Baseline → « + Figer le plan actuel… ») —

@@ -29,13 +29,17 @@ export function updateResource(id: string, patch: Partial<Resource>): void {
   });
 }
 
-/** Supprime la ressource et la retire de toutes les affectations de blocs. */
+/** Supprime la ressource et la retire de toutes les affectations de blocs (et des équipes prévues). */
 export function deleteResource(id: string): void {
   mutate((file) => {
     file.resources = file.resources.filter((r) => r.id !== id);
     for (const task of file.tasks) {
       for (const block of task.blocks) {
         block.assignments = block.assignments.filter((a) => a.resourceId !== id);
+      }
+      if (task.plannedAssignments) {
+        task.plannedAssignments = task.plannedAssignments.filter((a) => a.resourceId !== id);
+        if (task.plannedAssignments.length === 0) delete task.plannedAssignments;
       }
     }
   });

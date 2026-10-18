@@ -8,6 +8,7 @@ import { useAppStore } from '@/state/store';
 import {
   addBlockToTask,
   addLink,
+  assignTeam,
   deleteBlock,
   deleteTask,
   initEffortFromEstimate,
@@ -18,10 +19,12 @@ import {
   setTaskEffort,
   setTaskProgress,
   setTaskRemaining,
+  setTasksPriority,
   updateLink,
   updateTask,
 } from '@/state/taskActions';
 import { DateInput, EditableNumber, EditableText } from '@/ui/common/inline';
+import { PriorityPicker } from '@/ui/common/PriorityDot';
 import { IconClose, IconPlus } from '@/ui/common/icons';
 import { AssignmentAssistant } from '@/ui/team/AssignmentAssistant';
 import { t } from '@/i18n/fr';
@@ -99,6 +102,11 @@ export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* Priorité (pastille ; « masquée » = hors vue, toujours comptée) */}
+        <Section title={t('tasks.priorityMenu')}>
+          <PriorityPicker value={task.priority} onPick={(p) => setTasksPriority([task.id], p)} />
+        </Section>
+
         {/* Description & prérequis */}
         <Section title={t('panel.description')}>
           <textarea
@@ -162,14 +170,14 @@ export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
                   <EditableNumber value={task.effort} onCommit={(v) => setTaskEffort(task.id, v ?? 0)} />
                 ) : (
                   <span className="block text-right font-mono text-[12.5px] text-ink-soft">
-                    {Math.round(scheduledEffort(schedule.ctx, task, resolved) * 10) / 10}
+                    {fmtDays(scheduledEffort(schedule.ctx, task, resolved))}
                   </span>
                 )}
               </span>
             </Field>
             <Field label={t('panel.realized')}>
               <span className="w-16 text-right font-mono text-[12.5px] text-ink-soft">
-                {Math.round(realizedOf(schedule.ctx, task) * 10) / 10}
+                {fmtDays(realizedOf(schedule.ctx, task))}
               </span>
             </Field>
             <Field label={t('panel.remaining')}>
@@ -181,7 +189,7 @@ export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
                   />
                 ) : (
                   <span className="block text-right font-mono text-[12.5px] text-ink-soft">
-                    {Math.round(remainingOf(schedule.ctx, task, resolved) * 10) / 10}
+                    {fmtDays(remainingOf(schedule.ctx, task, resolved))}
                   </span>
                 )}
               </span>
@@ -316,11 +324,13 @@ export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
                                   setBlockAssignments(task.id, block.id, next);
                                 }}
                               >
-                                {resources.map((res) => (
-                                  <option key={res.id} value={res.id}>
-                                    {res.name}
-                                  </option>
-                                ))}
+                                {resources
+                                  .filter((res) => !res.hidden || res.id === a.resourceId)
+                                  .map((res) => (
+                                    <option key={res.id} value={res.id}>
+                                      {res.name}
+                                    </option>
+                                  ))}
                               </select>
                               <span className="w-14">
                                 <EditableNumber
@@ -363,6 +373,44 @@ export function TaskPanel({ task, schedule, onClose }: TaskPanelProps) {
                     </div>
                   );
                 })}
+              {/* Pas encore placée : équipe prévue, reprise par le premier bloc posé (T9) */}
+              {task.blocks.length === 0 && (
+                <div className="rounded-lg border border-dashed border-line bg-paper/40 p-2">
+                  <p className="mb-1 text-[11.5px] font-medium text-ink-soft">{t('gantt.assignPlannedTitle')}</p>
+                  <p className="mb-1.5 text-[11px] text-ink-faint">{t('gantt.assignPlannedHint')}</p>
+                  <div className="flex flex-col gap-1">
+                    {(task.plannedAssignments ?? []).map((a, ai) => (
+                      <div key={ai} className="flex items-center gap-1.5 text-[12px]">
+                        <span className="min-w-0 flex-1 truncate">
+                          {resources.find((r) => r.id === a.resourceId)?.name ?? a.resourceId}
+                        </span>
+                        <span className="w-14">
+                          <EditableNumber
+                            value={a.units}
+                            suffix=" %"
+                            max={1000}
+                            onCommit={(v) =>
+                              assignTeam(
+                                [task.id],
+                                (task.plannedAssignments ?? []).map((x, i) => (i === ai ? { ...x, units: v ?? 100 } : x)),
+                              )
+                            }
+                          />
+                        </span>
+                        <button
+                          className="rounded p-0.5 text-ink-faint hover:text-danger"
+                          onClick={() =>
+                            assignTeam([task.id], (task.plannedAssignments ?? []).filter((_, i) => i !== ai))
+                          }
+                        >
+                          <IconClose size={11} />
+                        </button>
+                      </div>
+                    ))}
+                    <AssignmentAssistant task={task} block={null} resolvedTo={null} schedule={schedule} />
+                  </div>
+                </div>
+              )}
               <button
                 className="flex items-center gap-1 self-start rounded border border-dashed border-line px-2 py-1 text-[11.5px] text-ink-soft transition hover:border-accent hover:text-accent"
                 onClick={() => addBlockToTask(task.id, schedule.ctx.nextWorkingDay(todayIso()))}

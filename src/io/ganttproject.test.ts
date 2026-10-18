@@ -120,6 +120,18 @@ describe('GanttProject import/export', () => {
     expect(reimported.team.calendar.holidays).toContain('2025-01-01');
   });
 
+  it('priorité : aller-retour (masquée → basse, seul écart accepté)', () => {
+    const { file, task1, task2, milestone } = makeMinimalFile();
+    task1.priority = 'urgent';
+    task2.priority = 'hidden';
+    milestone.priority = 'high';
+    const xml = exportGanttProjectXml(file, computeSchedule(file, '2025-01-06'));
+    expect(xml).toContain('name="Conception" color="ff0000" expand="true" priority="4"');
+    const back = importGanttProjectXml(xml);
+    const prio = (name: string) => back.tasks.find((t) => t.name === name)?.priority;
+    expect([prio('Conception'), prio('Développement'), prio('Livraison')]).toEqual(['urgent', 'low', 'high']);
+  });
+
   it('rejette un XML invalide', () => {
     expect(() => importGanttProjectXml('<root/>')).toThrow();
     expect(() => importGanttProjectXml('not xml at all &&&')).toThrow();

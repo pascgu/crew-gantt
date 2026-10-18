@@ -2234,6 +2234,7 @@ function ProposalGhost({
   // Bouton ✓ : déclenché sur pointerdown (fiable, l'élément n'existe qu'au survol).
   const applyBtn = (cx: number, cy: number) => (
     <g
+      data-proposal-apply=""
       style={{ cursor: 'pointer' }}
       onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); applyAction(); }}
     >

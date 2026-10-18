@@ -3,6 +3,8 @@ import type { TeamFile } from '@/core/model/types';
 import { pushRecentFile, supportsHandlePersistence } from './handleStore';
 import type { RecentFile } from './handleStore';
 import { isTauriRuntime } from './tauri';
+import { backupKeyFor } from './backup';
+import { instanceId } from './instances';
 
 const FILE_TYPES = [
   {
@@ -33,6 +35,28 @@ export function supportsFileSystemAccess(): boolean {
 
 export function hasLinkedFile(): boolean {
   return currentHandle !== null;
+}
+
+/**
+ * Clé de sauvegarde de secours du document courant : chemin natif (bureau), sinon nom de fichier
+ * (lié ou non), sinon « sans titre » propre à cette instance (cf. io/backup).
+ */
+export function currentBackupKey(fileName: string | null): string {
+  return backupKeyFor({
+    path: currentHandle?.kind === 'native' ? currentHandle.path : null,
+    name: currentHandle?.kind === 'web' ? currentHandle.handle.name : fileName,
+    instanceId,
+  });
+}
+
+/** Chemin natif du fichier lié (app bureau), ou null. */
+export function linkedNativePath(): string | null {
+  return currentHandle?.kind === 'native' ? currentHandle.path : null;
+}
+
+/** Relie le document à un chemin natif connu (restauration d'une sauvegarde de secours, bureau). */
+export function linkNativePath(path: string): void {
+  if (isTauriRuntime()) currentHandle = { kind: 'native', path };
 }
 
 export function unlinkFile(): void {

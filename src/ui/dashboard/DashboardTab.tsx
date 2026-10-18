@@ -40,7 +40,7 @@ function computeHealth(schedule: Schedule, project: Project): ProjectHealth {
       const ref = baseline.milestones[task.id];
       if (ref && task.date > ref) driftingMilestones += 1;
     }
-    if (task.type !== 'task') continue;
+    if (task.type !== 'task' || task.status === 'cancelled') continue; // annulée : hors calculs
     if (task.status === 'blocked') blockedTasks += 1;
     estimate += task.estimate ?? 0;
     effort += task.effort;
@@ -272,7 +272,7 @@ function AlertsCard({ schedule }: { schedule: Schedule }) {
   const file = schedule.ctx.file;
   const unassigned = active.filter((c) => c.type === 'unassigned').length;
   const deadlines = active.filter((c) => c.type === 'deadline').length;
-  const blocked = file.tasks.filter((tk) => tk.type === 'task' && tk.status === 'blocked').length;
+  const blocked = file.tasks.filter((tk) => tk.type === 'task' && tk.status === 'blocked' && schedule.ctx.isCounted(tk)).length;
 
   const lines: { text: string; tone: string }[] = [];
   if (active.length > 0)

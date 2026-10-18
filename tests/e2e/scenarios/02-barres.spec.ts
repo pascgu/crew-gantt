@@ -16,14 +16,14 @@ test('barres : ghost, étirer, déplacer, avancement, Ctrl+glisser, couper/fusio
   const editor = page.locator('div.group\\/row input:focus');
 
   // — Nouvelle tâche non planifiée → ghost de placement —
-  await (await app.row('Documentation interne')).click();
+  await app.selectRow('Documentation interne');
   await page.keyboard.press('Insert');
   await editor.fill('Tâche E2E');
   await editor.press('Enter');
   expect.soft(await app.blocks('Tâche E2E')).toEqual([]);
   expect.soft((await app.conflicts()).some((c) => c.type === 'unplanned' && c.taskName === 'Tâche E2E')).toBe(true);
 
-  await (await app.row('Tâche E2E')).click();
+  await app.selectRow('Tâche E2E');
   const ghostNow = page
     .locator('#gantt-chart-svg g')
     .filter({ has: page.locator('> title', { hasText: /^Planifier aujourd/ }) })
@@ -95,7 +95,7 @@ test('barres : ghost, étirer, déplacer, avancement, Ctrl+glisser, couper/fusio
   expect.soft(b?.map((x) => x.from), 'supprimer le bloc ajouté').toEqual([origFrom]);
 
   // — Ctrl+P : bascule Pilotée ↔ Dates fixées ; forme des coins (rond = effort, carré = dates) —
-  await (await app.row('Tâche E2E')).click();
+  await app.selectRow('Tâche E2E');
   await page.keyboard.press('Control+p');
   const sched2 = (await app.task('Tâche E2E'))?.scheduling;
   expect.soft(sched2, 'Ctrl+P bascule le mode').not.toBe(sched);
@@ -127,7 +127,7 @@ test('barres : ghost, étirer, déplacer, avancement, Ctrl+glisser, couper/fusio
   expect.soft((await app.task('Maquettes validées'))?.date).toBe(msAfter);
 
   // — Statut Annulé : barre hachurée, exclue des calculs (plus de conflit sur la tâche) —
-  const statusSelect = (await app.row('Migration CI')).locator('select').last();
+  const statusSelect = (await app.row('Migration CI')).locator('select:has(option[value="cancelled"])');
   await statusSelect.selectOption('cancelled');
   expect.soft((await app.task('Migration CI'))?.status).toBe('cancelled');
   await expect.soft((await app.ganttRow('Migration CI')).locator('rect[fill="url(#cancelled-hatch)"]').first()).toBeAttached();

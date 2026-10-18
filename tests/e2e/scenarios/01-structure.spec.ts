@@ -54,7 +54,7 @@ test('structure : projets, boutons +, clavier, groupe englobant, suppression et 
   expect.soft((await app.task('Lot E2E'))?.type).toBe('group');
 
   // — Touche Inser : une sœur après la sélection —
-  await (await app.row('Recette')).click();
+  await app.selectRow('Recette');
   await page.keyboard.press('Insert');
   await expect(editor).toBeVisible();
   await editor.fill('Inser E2E');
@@ -65,7 +65,7 @@ test('structure : projets, boutons +, clavier, groupe englobant, suppression et 
   await app.shot('structure apres creations');
 
   // — ↑/↓ change de tâche, Entrée ouvre le détail, Échap le ferme —
-  await (await app.row('Recette')).click();
+  await app.selectRow('Recette');
   await page.keyboard.press('ArrowDown');
   expect.soft((await app.ui()).selectedTaskId).toBe(await app.taskId('Inser E2E'));
   await page.keyboard.press('ArrowUp');
@@ -76,16 +76,12 @@ test('structure : projets, boutons +, clavier, groupe englobant, suppression et 
   await page.keyboard.press('Escape');
   await expect.soft(panelDelete).toBeHidden();
 
-  // — ALT + ↑/↓ déplace la tâche, ALT + ←/→ change de niveau (texte de l'aide) —
-  await (await app.row('Inser E2E')).click();
-  await page.keyboard.press('Alt+ArrowUp');
-  let r = await app.children(null);
-  expect.soft(r.indexOf('Inser E2E'), 'ALT+↑ (documenté dans l’aide) doit remonter la tâche').toBe(
-    r.indexOf('Recette') - 1,
-  );
-  // Comportement effectif du code : Ctrl+flèches
+  // — Ctrl + ↑/↓ déplace la tâche, Ctrl + ←/→ change de niveau (A1 : l'aide disait ALT, corrigée) —
+  const { fr } = await import('../../../src/i18n/fr');
+  expect.soft(fr.help.legend.altArrows, 'l’aide documente Ctrl + flèches').toMatch(/^Ctrl \+ ↑\/↓/);
+  await app.selectRow('Inser E2E');
   await page.keyboard.press('Control+ArrowUp');
-  r = await app.children(null);
+  const r = await app.children(null);
   expect.soft(r.indexOf('Inser E2E'), 'Ctrl+↑ remonte la tâche').toBeLessThan(r.indexOf('Recette'));
   // Ctrl+→ : indenter sous la sœur précédente (Développement)
   await page.keyboard.press('Control+ArrowRight');
@@ -94,10 +90,10 @@ test('structure : projets, boutons +, clavier, groupe englobant, suppression et 
   expect.soft((await app.task('Inser E2E'))?.parentId).toBeNull();
 
   // — §7 Grouper : clic droit sur une sélection multiple → groupe englobant, puis dégrouper —
-  await (await app.row('Dév. front')).click();
-  await (await app.row('Dév. back')).click({ modifiers: ['Control'] });
+  await app.selectRow('Dév. front');
+  await app.selectRow('Dév. back', { modifiers: ['Control'] });
   expect.soft((await app.ui()).selectedTaskIds).toHaveLength(2);
-  await (await app.row('Dév. back')).click({ button: 'right' });
+  await app.selectRow('Dév. back', { button: 'right' });
   await page.getByRole('button', { name: 'Créer un groupe englobant' }).click();
   await expect(editor).toBeVisible();
   await editor.fill('Lot dev');
@@ -115,13 +111,13 @@ test('structure : projets, boutons +, clavier, groupe englobant, suppression et 
     .toBeHidden();
   await app.shot('groupe englobant');
 
-  await (await app.row('Lot dev')).click({ button: 'right' });
+  await app.selectRow('Lot dev', { button: 'right' });
   await page.getByRole('button', { name: 'Dégrouper' }).click();
   expect.soft(await app.task('Lot dev')).toBeNull();
   expect.soft((await app.task('Dév. front'))?.parentId).toBe('g-dev');
 
   // — Suppr (avec confirmation), Ctrl+Z / Ctrl+Y —
-  await (await app.row('Inser E2E')).click();
+  await app.selectRow('Inser E2E');
   app.answerNextDialogs(true);
   await page.keyboard.press('Delete');
   expect.soft(app.lastDialog()?.message).toContain('Inser E2E');

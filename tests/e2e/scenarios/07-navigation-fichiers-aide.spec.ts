@@ -103,7 +103,7 @@ test('navigation, import/export, Ctrl+S, secours après rechargement, paramètre
 
   // — Ctrl+S : enregistrer. Chromium a File System Access → sélecteur natif (non pilotable en headless) :
   //   on se contente de noter l'issue en annotation, sans échec. —
-  await (await app.row('Dév. back')).click();
+  await app.selectRow('Dév. back');
   const saveDl = page.waitForEvent('download', { timeout: 5000 }).catch(() => null);
   await page.keyboard.press('Control+s');
   const saved = await saveDl;

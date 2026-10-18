@@ -50,6 +50,7 @@ interface ImpactsPanelProps {
 function reasonLabel(reason: ChangeReason, nameOf: (id: string) => string): string {
   if (reason.type === 'cascade') return t('proposal.reason.cascade', { task: nameOf(reason.taskId ?? '') });
   if (reason.type === 'link-violated') return t('proposal.reason.link-violated', { task: nameOf(reason.taskId ?? '') });
+  if (reason.type === 'no-capacity') return t('proposal.reason.no-capacity');
   return t('proposal.reason.effort-overflow' as TranslationKey);
 }
 

@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+import { maskedTaskIds } from '@/core/model/visibility';
 import { computeSchedule, type Schedule } from '@/core/scheduler/schedule';
 import { detectConflicts, splitIgnored, type Conflict } from '@/core/conflicts/detect';
 import { todayIso } from '@/core/calendar/dates';
@@ -52,6 +54,22 @@ export function useConflicts(): { active: Conflict[]; ignored: Conflict[] } {
   const file = useAppStore((s) => s.file);
   const reviewDate = useAppStore((s) => s.reviewDate);
   return splitIgnored(getConflicts(file, reviewDate ?? todayIso()), file.ui.ignoredConflicts);
+}
+
+/**
+ * Conflits actifs séparés selon que leur tâche est masquée ou non : une tâche masquée (« hors vue »)
+ * garde ses conflits, comptés à part (« ⚠ 5 (+2 masquées) ») plutôt que de disparaître en silence.
+ */
+export function useActiveConflictsByVisibility(): { visible: Conflict[]; masked: Conflict[] } {
+  const { active } = useConflicts();
+  const tasks = useAppStore((s) => s.file.tasks);
+  return useMemo(() => {
+    const maskedIds = maskedTaskIds(tasks);
+    const visible: Conflict[] = [];
+    const masked: Conflict[] = [];
+    for (const c of active) (c.taskId && maskedIds.has(c.taskId) ? masked : visible).push(c);
+    return { visible, masked };
+  }, [active, tasks]);
 }
 
 /** Conflits actifs indexés par tâche (pour les badges). */

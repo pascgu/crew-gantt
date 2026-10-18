@@ -107,6 +107,14 @@ export class App {
   async row(name: string): Promise<Locator> {
     return this.page.locator(`div.group\\/row[data-task-id="${await this.taskId(name)}"]`);
   }
+  /**
+   * Sélectionne une ligne de la liste (clic simple, ou avec modificateurs / bouton droit) en cliquant
+   * dans la marge gauche de la cellule Nom : cliquer au centre de la ligne peut tomber sur une cellule
+   * éditable (le focus part alors dans un champ et les raccourcis clavier ne s'appliquent plus).
+   */
+  async selectRow(name: string, opts: { modifiers?: ('Control' | 'Shift')[]; button?: 'right' } = {}) {
+    await (await this.row(name)).click({ position: { x: 3, y: 10 }, ...opts });
+  }
   /** Groupe SVG de la ligne dans le Gantt. */
   async ganttRow(name: string): Promise<Locator> {
     return this.page.locator(`#gantt-chart-svg g[data-task-id="${await this.taskId(name)}"]`);

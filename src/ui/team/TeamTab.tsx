@@ -4,6 +4,7 @@ import { EditableAvatar } from '@/ui/common/Avatar';
 import { todayIso } from '@/core/calendar/dates';
 import { useAppStore } from '@/state/store';
 import { useSchedule } from '@/state/schedule';
+import { hasUpcomingLoad } from '@/core/scheduler/workload';
 import {
   addException,
   addProjectShare,
@@ -35,7 +36,8 @@ export function TeamTab() {
             {t('team.empty')}
           </p>
         )}
-        {resources.map((r) => (
+        {/* Ressources masquées (personnes parties…) : grisées, en fin de liste (T12) */}
+        {[...resources.filter((r) => !r.hidden), ...resources.filter((r) => r.hidden)].map((r) => (
           <ResourceCard key={r.id} resource={r} focused={r.id === focusResourceId} />
         ))}
         <button
@@ -82,7 +84,7 @@ function ResourceCard({ resource, focused }: { resource: Resource; focused: bool
   return (
     <section
       ref={cardRef}
-      className={`rounded-xl border bg-surface p-5 shadow-panel transition-shadow duration-300 ${halo ? 'border-accent ring-2 ring-accent/40' : 'border-line'}`}
+      className={`rounded-xl border bg-surface p-5 shadow-panel transition-shadow duration-300 ${halo ? 'border-accent ring-2 ring-accent/40' : 'border-line'} ${resource.hidden ? 'opacity-60' : ''}`}
     >
       <header className="mb-4 flex items-center gap-3">
         <EditableAvatar
@@ -101,6 +103,18 @@ function ResourceCard({ resource, focused }: { resource: Resource; focused: bool
           <option value="person">{t('team.kindPerson')}</option>
           <option value="material">{t('team.kindMaterial')}</option>
         </select>
+        {resource.hidden && hasUpcomingLoad(schedule.loadIndex, resource.id, schedule.ctx.today) && (
+          <span className="rounded bg-warn-wash px-1.5 py-0.5 text-[11px] text-warn">{t('team.hiddenStillAssigned')}</span>
+        )}
+        <button
+          className={`rounded border px-2 py-1 text-[12px] transition ${
+            resource.hidden ? 'border-accent text-accent hover:bg-accent-wash' : 'border-line text-ink-soft hover:border-accent hover:text-accent'
+          }`}
+          title={t('team.hiddenHint')}
+          onClick={() => updateResource(resource.id, { hidden: resource.hidden ? undefined : true })}
+        >
+          {resource.hidden ? t('team.unhide') : t('team.hide')}
+        </button>
         <button
           className="rounded border border-danger/40 px-2 py-1 text-[12px] text-danger transition hover:bg-danger-wash"
           onClick={() => {

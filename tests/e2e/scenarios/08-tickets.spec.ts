@@ -89,12 +89,13 @@ test('T7 — deux tâches à 0 j le même jour, liées : pas de lien violé', as
 });
 
 test('T8 — affecter plusieurs lignes sélectionnées en une fois', async ({ app, page }) => {
-  await (await app.row('Dév. front')).click();
-  await (await app.row('Dév. back')).click({ modifiers: ['Control'] });
+  await app.selectRow('Dév. front');
+  await app.selectRow('Dév. back', { modifiers: ['Control'] });
   await (await app.row('Dév. back')).getByTitle('Modifier l’affectation').click();
   await page.getByTitle('Ajouter Alice').click();
-  await page.getByRole('button', { name: 'Appliquer', exact: true }).click();
-  const has = async (n: string) => ((await app.blocks(n)) ?? []).at(-1)?.assignments.some((a) => a.resourceId === 'r-alice');
+  // Décision T8 : le popover annonce clairement la portée
+  await page.getByRole('button', { name: 'Appliquer à 2 tâches' }).click();
+  const has =async (n: string) => ((await app.blocks(n)) ?? []).at(-1)?.assignments.some((a) => a.resourceId === 'r-alice');
   expect.soft(await has('Dév. back')).toBe(true);
   expect.soft(await has('Dév. front'), 'la 2ᵉ ligne sélectionnée est aussi affectée').toBe(true);
   // Décision T8 : « Remplacer l'équipe » → les deux tâches ont exactement la même équipe
@@ -103,7 +104,7 @@ test('T8 — affecter plusieurs lignes sélectionnées en une fois', async ({ ap
 });
 
 test('T9 — affecter une tâche avant de l’avoir placée sur le Gantt', async ({ app, page }) => {
-  await (await app.row('Recette')).click();
+  await app.selectRow('Recette');
   await page.keyboard.press('Insert');
   await page.locator('div.group\\/row input:focus').fill('Non placée');
   await page.keyboard.press('Enter');
@@ -112,7 +113,7 @@ test('T9 — affecter une tâche avant de l’avoir placée sur le Gantt', async
 
 test('T11 — la clôture de réunion reprend tout depuis la dernière réunion', async ({ app, page }) => {
   // Changement fait dans le Gantt AVANT d'ouvrir l'onglet Réunion (cas d'une semaine normale)
-  await (await app.row('Script de reporting')).locator('select').last().selectOption('done');
+  await (await app.row('Script de reporting')).locator('select:has(option[value="done"])').selectOption('done');
   await app.goTab('Réunion');
   // Pendant la réunion, Chloé devrait voir aussi ce qu'elle a terminé depuis la dernière réunion
   await expect.soft(page.locator('div.group\\/line', { hasText: 'Script de reporting' }), 'tâches terminées depuis la dernière réunion').toHaveCount(1);

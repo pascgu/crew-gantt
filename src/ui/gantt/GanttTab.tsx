@@ -639,7 +639,13 @@ export function GanttTab() {
               >
                 <div ref={headerInnerRef} style={{ width: scale.width, willChange: 'transform' }}>
                   {friezeH > 0 && <MilestoneFrieze layout={friezeLayout} />}
-                  <HeaderTimescale scale={scale} visibleLeft={scrollLeft} visibleRight={scrollLeft + viewportW} />
+                  <HeaderTimescale
+                    scale={scale}
+                    visibleLeft={scrollLeft}
+                    visibleRight={scrollLeft + viewportW}
+                    today={today}
+                    reviewDate={schedule.ctx.today !== today ? schedule.ctx.today : null}
+                  />
                 </div>
               </div>
               {/* Conteneur scroll : les deux ascenseurs natifs vivent ici, sous/à droite du Gantt */}
@@ -1133,10 +1139,15 @@ function HeaderTimescale({
   scale,
   visibleLeft,
   visibleRight,
+  today,
+  reviewDate,
 }: {
   scale: ReturnType<typeof buildTimeScale>;
   visibleLeft: number;
   visibleRight: number;
+  today: IsoDate;
+  /** Date de réunion si elle diffère d'aujourd'hui. */
+  reviewDate: IsoDate | null;
 }) {
   const MARGIN = 400;
   const vl = visibleLeft - MARGIN;
@@ -1213,6 +1224,24 @@ function HeaderTimescale({
           <title>{d.label}</title>
         </rect>
       ))}
+      {/* Repères aujourd'hui / date de réunion : petit triangle + infobulle (dans le Gantt, le trait
+          ne capte plus le pointeur pour laisser les barres accessibles). */}
+      {(
+        [
+          [today, 'var(--color-accent)', t('gantt.today')],
+          ...(reviewDate ? [[reviewDate, 'var(--color-danger)', t('gantt.reviewDateLine')] as const] : []),
+        ] as const
+      ).map(([date, color, label]) => {
+        const x = scale.x(date);
+        return (
+          <g key={label}>
+            <path d={`M ${x - 4} ${HEADER_HEIGHT - 5} L ${x + 4} ${HEADER_HEIGHT - 5} L ${x} ${HEADER_HEIGHT} Z`} fill={color} opacity={0.8} />
+            <rect x={x - 5} y={HEADER_HEIGHT - 10} width={10} height={10} fill="transparent">
+              <title>{label}</title>
+            </rect>
+          </g>
+        );
+      })}
     </svg>
   );
 }

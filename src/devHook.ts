@@ -44,6 +44,12 @@ const api = {
     const t = findTask(nameOrId);
     return t ? JSON.parse(JSON.stringify(t)) : null;
   },
+  /** Tâche telle que vue par le planning (restes vus à la date de réunion si elle est posée). */
+  seen: (nameOrId: string) => {
+    const t = findTask(nameOrId);
+    const seenTask = t ? currentSchedule().schedule.hierarchy.tasksById.get(t.id) : undefined;
+    return seenTask ? JSON.parse(JSON.stringify(seenTask)) : null;
+  },
   /** Ordre d'affichage : noms des enfants directs d'un parent (null = racine), triés par `order`. */
   children: (parentNameOrId: string | null) => {
     const parentId = parentNameOrId === null ? null : (findTask(parentNameOrId)?.id ?? '__none__');

@@ -7,6 +7,7 @@
  *  - parts projet par ressource
  *  - statut de tâche (remis à 'todo')
  *  - baselines
+ *  - priorité « masquée » (exportée en « basse », décision T2/T3)
  *
  * Le champ GanttProject `complete` (0–100 %) ↔ l'**Avancement** (`task.progress`) :
  * importé tel quel et exporté depuis `task.progress`. Le reste à faire est calculé à part.
@@ -24,8 +25,15 @@ import {
   createTask,
 } from '@/core/model/factory';
 import { taskProgress } from '@/core/scheduler/groups';
-import type { IsoDate, TeamFile, Weekday } from '@/core/model/types';
+import type { IsoDate, TaskPriority, TeamFile, Weekday } from '@/core/model/types';
 import type { Schedule } from '@/core/scheduler/schedule';
+
+/**
+ * Priorité GanttProject (attribut `priority`) : 0 = basse, 1 = normale, 2 = haute, 3 = la plus
+ * basse, 4 = la plus haute. « Masquée » n'existe pas chez GanttProject : exportée en basse.
+ */
+const GP_PRIORITY: Record<TaskPriority, number> = { hidden: 0, low: 0, normal: 1, high: 2, urgent: 4 };
+const FROM_GP_PRIORITY: Record<string, TaskPriority> = { '0': 'low', '1': 'normal', '2': 'high', '3': 'low', '4': 'urgent' };
 
 // ——— Utilitaires XML ———
 
@@ -80,7 +88,7 @@ export function exportGanttProjectXml(file: TeamFile, schedule: Schedule): strin
 
     const children = (schedule.hierarchy.children.get(taskId) ?? []).map((t) => t.id);
 
-    let attrs = `id="${gid}" name="${esc(task.name)}" color="${gpColor}" expand="true"`;
+    let attrs = `id="${gid}" name="${esc(task.name)}" color="${gpColor}" expand="true" priority="${GP_PRIORITY[task.priority]}"`;
 
     if (task.type === 'milestone') {
       const date = task.date ?? schedule.spanByTask.get(taskId)?.start ?? '';
@@ -246,6 +254,7 @@ export function importGanttProjectXml(xml: string): TeamFile {
     const startAttr = el.getAttribute('start') ?? '';
     const durationAttr = el.getAttribute('duration') ?? '1';
     const completeAttr = el.getAttribute('complete') ?? '0';
+    const priority = FROM_GP_PRIORITY[el.getAttribute('priority') ?? '1'] ?? 'normal';
 
     const childTaskEls = Array.from(el.children).filter((c) => c.tagName === 'task');
     const isGroup = !isMilestone && childTaskEls.length > 0;
@@ -265,6 +274,7 @@ export function importGanttProjectXml(xml: string): TeamFile {
       effort,
       remaining,
       progress: complete,
+      priority,
       date: isMilestone ? (startAttr || null) : null,
     });
 
