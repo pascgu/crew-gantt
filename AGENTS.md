@@ -15,11 +15,25 @@ npm run coverage     # core/ coverage
 npm run lint         # ESLint — also enforces the core/ purity boundary (see below)
 npm run format       # Prettier
 npm run e2e          # Playwright (chromium)
+npm run e2e:scenarios # scénarios de recette (fonctions décrites dans l'Aide) — voir plans/20261018-recette-e2e.md
 ```
 
 Run a single test file / test: `npx vitest run src/core/scheduler/blocks.test.ts` · `npx vitest run -t "nom du test"`.
 
 There is no separate `typecheck` script — `npm run build` does it (`tsc -b`). After non-trivial changes, run `npm run build` **and** `npm test`.
+
+Scénarios E2E de recette : `tests/e2e/scenarios/` — outillage dans
+[fixtures.ts](tests/e2e/scenarios/fixtures.ts) (horloge figée, hook dev `window.__crew` de
+[src/devHook.ts](src/devHook.ts), captures dans `tests/e2e/.shots/` ignoré par git). Les écarts au
+comportement documenté sont des `expect.soft` listés dans
+[plans/20261018-recette-e2e.md](plans/20261018-recette-e2e.md) — tenir ce fichier à jour.
+
+## Plans (`plans/`)
+Tout **nouveau** fichier de plan se nomme `AAAAMMJJ-nom-du-plan.md`, avec la date du jour de sa
+création (ex. `20261018-recette-e2e.md`). Les documents de référence existants (`GDD.md`,
+`conflicts.md`, `TODO.md`, `agent-conversations.md`) gardent leur nom. Quand une demande donne lieu
+à un travail notable, créer un plan qui reprend **la demande**, **ce qui a été fait** et une section
+**« Implémentation »** (découvertes, corrections en cours de route), en référençant les plans liés.
 
 ## Architecture
 

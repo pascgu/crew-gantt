@@ -874,6 +874,7 @@ export function GanttChart({
         {visible.map((row, i) => (
           <g
             key={row.task.id}
+            data-task-id={row.task.id}
             transform={`translate(0, ${(windowStart + i) * ROW_HEIGHT})`}
             onContextMenu={(e) => rowMenu(e, row.task)}
             onMouseEnter={() => onHoverTask(row.task.id)}
@@ -1444,6 +1445,7 @@ function RowBars({
         return (
           <g key={r.block.id}>
             <rect
+              data-block-id={r.block.id}
               x={x}
               y={barY}
               width={w}
@@ -1673,6 +1675,7 @@ function RowBars({
       {/* poignée de création de lien (décalée à +11 pour ne pas chevaucher la poignée de fin) */}
       {/* Tâche à 0 j : le marqueur ne fait que 5px, on se cale sur son bord droit visuel et non sur xEnd (un jour plus loin). */}
       <circle
+        data-link-handle=""
         cx={(zeroEffort ? xStart + 5 : xEnd) + 11}
         cy={mid}
         r={4}
@@ -2418,6 +2421,7 @@ function LinksLayer({
           <g key={p.key}>
             {/* Zone de hit fine (≈ épaisseur du trait, sans marge), vertical + horizontal tronqué */}
             <path
+              data-link-key={p.key}
               d={p.hitD}
               fill="none"
               stroke="transparent"

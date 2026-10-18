@@ -19,6 +19,9 @@ import { t } from './i18n/fr';
 
 startAutosave();
 
+// Hook de test (window.__crew) pour les scénarios Playwright — jamais embarqué en prod.
+if (import.meta.env.DEV) void import('./devHook');
+
 /** Fichier passé en argument au lancement (association .cgan / double-clic), à consommer une fois. */
 async function takeStartupFile(): Promise<string | null> {
   if (!isTauriRuntime()) return null;

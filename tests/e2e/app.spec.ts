@@ -23,11 +23,9 @@ test('créer une tâche via le menu de ligne, la renommer inline', async ({ page
   await firstRow.hover();
   await firstRow.getByRole('button', { name: 'Actions' }).click();
   await page.getByRole('button', { name: 'Insérer une tâche après' }).click();
-  // renommage inline dans le tableau
-  const newName = page.getByText('Nouvelle tâche').first();
-  await expect(newName).toBeVisible();
-  await newName.click();
+  // la nouvelle tâche s'ouvre directement en renommage inline
   const input = page.locator('div.group\\/row input:focus');
+  await expect(input).toHaveValue('Nouvelle tâche');
   await input.fill('Tâche E2E');
   await input.press('Enter');
   await expect(page.getByText('Tâche E2E').first()).toBeVisible();
@@ -39,7 +37,7 @@ test('boutons « + » par niveau : ajouter une sous-tâche à la ligne sélectio
   const firstRow = page.locator('div.group\\/row').first();
   await firstRow.click();
   await page.getByRole('button', { name: 'Ajouter une sous-tâche' }).first().click();
-  await expect(page.getByText('Nouvelle tâche').first()).toBeVisible();
+  await expect(page.locator('div.group\\/row input:focus')).toHaveValue('Nouvelle tâche');
 });
 
 test('annuler / rétablir au clavier', async ({ page }) => {
@@ -80,10 +78,8 @@ test('réunion : double-clic sur une ligne ouvre le panneau de tâche', async ({
   await expect(page.getByText('Dév. back').nth(1)).toBeVisible();
 });
 
-test('export CSV des tâches via le menu « … » du Gantt', async ({ page }) => {
-  // Les contrôles sont repliés par défaut — ouvrir le panneau ⚙ d'abord
-  await page.getByRole('button', { name: 'Contrôles Gantt' }).click();
-  await page.getByRole('button', { name: "Plus d'actions" }).click();
+test('export CSV des tâches via le menu Import / Export', async ({ page }) => {
+  await page.getByRole('button', { name: 'Import / Export' }).click();
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Exporter les tâches en CSV' }).click();
   const download = await downloadPromise;

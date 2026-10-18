@@ -617,6 +617,7 @@ export function TaskRowCells({
 
   return (
     <div
+      data-task-id={task.id}
       style={{ fontSize }}
       className={`group/row relative flex h-[21px] items-center border-b border-line/60 ${
         selected ? 'bg-accent-wash/60' : hovered ? 'bg-ink/[0.03]' : 'bg-surface'

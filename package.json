@@ -13,6 +13,7 @@
     "lint": "eslint src",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "e2e": "playwright test",
+    "e2e:scenarios": "playwright test tests/e2e/scenarios",
     "gen-icons": "node scripts/gen-icons.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

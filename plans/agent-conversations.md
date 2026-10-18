@@ -509,6 +509,13 @@ posée, le conflit disparaît.
 - **Outillage & récents.** `docs/` → **`plans/`** (GDD.md, conflicts.md, TODO.md). Boutons
   d'insertion au survol de la liste + modificateurs CTRL/SHIFT. Renommage **`.crewgantt.json` →
   `.cgan`**. Fix proposition : **fusion des blocs adjacents** issus du découpage à cheval sur today.
+- **Recette E2E automatique (2026-10-18).** Demande de Pascal : un moyen pour l'agent de tester
+  lui-même. Choix : des **scénarios Playwright qui couvrent plusieurs fonctions d'un coup** (7 au
+  total, peu de captures) plutôt qu'un test par geste ; état lu via un hook dev `window.__crew`
+  (vérifier le modèle, pas les pixels) ; horloge figée pour une démo reproductible ; écarts en
+  `expect.soft` pour dérouler tout le scénario. Consigne : **noter les bugs dans
+  [20261018-recette-e2e.md](20261018-recette-e2e.md) sans les corriger**, sauf blocage. Premier passage : ~20 constats,
+  dont un sérieux (R1 : un aller-retour de date en Réunion modifie les restes).
 
 ---
 

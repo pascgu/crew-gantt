@@ -19,11 +19,24 @@ npm run coverage     # core/ coverage
 npm run lint         # ESLint — also enforces the core/ purity boundary (see below)
 npm run format       # Prettier
 npm run e2e          # Playwright (chromium)
+npm run e2e:scenarios # scénarios de recette (fonctions décrites dans l'Aide) — voir plus bas
 ```
 
 Run a single test file / test: `npx vitest run src/core/scheduler/blocks.test.ts` · `npx vitest run -t "nom du test"`.
 
 There is no separate `typecheck` script — `npm run build` does it (`tsc -b`). After non-trivial changes, run `npm run build` **and** `npm test`.
+
+### Scénarios E2E de recette (`npm run e2e:scenarios`)
+`tests/e2e/scenarios/*.spec.ts` déroulent les fonctionnalités décrites dans l'onglet Aide, une
+douzaine de gestes par scénario. Outillage dans [fixtures.ts](tests/e2e/scenarios/fixtures.ts) :
+fixture `app` (horloge figée au mercredi 2026-10-21, dialogues natifs auto-répondus via
+`answerNextDialogs`, erreurs JS collectées), lecture de l'état métier via le hook dev
+`window.__crew` ([src/devHook.ts](src/devHook.ts), absent du build de prod), helpers `row()` /
+`bar()` / `drag()` / `dragTo()` / `hoverLink()` / `contextMenu()` qui s'appuient sur les attributs
+`data-task-id`, `data-block-id`, `data-link-handle`, `data-link-key`, et `shot()` (captures dans
+`tests/e2e/.shots/`, ignoré par git). Les écarts au comportement documenté sont des `expect.soft` :
+ils échouent tant que le point listé dans [plans/20261018-recette-e2e.md](plans/20261018-recette-e2e.md) n'est pas
+réglé — **tenir ce fichier à jour** (constats, puis cocher quand corrigé).
 
 ### Captures d'écran / vérification visuelle (Playwright)
 Pour vérifier visuellement un rendu (et pas seulement via les tests), utiliser **Playwright** — chromium
@@ -48,6 +61,14 @@ on a donc des données réelles à l'écran.
 Recompute is **memoized by file reference** in [src/state/schedule.ts](src/state/schedule.ts): because all mutations go through Immer, any change produces a new `file` reference, which invalidates the one-slot cache. Consume it via the `useSchedule()` / `useConflicts()` hooks — never call `computeSchedule` directly from components.
 
 Le catalogue complet des conflits (types, affichage, résolution) est dans [plans/conflicts.md](plans/conflicts.md). Maintenir ce fichier à jour lors de toute modification impactant la détection, l'affichage ou la résolution d'un conflit.
+
+### Nommage des plans (`plans/`)
+Tout **nouveau** fichier de plan créé dans `plans/` se nomme `AAAAMMJJ-nom-du-plan.md`, avec la
+date du jour de sa création (ex. `20261018-recette-e2e.md`). Les documents de référence existants
+(`GDD.md`, `conflicts.md`, `TODO.md`, `agent-conversations.md`) gardent leur nom. Quand une demande
+donne lieu à un travail notable, créer un plan qui reprend **la demande**, **ce qui a été fait**
+et une section **« Implémentation »** (découvertes, corrections en cours de route), en référençant
+les plans liés.
 
 ### Base de connaissances des échanges
 [plans/agent-conversations.md](plans/agent-conversations.md) capitalise nos discussions de conception : concepts, questions, explications des sujets complexes, décisions prises (et pistes écartées avec leur raison), et **exemples concrets**. **L'alimenter au fil de l'eau** : après tout échange où l'on clarifie un concept, tranche un arbitrage de design, ou voit un exemple parlant, y consigner le sujet, le raisonnement, la décision et l'exemple (et mettre à jour la date de dernière synthèse). **La consulter avant tout changement structurant** pour savoir ce qui a déjà été fait, essayé ou rejeté, et pourquoi.
