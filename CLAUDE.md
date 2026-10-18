@@ -20,6 +20,7 @@ npm run lint         # ESLint — also enforces the core/ purity boundary (see b
 npm run format       # Prettier
 npm run e2e          # Playwright (chromium)
 npm run e2e:scenarios # scénarios de recette (fonctions décrites dans l'Aide) — voir plus bas
+npm run e2e:tauri    # mêmes scénarios + tests bureau (T6…) dans l'app Tauri (WebView2 via CDP)
 ```
 
 Run a single test file / test: `npx vitest run src/core/scheduler/blocks.test.ts` · `npx vitest run -t "nom du test"`.
@@ -37,6 +38,20 @@ fixture `app` (horloge figée au mercredi 2026-10-21, dialogues natifs auto-rép
 `tests/e2e/.shots/`, ignoré par git). Les écarts au comportement documenté sont des `expect.soft` :
 ils échouent tant que le point listé dans [plans/20261018-plan-v1-3.md](plans/20261018-plan-v1-3.md) n'est pas
 réglé — **tenir ce fichier à jour** (constats, puis cocher quand corrigé).
+Sélectionner une ligne de liste avec `app.selectRow(nom)` (clic dans la marge de la cellule Nom) et non
+`row().click()` : le centre de la ligne peut tomber sur une cellule éditable, qui prend alors le focus.
+
+### Recette dans l'app bureau (`npm run e2e:tauri`)
+[scripts/e2e-tauri.mjs](scripts/e2e-tauri.mjs) lance `tauri dev` avec
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` et un profil WebView2 jetable
+(`WEBVIEW2_USER_DATA_FOLDER`), puis Playwright en projet « tauri » : la fixture `app` se connecte à la
+fenêtre via CDP (`CREW_TAURI_CDP`), vide son stockage et recharge la démo à chaque test. Tests propres
+au bureau dans `tests/e2e/tauri/` (T6 : une instance par fichier, secours par fichier, doublon signalé).
+Limite : le glisser-déposer simulé reste interne au moteur web — un vrai glisser-déposer Windows se
+vérifie à la main (recette M3/M4 du plan v1.3). Autre limite WebView2 : un `confirm` ouvert *pendant*
+un geste injecté (touche, fin de glisser) est validé d'office sans événement Playwright — garder ces
+vérifications sous `if (!TAURI_CDP)`. Dans la fixture, la `page` des scénarios **est** la fenêtre
+bureau ; ne pas émuler le viewport (clics décalés) : la fenêtre de test est lancée à 1680×950.
 
 ### Captures d'écran / vérification visuelle (Playwright)
 Pour vérifier visuellement un rendu (et pas seulement via les tests), utiliser **Playwright** — chromium
@@ -59,6 +74,16 @@ on a donc des données réelles à l'écran.
 `computeSchedule(file, today)` in [src/core/scheduler/schedule.ts](src/core/scheduler/schedule.ts) is the single entry point that turns a `TeamFile` into a `Schedule` (resolved blocks, spans, group aggregates, earliest-start per link graph, load index, cycle detection, conflicts). Everything the UI draws comes from this object.
 
 Recompute is **memoized by file reference** in [src/state/schedule.ts](src/state/schedule.ts): because all mutations go through Immer, any change produces a new `file` reference, which invalidates the one-slot cache. Consume it via the `useSchedule()` / `useConflicts()` hooks — never call `computeSchedule` directly from components.
+
+**La date de réunion est une vue (v1.3, R1).** `computeSchedule(file, reviewDate, today)` travaille sur
+`fileAsOf(...)` ([asOf.ts](src/core/scheduler/asOf.ts)) : les restes stockés valent *au jour d'aujourd'hui*,
+et sont vus à la date de réunion (capacité planifiée entre les deux déduite) sans rien écrire.
+`schedule.ctx.file` porte donc les restes vus — afficher les tâches du planning (`schedule.hierarchy`),
+pas celles du store, et toute écriture se calcule avec le vrai aujourd'hui (`setTaskRemaining` convertit).
+
+**Hors calculs ≠ hors vue** ([visibility.ts](src/core/model/visibility.ts)) : une tâche annulée ou d'un
+projet archivé sort des calculs (`ctx.isCounted`) ; une tâche de priorité « masquée » sort seulement de la
+vue (liste, Gantt, Réunion) et compte toujours dans la charge, ses conflits étant comptés à part.
 
 Le catalogue complet des conflits (types, affichage, résolution) est dans [plans/conflicts.md](plans/conflicts.md). Maintenir ce fichier à jour lors de toute modification impactant la détection, l'affichage ou la résolution d'un conflit.
 

@@ -14,12 +14,14 @@
 > **Sources** — synthèse des transcripts de sessions agent (répertoire projet de Claude Code).
 > Périmètre : produit uniquement (les échanges sur l'usage de Claude Code ne sont pas inclus).
 >
-> **Dernière synthèse** : 2026-06-26 (couvre la genèse → Phase 8 → conflits/liens/propositions →
+> **Dernière synthèse** : 2026-10-18 (couvre la genèse → Phase 8 → conflits/liens/propositions →
 > renommage `.cgan` → fusion de blocs de proposition → ghosts de placement / conflit « non planifiée » →
 > jauge d'affectation, clic-droit planification, icônes conflits Gantt → **refonte de l'aide**
 > (onglet dédié, MiniGantt/MiniList annotés, retrait de Mermaid) → **affinages de l'aide**
 > (repères numérotés, géométrie des liens reprise du vrai Gantt, deadline ancrée, mémoire de scroll) →
-> **v1.1** : désambiguïsation du code de lien `P` avec délai positif (`P2+1D`, cf. §1.5)).
+> **v1.1** : désambiguïsation du code de lien `P` avec délai positif (`P2+1D`, cf. §1.5)) →
+> **v1.3** (2026-10-18) : date de réunion = vue, hors calculs vs hors vue, propositions alignées sur
+> les conflits, réunion sur instantané, un programme par fichier (cf. §1.15).
 >
 > Documents liés : [GDD.md](GDD.md) (rationale de design profond), [conflicts.md](conflicts.md)
 > (catalogue des conflits), [TODO.md](TODO.md).
@@ -189,9 +191,11 @@ modifiable en réunion → devient le nouvel « aujourd'hui ».
 - **Deux teintes pour les deux types** (effort *et* fixed, par cohérence). La teinte claire
   (réalisé/passé) doit être **proche** de la sombre (l'écart ne saute aux yeux que sur les tâches
   en cours). Opacité passé calée à **0.6** (essais : 0.28 trop contrasté, 0.7 puis ramené à 0.6).
-- Point d'implémentation tranché : avancer la date de réunion **mute le `remaining`** de toutes
-  les tâches effort en cours (une entrée undo) — condition pour que le reste « diminue tout
-  seul » visuellement. À surveiller si trop intrusif dans le journal de réunion.
+- ~~Point d'implémentation tranché : avancer la date de réunion **mute le `remaining`** de toutes
+  les tâches effort en cours (une entrée undo).~~ **Remplacé en v1.3 (R1, cf. §1.15)** : la mutation
+  n'était pas réversible (un aller-retour de date modifiait définitivement les restes et passait le
+  fichier « modifié »). Le reste « diminue tout seul » désormais **à l'affichage** seulement : il est
+  vu à la date de réunion, rien n'est écrit.
 
 ### 1.5 Liens = contraintes faibles « au plus tôt » (jamais des aimants)
 
@@ -475,6 +479,42 @@ un conflit « non planifiée ». Je sélectionne la 1ʳᵉ → 2 ghosts (aujourd
 je survole « Continuité » → il devient l'aperçu de la barre, l'autre s'efface ; je clique → barre 1 j
 posée, le conflit disparaît.
 
+### 1.15 v1.3 — décisions de la recette et des tickets (2026-10-18)
+
+Plan détaillé : [20261018-plan-v1-3.md](20261018-plan-v1-3.md) (Partie B « Décisions de Pascal » et
+section « Implémentation »). Points de conception à retenir :
+
+- **Date de réunion = vue (R1).** Question : comment garder « le reste diminue tout seul » sans muter
+  le fichier ? Réponse : les restes stockés valent *au jour d'aujourd'hui* ; vus depuis une date de
+  réunion, on déduit la capacité planifiée entre les deux (`fileAsOf`, `core/scheduler/asOf.ts`).
+  Les fins calculées ne bougent pas, l'aller-retour est neutre, une saisie de reste à la date de
+  réunion est convertie (`stocké = vu + capacité d'ici là`). Piste écartée : trait purement visuel
+  (calculs sur aujourd'hui) — plus simple mais le reste n'« avançait » plus avec la date.
+  *Exemple* : Dév. back (Chloé 100 % × part 30 %), reste 12 le mercredi 21/10 ; réunion posée au
+  vendredi 23/10 → reste vu 11,4 ; on saisit 10 → stocké 10,6 ; retour au 21/10 → 10,6, rien d'autre
+  n'a bougé.
+- **Hors calculs ≠ hors vue.** Annulée **ou projet archivé** = hors calculs (ni charge, ni conflit,
+  ne contraint plus ses successeurs). Priorité « masquée » = hors vue (liste, Gantt, Réunion) mais
+  toujours dans la charge, conflits comptés à part. Pascal a choisi « archivé = hors calculs » (un
+  projet archivé est clos), contre « archivé = masqué ».
+- **Propositions alignées sur la détection (R3).** Le moteur découpait autour de tout jour à capacité
+  nulle, motif hebdo compris (Migration CI découpée en 7 blocs à cause des mercredis d'Alice, raison
+  « effort non casé » sans conflit). Désormais : proposition seulement sur conflit détecté, découpe
+  seulement autour des absences datées, raison `no-capacity` ajoutée. Conséquence : un bloc **ouvert**
+  qui traverse une absence n'est plus redécoupé (il l'absorbe, ce n'est pas un conflit).
+- **Prédécesseur « 0 jour » (T7)** : le successeur peut démarrer le même jour. Un jalon garde
+  « date + 1 j ouvré » (non demandé, sémantique « après le jalon » conservée).
+- **Réunion sur instantané (T11).** Chaque clôture stocke dans l'entrée de journal un instantané compact
+  (par tâche : statut, effort, reste vu, début/fin, équipe, nb de notes ; par ressource : absences et
+  parts). La réunion suivante s'y compare : terminées / reportées depuis le JJ/MM par personne, résumé
+  complet. Fichier sans instantané (≤ 1.2) : comparaison à l'état du fichier à son ouverture.
+- **Un programme par fichier (T6)** + secours IndexedDB **par fichier** ; Pascal a choisi « ouvrir quand
+  même + avertir » si le même fichier est déjà ouvert ailleurs (pas de blocage). Les fenêtres se parlent
+  par BroadcastChannel (profil WebView2 partagé) — vérifié en vrai dans l'app bureau (`npm run e2e:tauri`).
+- **Format de fichier v2** : les nouveaux champs feraient perdre silencieusement des données à une app
+  1.2 (Zod retire les clés inconnues). Le saut de version fait refuser le fichier par la 1.2 au lieu de
+  le tronquer — zéro perte.
+
 ---
 
 ## 2. Journal chronologique des rounds
@@ -516,6 +556,9 @@ posée, le conflit disparaît.
   `expect.soft` pour dérouler tout le scénario. Consigne : **noter les bugs dans
   [20261018-plan-v1-3.md](20261018-plan-v1-3.md) sans les corriger**, sauf blocage. Premier passage : ~20 constats,
   dont un sérieux (R1 : un aller-retour de date en Réunion modifie les restes).
+- **v1.3 — réalisation du plan (2026-10-18).** 4 contradictions soumises à Pascal avant de coder
+  (R1, R3, périmètre de l'archivage, doublon T6), puis Parties A, B et C du plan ; recette automatique
+  étendue à l'app bureau (scénarios rejoués dans WebView2 via CDP). Détail : §1.15.
 
 ---
 
@@ -569,6 +612,15 @@ Format : décision retenue ↔ option(s) écartée(s) ↔ raison.
   - **Réunion : instantané du plan mémorisé dans l'entrée de journal** ↔ *baseline automatique à chaque
     clôture* ↔ ne pas polluer les baselines (références volontaires) ; l'instantané garde aussi statuts,
     restes et équipes.
+- **Réalisation v1.3 (2026-10-18)** :
+  - **Date de réunion = vue (reste vu à la date)** ↔ *mutation du reste (v1.0)* / *trait purement
+    visuel* ↔ réversible, rien d'écrit, et le reste « avance » quand même avec la date.
+  - **Propositions seulement sur conflit, découpe autour des absences datées** ↔ *découpe autour de tout
+    jour sans capacité* ↔ 7 blocs pour des mercredis chômés = bruit, et raison affichée fausse.
+  - **Projet archivé = hors calculs** ↔ *hors vue seulement* ↔ choix de Pascal (projet clos).
+  - **Doublon de fichier entre fenêtres : ouvrir + avertir** ↔ *ramener la fenêtre existante* /
+    *aucun contrôle* ↔ choix de Pascal (simple, sans blocage).
+  - **Format de fichier v2** ↔ *rester en v1* ↔ une app 1.2 tronquerait les nouveaux champs en silence.
 
 ---
 

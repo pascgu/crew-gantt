@@ -123,3 +123,10 @@ sérieux : un aller-retour de date en Réunion modifie définitivement les reste
   `showSaveFilePicker` via `page.addInitScript`, pour couvrir le chemin Firefox.
 - Étendre aux écrans non couverts : Paramètres (fériés, colonnes du Gantt, archivage), colonnes de
   la liste (filtres, largeur, ordre), frise des jalons.
+
+### Suite (v1.3, 2026-10-18)
+- Tous les constats sont corrigés : les `expect.soft` passent (24/24 dans le navigateur).
+- Les scénarios tournent aussi **dans l'app bureau** : `npm run e2e:tauri` (16/16 dans WebView2 via CDP,
+  + test T6 multi-instances). Outillage et pièges : section « Implémentation » de
+  [20261018-plan-v1-3.md](20261018-plan-v1-3.md).
+- Nouveau helper `app.selectRow()` : ne plus cliquer le centre d'une ligne (cellule éditable possible).

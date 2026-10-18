@@ -10,7 +10,7 @@
  *   mais le scénario continue, pour couvrir un maximum de fonctionnalités par passage.
  * - Captures peu nombreuses, rangées dans tests/e2e/.shots/<scénario>/ (ignoré par git).
  */
-import { test as base, expect, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { chromium, test as base, expect, type Browser, type Locator, type Page, type TestInfo } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -37,17 +37,28 @@ export class App {
     readonly page: Page,
     private readonly info: TestInfo,
   ) {
-    page.on('dialog', (d) => {
-      this.dialogs.push({ type: d.type(), message: d.message() });
-      const reply = this.replies.shift();
-      if (reply === false) void d.dismiss();
-      else if (typeof reply === 'string') void d.accept(reply);
-      else void d.accept(d.type() === 'prompt' ? d.defaultValue() : undefined);
-    });
-    page.on('pageerror', (e) => this.errors.push(`pageerror: ${e.message}`));
-    page.on('console', (m) => {
-      if (m.type() === 'error') this.errors.push(`console: ${m.text()}`);
-    });
+    page.on('dialog', this.onDialog);
+    page.on('pageerror', this.onPageError);
+    page.on('console', this.onConsole);
+  }
+
+  private onDialog = (d: import('@playwright/test').Dialog) => {
+    this.dialogs.push({ type: d.type(), message: d.message() });
+    const reply = this.replies.shift();
+    if (reply === false) void d.dismiss();
+    else if (typeof reply === 'string') void d.accept(reply);
+    else void d.accept(d.type() === 'prompt' ? d.defaultValue() : undefined);
+  };
+  private onPageError = (e: Error) => this.errors.push(`pageerror: ${e.message}`);
+  private onConsole = (m: import('@playwright/test').ConsoleMessage) => {
+    if (m.type() === 'error') this.errors.push(`console: ${m.text()}`);
+  };
+
+  /** Détache les écouteurs : en mode bureau, la même page (connexion CDP partagée) sert au test suivant. */
+  dispose() {
+    this.page.off('dialog', this.onDialog);
+    this.page.off('pageerror', this.onPageError);
+    this.page.off('console', this.onConsole);
   }
 
   /** Réponse(s) aux prochains dialogues natifs. Par défaut tout est accepté. */
@@ -224,16 +235,47 @@ function slug(s: string): string {
     .replace(/^-|-$/g, '');
 }
 
+/**
+ * Mode « app bureau » (C2) : avec CREW_TAURI_CDP (ex. http://127.0.0.1:9222, posé par
+ * `npm run e2e:tauri`), les scénarios pilotent la fenêtre WebView2 de l'app Tauri via CDP au lieu
+ * d'un Chromium neuf. Le profil WebView2 est jetable (WEBVIEW2_USER_DATA_FOLDER) : on peut vider son
+ * stockage entre deux tests pour repartir de la démo, comme un contexte de navigateur neuf.
+ */
+export const TAURI_CDP = process.env.CREW_TAURI_CDP;
+
+/** Une seule connexion CDP pour tout le passage (plusieurs connexions sur la même page interfèrent). */
+let tauriBrowser: Browser | null = null;
+
+async function tauriPage(): Promise<Page> {
+  tauriBrowser ??= await chromium.connectOverCDP(TAURI_CDP!);
+  const page = tauriBrowser.contexts().flatMap((c) => c.pages()).find((p) => p.url().startsWith('http://localhost'));
+  if (!page) throw new Error('Aucune fenêtre CrewGantt trouvée via CDP');
+  // repartir d'un état neuf : tout le stockage de l'origine (préférences, secours, fichiers récents),
+  // y compris les bases IndexedDB que l'app tient ouvertes (fermées de force par le navigateur).
+  // La fenêtre de test est déjà à 1680×950 (cf. scripts/e2e-tauri.mjs) : pas d'émulation de viewport.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Storage.clearDataForOrigin', { origin: new URL(page.url()).origin, storageTypes: 'all' });
+  await cdp.detach();
+  return page;
+}
+
 export const test = base.extend<{ app: App }>({
+  // En mode bureau, la fixture `page` elle-même devient la fenêtre WebView2 : les scénarios utilisent
+  // `page` directement (sinon leurs gestes partiraient dans le Chromium vierge de Playwright).
+  page: async ({ page }, use) => {
+    await use(TAURI_CDP ? await tauriPage() : page);
+  },
   app: async ({ page }, use, testInfo) => {
     // Un scénario enchaîne beaucoup de gestes (et des expect.soft qui attendent 5 s en cas d'écart)
     testInfo.setTimeout(120_000);
     await page.clock.setFixedTime(new Date(`${TODAY}T10:00:00`));
     const app = new App(page, testInfo);
-    await page.goto('/');
+    if (TAURI_CDP) await page.reload();
+    else await page.goto('/');
     await page.waitForFunction(() => !!window.__crew);
     await expect(page.locator('#gantt-chart-svg')).toBeVisible();
     await use(app);
+    app.dispose();
     // Bilan : dialogues et erreurs JS joints au rapport, erreurs = écart consigné.
     await testInfo.attach('dialogs.json', { body: JSON.stringify(app.dialogs, null, 2), contentType: 'application/json' });
     expect.soft(app.errors, 'erreurs JS pendant le scénario').toEqual([]);

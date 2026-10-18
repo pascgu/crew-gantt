@@ -24,6 +24,7 @@ npm test           # Vitest — moteur de calcul couvert à ~99 %
 npm run coverage   # couverture du core
 npm run e2e        # Playwright (chromium) — parcours clés
 npm run e2e:scenarios  # scénarios de recette des fonctions décrites dans l'Aide (constats : plans/20261018-plan-v1-3.md)
+npm run e2e:tauri  # les mêmes scénarios + tests propres au bureau, dans l'app Tauri (WebView2 piloté via CDP)
 npm run lint       # ESLint (core/ sans import React/DOM, vérifié)
 npm run build      # tsc + vite → dist/
 npm run gen-icons  # régénère les icônes PNG dans public/ depuis les SVG sources
@@ -82,8 +83,9 @@ npm run tauri:build   # génère l'installeur NSIS (.exe) sous src-tauri/target/
 ```
 
 **Association de fichier** : après installation, double-cliquer un `.cgan` dans l'explorateur ouvre
-directement CrewGantt dessus. Si l'app tourne déjà, le fichier est transmis à la fenêtre existante
-(pas de deuxième fenêtre) grâce au plugin *single-instance*.
+directement CrewGantt dessus. Depuis la 1.3, **un programme par fichier** : chaque double-clic ouvre sa
+propre fenêtre ; la sauvegarde de secours est rangée par fichier, et l'app prévient si le même fichier
+est déjà ouvert dans une autre fenêtre (les deux écriraient dans le même fichier).
 
 **Binaire non signé** : Windows SmartScreen affiche un avertissement « éditeur inconnu » au premier
 lancement de l'installeur (pas de certificat de signature de code) — c'est attendu, cliquer sur

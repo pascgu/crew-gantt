@@ -4,7 +4,7 @@
  * Gestes : poignée ronde, Shift au départ, Shift au relâcher, lien qui boucle → scinder ;
  * Légende : flèche = lien, trait rouge = lien violé ; Où trouver : link.
  */
-import { expect, test } from './fixtures';
+import { expect, test, TAURI_CDP } from './fixtures';
 
 test('liens : poignée, Shift départ/arrivée, infobulle code, violation, cycle → scission, panneau', async ({
   app,
@@ -76,13 +76,16 @@ test('liens : poignée, Shift départ/arrivée, infobulle code, violation, cycle
   await (await app.bar('Recette')).hover({ force: true });
   await app.dragTo(await handle('Recette'), await app.bar('Dév. back'));
   const d = app.lastDialog();
-  expect.soft(d?.message ?? '', 'proposition de scission sur cycle').toMatch(/cycle/i);
+  // App bureau : un confirm ouvert pendant un geste injecté par CDP est validé d'office par WebView2,
+  // sans événement Playwright — on ne peut ni lire ni choisir la réponse (cf. plan v1.3, Implémentation).
+  if (!TAURI_CDP) expect.soft(d?.message ?? '', 'proposition de scission sur cycle').toMatch(/cycle/i);
   expect.soft(await app.crew((c) => c.cycle()), 'aucun cycle après scission').toBeNull();
   const backKids = await app.children('Dév. back');
   expect.soft(backKids.length, 'Dév. back scindée (sa fin devient une sous-tâche dépendante)').toBeGreaterThan(0);
   await app.shot('cycle resolu par scission');
 
   // Refus de la scission : Maquettes attend Spécifications ; tirer Maquettes → Spécifications, refuser
+  if (TAURI_CDP) return; // refuser un confirm est impossible dans WebView2 via CDP (voir plus haut)
   const nDialogs = app.dialogs.length;
   app.answerNextDialogs(false);
   await (await app.bar('Maquettes', 1)).hover({ force: true });

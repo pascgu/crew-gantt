@@ -3,7 +3,7 @@
  * Aide couverte : Prise en main §1 (Démarrer) et §7 (Grouper) ; Gestes : Inser, ↑/↓, Entrée,
  * Suppr, ALT+flèches, Ctrl+Z/Ctrl+Y, clic droit sur une sélection ; Où trouver : addTask, group.
  */
-import { expect, test } from './fixtures';
+import { expect, test, TAURI_CDP } from './fixtures';
 
 test('structure : projets, boutons +, clavier, groupe englobant, suppression et annulation', async ({
   app,
@@ -120,7 +120,8 @@ test('structure : projets, boutons +, clavier, groupe englobant, suppression et 
   await app.selectRow('Inser E2E');
   app.answerNextDialogs(true);
   await page.keyboard.press('Delete');
-  expect.soft(app.lastDialog()?.message).toContain('Inser E2E');
+  // App bureau : confirm ouvert pendant une touche injectée par CDP = validé d'office, sans événement
+  if (!TAURI_CDP) expect.soft(app.lastDialog()?.message).toContain('Inser E2E');
   expect.soft(await app.task('Inser E2E')).toBeNull();
   await page.keyboard.press('Control+z');
   expect.soft(await app.task('Inser E2E')).not.toBeNull();
