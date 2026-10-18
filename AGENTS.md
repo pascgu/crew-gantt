@@ -15,11 +15,29 @@ npm run coverage     # core/ coverage
 npm run lint         # ESLint — also enforces the core/ purity boundary (see below)
 npm run format       # Prettier
 npm run e2e          # Playwright (chromium)
+npm run e2e:scenarios # scénarios de recette (fonctions décrites dans l'Aide) — voir plans/20261018-plan-v1-3.md
+npm run e2e:tauri    # mêmes scénarios + tests bureau (tests/e2e/tauri) dans l'app Tauri (WebView2 via CDP)
 ```
 
 Run a single test file / test: `npx vitest run src/core/scheduler/blocks.test.ts` · `npx vitest run -t "nom du test"`.
 
 There is no separate `typecheck` script — `npm run build` does it (`tsc -b`). After non-trivial changes, run `npm run build` **and** `npm test`.
+
+Scénarios E2E de recette : `tests/e2e/scenarios/` — outillage dans
+[fixtures.ts](tests/e2e/scenarios/fixtures.ts) (horloge figée, hook dev `window.__crew` de
+[src/devHook.ts](src/devHook.ts), captures dans `tests/e2e/.shots/` ignoré par git). Les écarts au
+comportement documenté sont des `expect.soft` listés dans
+[plans/20261018-plan-v1-3.md](plans/20261018-plan-v1-3.md) — tenir ce fichier à jour. Sélectionner une
+ligne avec `app.selectRow(nom)` (pas `row().click()`, dont le centre peut tomber sur une cellule
+éditable). Recette bureau : [scripts/e2e-tauri.mjs](scripts/e2e-tauri.mjs) lance `tauri dev` avec un
+port de débogage WebView2 et un profil jetable ; la fixture se connecte via CDP (`CREW_TAURI_CDP`).
+
+## Plans (`plans/`)
+Tout **nouveau** fichier de plan se nomme `AAAAMMJJ-nom-du-plan.md`, avec la date du jour de sa
+création (ex. `20261018-plan-v1-3.md`). Les documents de référence existants (`GDD.md`,
+`conflicts.md`, `TODO.md`, `agent-conversations.md`) gardent leur nom. Quand une demande donne lieu
+à un travail notable, créer un plan qui reprend **la demande**, **ce qui a été fait** et une section
+**« Implémentation »** (découvertes, corrections en cours de route), en référençant les plans liés.
 
 ## Architecture
 
@@ -32,6 +50,13 @@ There is no separate `typecheck` script — `npm run build` does it (`tsc -b`). 
 `computeSchedule(file, today)` in [src/core/scheduler/schedule.ts](src/core/scheduler/schedule.ts) is the single entry point that turns a `TeamFile` into a `Schedule` (resolved blocks, spans, group aggregates, earliest-start per link graph, load index, cycle detection, conflicts). Everything the UI draws comes from this object.
 
 Recompute is **memoized by file reference** in [src/state/schedule.ts](src/state/schedule.ts): because all mutations go through Immer, any change produces a new `file` reference, which invalidates the one-slot cache. Consume it via the `useSchedule()` / `useConflicts()` hooks — never call `computeSchedule` directly from components.
+
+**La date de réunion est une vue (v1.3).** Les restes stockés valent au jour d'aujourd'hui ;
+`computeSchedule(file, reviewDate, today)` les voit à la date de réunion via `fileAsOf`
+([asOf.ts](src/core/scheduler/asOf.ts)) sans rien écrire. Afficher les tâches du planning
+(`schedule.hierarchy`), pas celles du store ; toute écriture se calcule avec le vrai aujourd'hui.
+**Hors calculs ≠ hors vue** ([visibility.ts](src/core/model/visibility.ts)) : annulée / projet archivé =
+hors calculs (`ctx.isCounted`) ; priorité « masquée » = hors vue seulement (compte dans la charge).
 
 ### State, mutations, and undo
 Single Zustand store ([src/state/store.ts](src/state/store.ts)) using `immer` + `zundo` (`temporal`). All business edits go through `mutate((file) => { ... })`, which applies an Immer draft and sets `dirty`. Higher-level domain actions live in `src/state/*Actions.ts` (e.g. `taskActions`, `resourceActions`, `proposalActions`) and wrap `mutate`.
@@ -62,6 +87,7 @@ React 18 + Tailwind v4. The Gantt is **hand-rolled SVG** (no Gantt library) — 
 
 ## Distribution Windows (Tauri)
 App native Windows via Tauri v2 (`src-tauri/`) — prérequis, commandes et procédure de release complète dans [README.md](README.md#application-windows-native-tauri). Seule règle à retenir ici : la version vient **uniquement de `package.json`** — ne jamais toucher `src-tauri/Cargo.toml` (son `version` est figé à `0.0.0` à dessein).
+`npm run tauri:build` copie l'installeur de la version courante dans `installers/` (racine, ignoré par git) pour le joindre à une release GitHub.
 
 ## Icônes
 Source unique : [public/icon-source.svg](public/icon-source.svg) (512×512, sert à tout sauf le 16px)

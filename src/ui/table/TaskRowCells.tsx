@@ -1,10 +1,10 @@
-import { useEffect, useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import type { Schedule } from '@/core/scheduler/schedule';
 import { realizedOf, remainingOf, scheduledEffort } from '@/core/scheduler/blocks';
 import type { Conflict } from '@/core/conflicts/detect';
 import { useAppStore } from '@/state/store';
 import { useUiStore } from '@/state/uiStore';
-import type { Resource, Task, TaskType } from '@/core/model/types';
+import { TASK_PRIORITIES, type Resource, type Task, type TaskPriority, type TaskType } from '@/core/model/types';
 import {
   addTask,
   canEncloseInGroup,
@@ -21,10 +21,14 @@ import {
   setTaskRemaining,
   setTaskScheduling,
   setTaskStatus,
+  setTasksPriority,
   toggleCollapsed,
   updateTask,
   type MovePosition,
 } from '@/state/taskActions';
+import { PriorityDot, PriorityPicker, priorityLabel } from '@/ui/common/PriorityDot';
+import { useModifierKeys } from '@/ui/common/modifiers';
+import { GanttLabelsPopover } from '@/ui/gantt/GanttLabelsPopover';
 import { EditableNumber, EditableText } from '@/ui/common/inline';
 import { ContextMenu, type MenuEntry } from '@/ui/common/ContextMenu';
 import {
@@ -96,19 +100,12 @@ export function TaskRowCells({
   const editingTaskId = useUiStore((s) => s.editingTaskId);
   const setEditingTaskId = useUiStore((s) => s.setEditingTaskId);
 
+  // Boutons « + » : la ligne doit être survolée dans la liste ET être la ligne survolée de l'app
+  // (source unique) — une ligne déplacée sous la souris sans `mouseleave` ne garde plus les siens.
   const [isListHovered, setIsListHovered] = useState(false);
-  const [modifiers, setModifiers] = useState({ ctrl: false, shift: false });
-
-  useEffect(() => {
-    if (!isListHovered) return;
-    const sync = (e: KeyboardEvent) => setModifiers({ ctrl: e.ctrlKey, shift: e.shiftKey });
-    document.addEventListener('keydown', sync);
-    document.addEventListener('keyup', sync);
-    return () => {
-      document.removeEventListener('keydown', sync);
-      document.removeEventListener('keyup', sync);
-    };
-  }, [isListHovered]);
+  const showAddButtons = isListHovered && hovered;
+  const modifiers = useModifierKeys();
+  const [labelsPopover, setLabelsPopover] = useState<{ x: number; y: number } | null>(null);
 
   // CTRL+SHIFT = SHIFT (jalon prime sur groupe)
   const addMode = modifiers.shift ? 'milestone' : modifiers.ctrl ? 'group' : 'task';
@@ -117,15 +114,16 @@ export function TaskRowCells({
   const agg = task.type === 'group' ? schedule.groupAggByTask.get(task.id) : undefined;
   const isChild = task.parentId !== null;
 
-  // — affectés : le dernier bloc (le plus récent) fait foi
+  // — affectés : le dernier bloc (le plus récent) fait foi ; sans bloc, l'équipe prévue
   const resolved = schedule.resolvedByTask.get(task.id) ?? [];
   const lastBlock = resolved.length > 0 ? resolved[resolved.length - 1]!.block : null;
-  const lastAssignments = lastBlock?.assignments ?? [];
+  const plannedOnly = lastBlock === null && (task.plannedAssignments?.length ?? 0) > 0;
+  const lastAssignments = lastBlock?.assignments ?? task.plannedAssignments ?? [];
   const assigneesWithUnits = lastAssignments
     .map((a) => ({ resource: resources.find((r) => r.id === a.resourceId), units: a.units }))
     .filter((x): x is { resource: Resource; units: number } => x.resource != null);
 
-  const [assignPopover, setAssignPopover] = useState<{ x: number; y: number; blockId: string } | null>(null);
+  const [assignPopover, setAssignPopover] = useState<{ x: number; y: number; taskIds: string[] } | null>(null);
 
   // — glisser-déposer : réordonner / ré-indenter avec niveau horizontal
   function onDragOver(e: DragEvent) {
@@ -227,6 +225,27 @@ export function TaskRowCells({
   };
 
   const addEntries: MenuEntry[] = [
+    {
+      label: groupIds.length > 1 ? t('tasks.priorityMenuMany', { count: groupIds.length }) : t('tasks.priorityMenu'),
+      onClick: () => {},
+      render: (close) => (
+        <PriorityPicker
+          value={groupIds.length > 1 ? null : task.priority}
+          onPick={(p) => {
+            setTasksPriority(groupIds, p);
+            close();
+          }}
+        />
+      ),
+    },
+    ...(task.type !== 'milestone'
+      ? [
+          {
+            label: t('tasks.ganttLabels'),
+            onClick: () => setLabelsPopover(menu ? { x: menu.x, y: menu.y } : { x: 200, y: 200 }),
+          },
+        ]
+      : []),
     ...convertEntries,
     {
       label: t('tasks.createEnclosingGroup'),
@@ -326,6 +345,7 @@ export function TaskRowCells({
             {task.type === 'milestone' && (
               <IconDiamond size={11} className="shrink-0 text-ink-soft" />
             )}
+            {!show('priority') && <PriorityDot priority={task.priority} />}
             <span className={`min-w-0 flex-1 ${task.type === 'group' ? 'font-semibold' : ''}`}>
               <EditableText
                 value={task.name}
@@ -505,7 +525,9 @@ export function TaskRowCells({
           </div>
         );
       case 'assignees': {
-        const canEdit = lastBlock != null;
+        // Toute tâche simple est affectable, placée ou non (équipe prévue). Ligne d'une sélection
+        // multiple : l'équipe choisie remplace celle de toutes les tâches sélectionnées.
+        const canEdit = task.type === 'task';
         return (
           <div
             key="assignees"
@@ -519,7 +541,10 @@ export function TaskRowCells({
             onClick={(e) => {
               if (!canEdit) return;
               e.stopPropagation();
-              setAssignPopover({ x: e.clientX, y: e.clientY, blockId: lastBlock.id });
+              const sel = useAppStore.getState().selectedTaskIds;
+              const taskIds =
+                sel.length > 1 && sel.includes(task.id) ? [task.id, ...sel.filter((id) => id !== task.id)] : [task.id];
+              setAssignPopover({ x: e.clientX, y: e.clientY, taskIds });
             }}
           >
             {assigneesWithUnits.length > 0 ? (
@@ -529,8 +554,8 @@ export function TaskRowCells({
                 return (
                   <div
                     key={i}
-                    style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
-                    title={`${resource.name} : ${units}%`}
+                    style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0, opacity: plannedOnly ? 0.55 : undefined }}
+                    title={`${resource.name} : ${units}%${plannedOnly ? ` — ${t('gantt.assignPlannedTitle')}` : ''}`}
                   >
                     {/* Cercle avatar 18×18 */}
                     <span
@@ -562,8 +587,7 @@ export function TaskRowCells({
               <BlockAssignPopover
                 x={assignPopover.x}
                 y={assignPopover.y}
-                taskId={task.id}
-                blockId={assignPopover.blockId}
+                taskIds={assignPopover.taskIds}
                 schedule={schedule}
                 onClose={() => setAssignPopover(null)}
               />
@@ -610,6 +634,28 @@ export function TaskRowCells({
             )}
           </div>
         );
+      case 'priority':
+        return (
+          <div key="priority" className="flex items-center gap-1.5 overflow-hidden px-1.5" style={{ width: show('priority') ? cols.priority : 0, display: show('priority') ? undefined : 'none' }}>
+            <PriorityDot priority={task.priority} always />
+            <select
+              className="w-full cursor-pointer bg-transparent text-[12px] outline-none"
+              value={task.priority}
+              title={task.priority === 'hidden' ? t('tasks.priorityHiddenHint') : undefined}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                const sel = useAppStore.getState().selectedTaskIds;
+                setTasksPriority(sel.length > 1 && sel.includes(task.id) ? sel : [task.id], e.target.value as TaskPriority);
+              }}
+            >
+              {TASK_PRIORITIES.map((p) => (
+                <option key={p} value={p}>
+                  {priorityLabel(p)}
+                </option>
+              ))}
+            </select>
+          </div>
+        );
       default:
         return null;
     }
@@ -617,21 +663,20 @@ export function TaskRowCells({
 
   return (
     <div
+      data-task-id={task.id}
       style={{ fontSize }}
       className={`group/row relative flex h-[21px] items-center border-b border-line/60 ${
         selected ? 'bg-accent-wash/60' : hovered ? 'bg-ink/[0.03]' : 'bg-surface'
       } ${dropClass}`}
       onClick={(e) => onSelectRow(task.id, e)}
       onDoubleClick={() => onOpenPanel(task.id)}
-      onMouseEnter={(e) => {
+      onMouseEnter={() => {
         onHover(task.id);
         setIsListHovered(true);
-        setModifiers({ ctrl: e.ctrlKey, shift: e.shiftKey });
       }}
       onMouseLeave={() => {
         onHover(null);
         setIsListHovered(false);
-        setModifiers({ ctrl: false, shift: false });
       }}
       onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}
       onDragOver={onDragOver}
@@ -649,7 +694,7 @@ export function TaskRowCells({
       {order.map((key) => renderCell(key))}
 
       {/* « + » par niveau, au survol de la ligne dans la liste */}
-      {isListHovered && (
+      {showAddButtons && (
         <div className="pointer-events-none absolute -bottom-[9px] left-0 z-20 h-[18px]">
           {Array.from({ length: depth + 2 }, (_, level) => {
             const isChild = level === depth + 1;
@@ -666,7 +711,8 @@ export function TaskRowCells({
                   aria-label={title}
                   onClick={(e) => {
                     e.stopPropagation();
-                    deleteTask(task.id);
+                    // même garde-fou que la touche Suppr : un « + » rouge ne supprime pas en silence
+                    if (window.confirm(t('tasks.confirmDelete', { name: task.name }))) deleteTask(task.id);
                   }}
                 >
                   <IconPlus size={10} className="rotate-45" />
@@ -712,6 +758,14 @@ export function TaskRowCells({
       )}
 
       {menu && <ContextMenu x={menu.x} y={menu.y} entries={addEntries} onClose={() => setMenu(null)} />}
+      {labelsPopover && (
+        <GanttLabelsPopover
+          x={labelsPopover.x}
+          y={labelsPopover.y}
+          taskIds={groupIds}
+          onClose={() => setLabelsPopover(null)}
+        />
+      )}
     </div>
   );
 }

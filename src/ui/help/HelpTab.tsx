@@ -27,9 +27,9 @@ const LEGEND_KEYS = [
   'rightClickBar', 'rightClickRow', 'enclosingGroup', 'cycleSplit',
   // Colonne 2 — navigation & clavier
   'panDrag', 'middleClick', 'ctrlWheel', 'doubleClick',
-  'arrows', 'altArrows', 'insertKey',
+  'arrows', 'altArrows', 'insertKey', 'f2',
   'undoRedo', 'ctrlS',
-  'cancelled',
+  'cancelled', 'hiddenPriority',
 ] as const;
 
 export function HelpTab() {
@@ -351,6 +351,7 @@ function ConceptsTab() {
           <li className="rounded-md bg-paper-deep/60 px-2.5 py-1.5">{t('help.concepts.effortEx2')}</li>
         </ul>
         <p className="mt-2">{t('help.concepts.effortReading')}</p>
+        <p className="mt-2 rounded-md bg-accent-wash/50 px-2.5 py-1.5">{t('help.concepts.reviewDate')}</p>
         <p className="mt-2 text-ink-faint">{t('help.concepts.effortLimit')}</p>
       </Block>
 
@@ -469,6 +470,12 @@ function ConceptsTab() {
         <Prose text={t('help.concepts.loadBody')} />
       </Block>
 
+      <Block title={t('help.concepts.visibilityTitle')}>
+        <Prose text={t('help.concepts.visibilityBody')} />
+        <VisibilityTable />
+        <p className="mt-2 rounded-md bg-paper-deep/60 px-2.5 py-1.5">{t('help.concepts.visibilityEx')}</p>
+      </Block>
+
       <Block
         title={t('help.concepts.proposalTitle')}
         figure={
@@ -484,6 +491,38 @@ function ConceptsTab() {
         <Prose text={t('help.concepts.proposalBody')} />
       </Block>
     </div>
+  );
+}
+
+/** Tableau « Annulé / Masquée / Projet archivé » × « visible / charge / conflits ». */
+function VisibilityTable() {
+  const c = (k: 'hatched' | 'no' | 'yes' | 'hiddenView' | 'archivedView' | 'apart') => t(`help.concepts.visibilityCells.${k}`);
+  const rows = [
+    { key: 'cancelled', cells: [c('hatched'), c('no'), c('no')] },
+    { key: 'hidden', cells: [c('hiddenView'), c('yes'), c('apart')] },
+    { key: 'archived', cells: [c('archivedView'), c('no'), c('no')] },
+  ] as const;
+  const head = ['what', 'view', 'load', 'conflicts'] as const;
+  return (
+    <table className="mt-3 w-full border-collapse overflow-hidden rounded-lg text-[12px]">
+      <thead>
+        <tr className="bg-paper-deep/70 text-left text-ink">
+          {head.map((h) => (
+            <th key={h} className="border border-line px-2.5 py-1.5 font-semibold">{t(`help.concepts.visibilityCols.${h}`)}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.key} className="bg-surface">
+            <td className="border border-line px-2.5 py-1.5 font-medium text-ink">{t(`help.concepts.visibilityRows.${r.key}`)}</td>
+            {r.cells.map((cell, i) => (
+              <td key={i} className="border border-line px-2.5 py-1.5">{cell}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -529,10 +568,11 @@ function LegendTab() {
     { n: 5,  day: 0,  row: 0, edge: 'mid',   dy: 14,        label: t('help.visual.gantt.baseline') },
     { n: 6,  day: 6,  row: 3, edge: 'start', dy: 7,         label: t('help.visual.gantt.todayLine') },
     { n: 7,  day: 10, row: 3, edge: 'start', dy: 7,         label: t('help.visual.gantt.reviewLine') },
-    { n: 8,  day: 6,  row: 1, edge: 'end',   dx: 9,         label: t('help.visual.gantt.square') },
+    { n: 8,  day: 6,  row: 1, edge: 'end',   dx: 9, dy: -9, label: t('help.visual.gantt.square') },
     { n: 9,  day: 8,  row: 1, edge: 'end',   dy: 15,        label: t('help.visual.gantt.deadline') },
     { n: 10, day: 12, row: 2, edge: 'mid',   dy: -14,       label: t('help.visual.gantt.milestone') },
     { n: 11, day: 14, row: 3, edge: 'mid',                  label: t('help.visual.gantt.group') },
+    { n: 12, day: 6,  row: 1, edge: 'end',   dx: 7, dy: 9,  label: t('help.visual.gantt.priority') },
   ];
 
   // Repères des marqueurs & conflits.
@@ -562,7 +602,7 @@ function LegendTab() {
             days: 17, labelWidth: 64, today: 6, todayLine: 6, reviewLine: 10,
             rows: [
               { kind: 'task', name: 'Effort', color: GREEN, scheduling: 'effort', blocks: [{ from: 1, to: 8 }], progress: 0.3, baseline: { from: 0, to: 6 } },
-              { kind: 'task', name: 'Dates', color: ORANGE, scheduling: 'fixed', blocks: [{ from: 2, to: 6 }], deadline: 8 },
+              { kind: 'task', name: 'Dates', color: ORANGE, scheduling: 'fixed', blocks: [{ from: 2, to: 6 }], deadline: 8, priority: 'high' },
               { kind: 'milestone', name: 'Jalon', color: PURPLE, day: 12 },
               { kind: 'group', name: 'Groupe', color: BLUE, intervals: [{ from: 13, to: 15 }] },
             ],
@@ -620,7 +660,8 @@ function GesturesTab() {
 /* ——— 5. Où trouver / Comment faire ——— */
 
 const HOWTO_KEYS = [
-  'addTask', 'place', 'assign', 'link', 'mode', 'split', 'group', 'baseline', 'review', 'conflict', 'nav', 'io',
+  'addTask', 'place', 'assign', 'link', 'mode', 'split', 'group', 'priority', 'archive', 'hidePerson',
+  'ganttLabels', 'baseline', 'review', 'conflict', 'nav', 'io',
 ] as const;
 
 function HowtoTab() {

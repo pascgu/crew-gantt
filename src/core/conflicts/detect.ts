@@ -1,6 +1,7 @@
-import type { IsoDate } from '../model/types';
+import type { IsoDate, Task } from '../model/types';
 import { diffDays, eachDay, isBetween } from '../calendar/dates';
-import { plannedFutureCapacity } from '../scheduler/blocks';
+import { plannedFutureCapacity, type ResolvedBlock } from '../scheduler/blocks';
+import type { CalcContext } from '../scheduler/context';
 import { workedDaysReachedOn } from '../scheduler/links';
 import type { Schedule } from '../scheduler/schedule';
 
@@ -36,6 +37,50 @@ function conflictId(
   return [type, taskId ?? '', resourceId ?? '', projectId ?? ''].join(':');
 }
 
+/**
+ * « Travail sans capacité » sur un bloc résolu : pour chaque affectation d'un bloc à venir, une
+ * absence datée (exception à 0 %) tombe sur un jour ouvré d'un bloc fermé, ou l'affectation n'a
+ * aucune capacité sur tout le bloc. Le motif hebdo et les fériés, récurrents, sont absorbés sans
+ * bruit par le calcul de capacité — seuls les événements datés alertent. Partagé avec les
+ * propositions pour qu'elles ne proposent que ce que la détection signale.
+ */
+export function noCapacityIssues(
+  ctx: CalcContext,
+  task: Task,
+  r: ResolvedBlock,
+): { resourceId: string; date: IsoDate }[] {
+  if (r.to < ctx.today || task.status === 'done') return []; // l'historique ne crie pas
+  const out: { resourceId: string; date: IsoDate }[] = [];
+  for (const assignment of r.block.assignments) {
+    const resource = ctx.resourcesById.get(assignment.resourceId);
+    if (!resource) continue;
+    let exceptionDay: IsoDate | undefined;
+    if (!r.computed) {
+      outer: for (const ex of resource.exceptions) {
+        if (ex.percent > 0) continue;
+        for (const day of eachDay(r.from, r.to)) {
+          if (!ctx.isGlobalWorkingDay(day)) continue;
+          if (isBetween(day, ex.from, ex.to ?? ex.from)) {
+            exceptionDay = day;
+            break outer;
+          }
+        }
+      }
+    }
+    let wholeBlockDead = true;
+    for (const day of eachDay(r.from, r.to)) {
+      if (ctx.assignmentCapacity(assignment.resourceId, task.projectId, assignment.units, day) > 0) {
+        wholeBlockDead = false;
+        break;
+      }
+    }
+    if (exceptionDay !== undefined || wholeBlockDead) {
+      out.push({ resourceId: assignment.resourceId, date: exceptionDay ?? r.from });
+    }
+  }
+  return out;
+}
+
 /** Détection des 7 familles de conflits du GDD. Pure : ne modifie rien. */
 export function detectConflicts(schedule: Schedule): Conflict[] {
   const out: Conflict[] = [];
@@ -43,12 +88,15 @@ export function detectConflicts(schedule: Schedule): Conflict[] {
   const today = ctx.today;
 
   for (const task of ctx.file.tasks) {
+    // Annulée ou projet archivé : hors calculs, ne lève aucun conflit (et n'en cause pas : un
+    // prédécesseur hors calculs ne contraint plus, cf. effectiveSpan).
+    if (!ctx.isCounted(task)) continue;
     const span = spanByTask.get(task.id) ?? null;
     const earliest = earliestByTask.get(task.id);
 
     // 8 — Non planifiée : tâche sans bloc / jalon sans date → invisible sur le Gantt, à caser.
-    // Les groupes (sans blocs propres) et les tâches abandonnées/terminées ne crient pas.
-    if (task.status !== 'cancelled' && task.status !== 'done') {
+    // Les groupes (sans blocs propres) et les tâches terminées ne crient pas.
+    if (task.status !== 'done') {
       const unplanned =
         (task.type === 'task' && task.blocks.length === 0) ||
         (task.type === 'milestone' && task.date === null);
@@ -112,44 +160,16 @@ export function detectConflicts(schedule: Schedule): Conflict[] {
     if (task.type !== 'task') continue;
     const resolved = resolvedByTask.get(task.id) ?? [];
 
-    // 3 — Travail sans capacité. Deux cas : une absence datée (exception à 0 %)
-    // tombe dans un bloc fermé, ou une affectation n'a aucune capacité sur tout
-    // son bloc. Le motif hebdo et les fériés, récurrents, sont absorbés sans bruit
-    // par le calcul de capacité — seuls les événements datés alertent.
+    // 3 — Travail sans capacité (absence datée dans un bloc fermé, ou bloc entièrement mort).
     for (const r of resolved) {
-      if (r.to < today || task.status === 'done') continue; // l'historique ne crie pas
-      for (const assignment of r.block.assignments) {
-        const resource = ctx.resourcesById.get(assignment.resourceId);
-        if (!resource) continue;
-        let exceptionDay: IsoDate | undefined;
-        if (!r.computed) {
-          outer: for (const ex of resource.exceptions) {
-            if (ex.percent > 0) continue;
-            for (const day of eachDay(r.from, r.to)) {
-              if (!ctx.isGlobalWorkingDay(day)) continue;
-              if (isBetween(day, ex.from, ex.to ?? ex.from)) {
-                exceptionDay = day;
-                break outer;
-              }
-            }
-          }
-        }
-        let wholeBlockDead = true;
-        for (const day of eachDay(r.from, r.to)) {
-          if (ctx.assignmentCapacity(assignment.resourceId, task.projectId, assignment.units, day) > 0) {
-            wholeBlockDead = false;
-            break;
-          }
-        }
-        if (exceptionDay !== undefined || wholeBlockDead) {
-          out.push({
-            id: conflictId('no-capacity', task.id, assignment.resourceId),
-            type: 'no-capacity',
-            taskId: task.id,
-            resourceId: assignment.resourceId,
-            date: exceptionDay ?? r.from,
-          });
-        }
+      for (const issue of noCapacityIssues(ctx, task, r)) {
+        out.push({
+          id: conflictId('no-capacity', task.id, issue.resourceId),
+          type: 'no-capacity',
+          taskId: task.id,
+          resourceId: issue.resourceId,
+          date: issue.date,
+        });
       }
     }
 
@@ -183,8 +203,11 @@ export function detectConflicts(schedule: Schedule): Conflict[] {
     // 7 — Tâche non affectée : en mode effort, personne sur le bloc à venir.
     if (task.scheduling === 'effort' && task.remaining > 1e-9 && task.status !== 'done') {
       const upcoming = resolved.filter((r) => r.computed || r.to >= today);
+      // Sans bloc : l'équipe prévue (reprise par le premier bloc posé) suffit.
       const unmanned =
-        resolved.length === 0 || upcoming.some((r) => r.block.assignments.length === 0);
+        resolved.length === 0
+          ? (task.plannedAssignments?.length ?? 0) === 0
+          : upcoming.some((r) => r.block.assignments.length === 0);
       if (unmanned) {
         out.push({
           id: conflictId('unassigned', task.id),

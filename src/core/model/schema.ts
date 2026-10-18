@@ -52,6 +52,7 @@ const resourceSchema = z.object({
   projectShares: z.array(projectShareSchema).default([]),
   avatarColor: z.string().optional(),
   avatarInitials: z.string().max(2).optional(),
+  hidden: z.boolean().optional(),
 });
 
 const taskLinkSchema = z.object({
@@ -102,6 +103,15 @@ const taskSchema = z.object({
   frieze: z.boolean().optional(),
   blocks: z.array(blockSchema).default([]),
   notes: z.array(taskNoteSchema).default([]),
+  priority: z.enum(['hidden', 'low', 'normal', 'high', 'urgent']).default('normal'),
+  plannedAssignments: z.array(assignmentSchema).optional(),
+  ganttLabels: z
+    .object({
+      before: z.array(z.string()).default([]),
+      after: z.array(z.string()).default([]),
+      center: z.array(z.string()).default([]),
+    })
+    .optional(),
 });
 
 const baselineSchema = z.object({
@@ -121,12 +131,39 @@ const baselineSchema = z.object({
   milestones: z.record(z.string(), isoDate).default({}),
 });
 
+const meetingTaskSnapshotSchema = z.object({
+  name: z.string().default(''),
+  type: z.enum(['task', 'milestone']).default('task'),
+  status: z.enum(['todo', 'in_progress', 'done', 'blocked', 'cancelled']).default('todo'),
+  effort: z.number().min(0).default(0),
+  remaining: z.number().min(0).default(0),
+  start: isoDate.nullable().default(null),
+  end: isoDate.nullable().default(null),
+  team: z.array(assignmentSchema).default([]),
+  notes: z.number().int().min(0).default(0),
+});
+
+const meetingSnapshotSchema = z.object({
+  tasks: z.record(z.string(), meetingTaskSnapshotSchema).default({}),
+  resources: z
+    .record(
+      z.string(),
+      z.object({
+        name: z.string().default(''),
+        exceptions: z.array(z.string()).default([]),
+        shares: z.array(z.string()).default([]),
+      }),
+    )
+    .default({}),
+});
+
 const journalEntrySchema = z.object({
   date: isoDate,
   type: z.enum(['meeting', 'note']).default('note'),
   summary: z.array(z.string()).default([]),
   note: z.string().default(''),
   remainingTotal: z.number().min(0).optional(),
+  snapshot: meetingSnapshotSchema.optional(),
 });
 
 const uiFileStateSchema = z.object({

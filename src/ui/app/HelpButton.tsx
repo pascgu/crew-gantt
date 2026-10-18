@@ -20,9 +20,12 @@ const LEGEND_KEYS = [
   'doubleClick',
   'arrows',
   'insertKey',
+  'f2',
   'altArrows',
   'undoRedo',
+  'ctrlS',
   'cancelled',
+  'hiddenPriority',
   'ctrlDrag',
 ] as const;
 

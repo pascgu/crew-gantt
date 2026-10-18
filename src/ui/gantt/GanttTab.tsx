@@ -10,7 +10,9 @@ import {
 import { createPortal } from 'react-dom';
 import { addDays, todayIso } from '@/core/calendar/dates';
 import { constrainingChain } from '@/core/scheduler/links';
-import type { IsoDate, ZoomLevel } from '@/core/model/types';
+import { hasUpcomingLoad } from '@/core/scheduler/workload';
+import { TASK_PRIORITIES, type IsoDate, type ZoomLevel } from '@/core/model/types';
+import { PriorityDot, priorityLabel } from '@/ui/common/PriorityDot';
 import { useAppStore } from '@/state/store';
 import { useConflictsByTask, useSchedule } from '@/state/schedule';
 import {
@@ -115,10 +117,15 @@ export function GanttTab() {
     [] as string[],
   );
 
-  // Ressources réellement affichées dans le bandeau de charge (filtre utilisateur).
+  // Ressources du bandeau de charge : hors ressources masquées (sauf travail à venir), puis filtre
+  // utilisateur.
+  const listedResources = useMemo(
+    () => resources.filter((r) => !r.hidden || hasUpcomingLoad(schedule.loadIndex, r.id, schedule.ctx.today)),
+    [resources, schedule],
+  );
   const visibleResources = useMemo(
-    () => resources.filter((r) => !workloadHidden.includes(r.id)),
-    [resources, workloadHidden],
+    () => listedResources.filter((r) => !workloadHidden.includes(r.id)),
+    [listedResources, workloadHidden],
   );
 
   const proposal = useProposal();
@@ -235,7 +242,9 @@ export function GanttTab() {
   // pour que la liste puisse scroller la même distance et rester alignée jusqu'à la dernière ligne.
   const bottomSpacer = Math.max(0, tableViewportH - viewportH);
 
-  const selectedTask = panelOpen ? tasks.find((tk) => tk.id === selectedTaskId) : undefined;
+  // Tâche vue par le planning (restes à la date de réunion si elle est posée — cf. R1).
+  const selectedTask =
+    panelOpen && selectedTaskId ? schedule.hierarchy.tasksById.get(selectedTaskId) : undefined;
 
   /** Plage d'ids visibles entre deux lignes (inclus), dans l'ordre du tableau. */
   const rangeBetween = (anchorId: string, targetId: string): string[] => {
@@ -331,6 +340,17 @@ export function GanttTab() {
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, [zoom, scale]);
+
+  /** Sélecteur d'échelle (⚙) : garde la date au centre de la vue — sinon la vue sautait dans le vide. */
+  const zoomTo = (next: ZoomLevel) => {
+    if (next === zoom) return;
+    const el = scrollRef.current;
+    if (el) {
+      const offsetX = el.clientWidth / 2;
+      zoomAnchor.current = { date: scale.dateAt(el.scrollLeft + offsetX), offsetX };
+    }
+    setZoom(next);
+  };
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -606,6 +626,7 @@ export function GanttTab() {
             <div className="relative flex min-w-0 flex-1 flex-col">
               <GanttControls
                 zoom={zoom}
+                onZoom={zoomTo}
                 todayVisible={todayVisible}
                 onToday={scrollToToday}
                 friezeOpen={friezeOpen}
@@ -618,7 +639,13 @@ export function GanttTab() {
               >
                 <div ref={headerInnerRef} style={{ width: scale.width, willChange: 'transform' }}>
                   {friezeH > 0 && <MilestoneFrieze layout={friezeLayout} />}
-                  <HeaderTimescale scale={scale} visibleLeft={scrollLeft} visibleRight={scrollLeft + viewportW} />
+                  <HeaderTimescale
+                    scale={scale}
+                    visibleLeft={scrollLeft}
+                    visibleRight={scrollLeft + viewportW}
+                    today={today}
+                    reviewDate={schedule.ctx.today !== today ? schedule.ctx.today : null}
+                  />
                 </div>
               </div>
               {/* Conteneur scroll : les deux ascenseurs natifs vivent ici, sous/à droite du Gantt */}
@@ -644,6 +671,7 @@ export function GanttTab() {
                   onHoverTask={setHoveredTaskId}
                   minHeight={viewportH}
                   scrollLeft={scrollLeft}
+                  viewportWidth={viewportW}
                 />
               </div>
               {/* Bandeau de charge : repliable (chevron) et redimensionnable (poignée) */}
@@ -734,7 +762,7 @@ export function GanttTab() {
                           bottom: window.innerHeight - workloadFilter.top + 4,
                         }}
                       >
-                        {resources.map((r) => {
+                        {listedResources.map((r) => {
                           const shown = !workloadHidden.includes(r.id);
                           return (
                             <label key={r.id} className="flex cursor-pointer items-center gap-2 text-[12px]">
@@ -780,7 +808,7 @@ export function GanttTab() {
 }
 
 function HeaderLeft({ innerRef }: { innerRef?: Ref<HTMLDivElement> }) {
-  const { widths, hidden, order, setWidth, toggleHidden, moveColumn, setColumnOrder, setStatusFilter, setAssigneeFilter, setNameQuery, statusFilter, assigneeFilter, nameQuery } = useTableStore();
+  const { widths, hidden, order, setWidth, toggleHidden, moveColumn, setColumnOrder, setStatusFilter, setAssigneeFilter, setNameQuery, statusFilter, assigneeFilter, nameQuery, priorityFilter, setPriorityFilter, showArchived, setShowArchived } = useTableStore();
   const projects = useAppStore((s) => s.file.projects);
   const resources = useAppStore((s) => s.file.resources);
   const projectFilter = useAppStore((s) => s.file.ui.projectFilter);
@@ -806,6 +834,7 @@ function HeaderLeft({ innerRef }: { innerRef?: Ref<HTMLDivElement> }) {
     start: { key: 'start', label: t('tasks.columns.start') },
     end: { key: 'end', label: t('tasks.columns.end') },
     status: { key: 'status', label: t('tasks.columns.status'), filterable: true },
+    priority: { key: 'priority', label: t('tasks.columns.priority'), filterable: true },
     // `group` n'est pas affiché dans la liste
     group: { key: 'group', label: '' },
   };
@@ -842,7 +871,8 @@ function HeaderLeft({ innerRef }: { innerRef?: Ref<HTMLDivElement> }) {
     if (col === 'name') return nameQuery !== '';
     if (col === 'status') return statusFilter !== null && statusFilter.length > 0;
     if (col === 'assignees') return assigneeFilter !== null && assigneeFilter.length > 0;
-    if (col === 'project') return projectFilter !== null && projectFilter.length > 0;
+    if (col === 'project') return (projectFilter !== null && projectFilter.length > 0) || showArchived;
+    if (col === 'priority') return priorityFilter !== null && priorityFilter.length > 0;
     return false;
   };
 
@@ -909,9 +939,34 @@ function HeaderLeft({ innerRef }: { innerRef?: Ref<HTMLDivElement> }) {
             {assigneeFilter && <button className="mt-1 text-left text-[11px] text-ink-faint hover:text-ink" onClick={() => setAssigneeFilter(null)}>✕ Effacer</button>}
           </div>
         )}
+        {filterCol === 'priority' && (
+          <div className="p-2 flex flex-col gap-1">
+            {TASK_PRIORITIES.map((p) => {
+              // null = défaut : tout sauf « masquée »
+              const cur = priorityFilter ?? TASK_PRIORITIES.filter((x) => x !== 'hidden');
+              const checked = cur.includes(p);
+              return (
+                <label key={p} className="flex items-center gap-2 text-[12px] cursor-pointer" title={p === 'hidden' ? t('tasks.priorityHiddenHint') : undefined}>
+                  <input type="checkbox" checked={checked} onChange={() => {
+                    const next = checked ? cur.filter((v) => v !== p) : [...cur, p];
+                    const isDefault = next.length === 4 && !next.includes('hidden');
+                    setPriorityFilter(isDefault || next.length === 0 ? null : next);
+                  }} />
+                  <PriorityDot priority={p} always />
+                  {p === 'hidden' ? t('columns.showHidden') : priorityLabel(p)}
+                </label>
+              );
+            })}
+            {priorityFilter && <button className="mt-1 text-left text-[11px] text-ink-faint hover:text-ink" onClick={() => setPriorityFilter(null)}>✕ Effacer</button>}
+          </div>
+        )}
         {filterCol === 'project' && (
-          <div className="p-2 flex flex-col gap-1 max-h-48 overflow-y-auto">
-            {projects.filter((p) => !p.archived).map((p) => {
+          <div className="p-2 flex flex-col gap-1 max-h-60 overflow-y-auto">
+            <label className="mb-1 flex items-center gap-2 border-b border-line pb-1.5 text-[12px] cursor-pointer">
+              <input type="checkbox" checked={showArchived} onChange={() => setShowArchived(!showArchived)} />
+              {t('gantt.showArchived')}
+            </label>
+            {projects.filter((p) => showArchived || !p.archived).map((p) => {
               const cur = projectFilter ?? [];
               const checked = cur.includes(p.id);
               return (
@@ -922,6 +977,7 @@ function HeaderLeft({ innerRef }: { innerRef?: Ref<HTMLDivElement> }) {
                   }} />
                   <span className="h-2 w-2 rounded-[2px] shrink-0" style={{ background: p.color }} />
                   {p.name}
+                  {p.archived && <span className="text-[10px] text-ink-faint">({t('gantt.archivedBadge')})</span>}
                 </label>
               );
             })}
@@ -1083,10 +1139,15 @@ function HeaderTimescale({
   scale,
   visibleLeft,
   visibleRight,
+  today,
+  reviewDate,
 }: {
   scale: ReturnType<typeof buildTimeScale>;
   visibleLeft: number;
   visibleRight: number;
+  today: IsoDate;
+  /** Date de réunion si elle diffère d'aujourd'hui. */
+  reviewDate: IsoDate | null;
 }) {
   const MARGIN = 400;
   const vl = visibleLeft - MARGIN;
@@ -1163,6 +1224,24 @@ function HeaderTimescale({
           <title>{d.label}</title>
         </rect>
       ))}
+      {/* Repères aujourd'hui / date de réunion : petit triangle + infobulle (dans le Gantt, le trait
+          ne capte plus le pointeur pour laisser les barres accessibles). */}
+      {(
+        [
+          [today, 'var(--color-accent)', t('gantt.today')],
+          ...(reviewDate ? [[reviewDate, 'var(--color-danger)', t('gantt.reviewDateLine')] as const] : []),
+        ] as const
+      ).map(([date, color, label]) => {
+        const x = scale.x(date);
+        return (
+          <g key={label}>
+            <path d={`M ${x - 4} ${HEADER_HEIGHT - 5} L ${x + 4} ${HEADER_HEIGHT - 5} L ${x} ${HEADER_HEIGHT} Z`} fill={color} opacity={0.8} />
+            <rect x={x - 5} y={HEADER_HEIGHT - 10} width={10} height={10} fill="transparent">
+              <title>{label}</title>
+            </rect>
+          </g>
+        );
+      })}
     </svg>
   );
 }

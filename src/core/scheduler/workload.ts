@@ -29,7 +29,7 @@ export function buildLoadIndex(
   for (const [taskId, resolved] of resolvedByTask) {
     const task = hierarchy.tasksById.get(taskId);
     if (!task || task.type !== 'task') continue;
-    if (task.status === 'cancelled') continue;
+    if (!ctx.isCounted(task)) continue; // annulée / projet archivé : hors calculs
     for (const r of resolved) {
       if (r.block.zero) continue; // bloc « 0 jour » : ne charge pas la ressource
       for (const assignment of r.block.assignments) {
@@ -87,6 +87,15 @@ export function freeCapacity(
     free += Math.max(0, presence - load);
   }
   return { free: Math.round(free * 100) / 100, presenceTotal };
+}
+
+/** La ressource porte-t-elle encore du travail à partir de `from` ? (une ressource masquée qui en
+ *  porte reste affichée, avec un signal : on ne cache pas du travail réel.) */
+export function hasUpcomingLoad(index: LoadIndex, resourceId: string, from: IsoDate): boolean {
+  for (const [day, load] of index.get(resourceId) ?? []) {
+    if (day >= from && load.total > 1e-9) return true;
+  }
+  return false;
 }
 
 export interface OverEngagement {

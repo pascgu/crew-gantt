@@ -1,7 +1,7 @@
 import type { IsoDate, Task, TaskLink } from '../model/types';
 import { addDays } from '../calendar/dates';
 import type { CalcContext } from './context';
-import { effortCapacityOnDay, taskSpan, type ResolvedBlock } from './blocks';
+import { consumesNothing, effortCapacityOnDay, taskSpan, type ResolvedBlock } from './blocks';
 import type { GroupAggregate } from './groups';
 import type { Hierarchy } from './hierarchy';
 
@@ -84,13 +84,16 @@ export interface LinkInputs {
   groupAggByTask: ReadonlyMap<string, GroupAggregate>;
 }
 
-/** Étendue effective d'un prédécesseur : tâche = ses blocs, jalon = sa date, groupe = son union. */
+/**
+ * Étendue effective d'un prédécesseur : tâche = ses blocs, jalon = sa date, groupe = son union.
+ * Un prédécesseur hors calculs (annulé, projet archivé) n'a pas d'étendue : il ne contraint plus rien.
+ */
 export function effectiveSpan(
   inputs: LinkInputs,
   taskId: string,
 ): { start: IsoDate; end: IsoDate } | null {
   const task = inputs.hierarchy.tasksById.get(taskId);
-  if (!task) return null;
+  if (!task || !inputs.ctx.isCounted(task)) return null;
   if (task.type === 'milestone') {
     return task.date ? { start: task.date, end: task.date } : null;
   }
@@ -114,7 +117,9 @@ export function workedDaysReachedOn(inputs: LinkInputs, taskId: string, n: numbe
   const sources: { task: Task; resolved: ResolvedBlock[] }[] = [];
   if (task.type === 'group') {
     for (const d of inputs.hierarchy.descendantsOf(taskId)) {
-      if (d.type === 'task') sources.push({ task: d, resolved: inputs.resolvedByTask.get(d.id) ?? [] });
+      if (d.type === 'task' && inputs.ctx.isCounted(d)) {
+        sources.push({ task: d, resolved: inputs.resolvedByTask.get(d.id) ?? [] });
+      }
     }
   } else {
     sources.push({ task, resolved: inputs.resolvedByTask.get(taskId) ?? [] });
@@ -190,16 +195,23 @@ export function earliestStart(inputs: LinkInputs, task: Task): EarliestResult {
     let date: IsoDate | null = null;
     if (span) {
       const { ctx } = inputs;
+      // Prédécesseur « 0 jour » : il ne consomme rien, le successeur peut démarrer le même jour
+      // (sinon deux tâches à 0 j posées le même jour seraient en conflit). Vaut aussi pour
+      // « après N j travaillés » : un 0 j n'atteint jamais N, l'ancre retombe sur sa date.
+      const pred = inputs.hierarchy.tasksById.get(link.on);
+      const instant =
+        pred !== undefined && consumesNothing(ctx, pred, inputs.resolvedByTask.get(link.on) ?? []);
+      const afterGap = instant ? 0 : 1;
       switch (link.type) {
         case 'after-end':
-          date = ctx.addWorkingDays(span.end, 1 + link.lag);
+          date = ctx.addWorkingDays(span.end, afterGap + link.lag);
           break;
         case 'with-start':
           date = ctx.addWorkingDays(span.start, link.lag);
           break;
         case 'after-progress': {
-          const reached = workedDaysReachedOn(inputs, link.on, link.progressDays ?? 0);
-          date = ctx.addWorkingDays(reached ?? span.end, 1 + link.lag);
+          const reached = instant ? null : workedDaysReachedOn(inputs, link.on, link.progressDays ?? 0);
+          date = ctx.addWorkingDays(reached ?? span.end, afterGap + link.lag);
           break;
         }
       }

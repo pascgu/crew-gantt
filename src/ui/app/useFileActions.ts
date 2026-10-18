@@ -14,7 +14,8 @@ import {
   unlinkFile,
 } from '@/io/fileAccess';
 import type { SaveOutcome } from '@/io/fileAccess';
-import { clearBackup } from '@/io/backup';
+import { clearBackupAfterSave, discardOwnBackup } from '@/io/autosave';
+import { offerBackupForCurrent } from './BackupPrompt';
 import type { OpenedFile } from '@/io/fileAccess';
 import type { RecentFile } from '@/io/handleStore';
 
@@ -27,7 +28,9 @@ function applyOpened(opened: OpenedFile): void {
   const { replaceFile } = useAppStore.getState();
   replaceFile(opened.file, opened.name);
   clearHistory();
-  void clearBackup();
+  // Le document précédent est abandonné (confirmé) : son secours aussi. Celui du fichier ouvert,
+  // s'il existe (fermeture brutale d'une autre fenêtre…), est proposé — jamais effacé en silence.
+  void discardOwnBackup().then(() => offerBackupForCurrent());
 }
 
 /** Actions fichier partagées (barre du haut, raccourcis clavier, drag-drop). */
@@ -38,6 +41,7 @@ export function useFileActions() {
     const { replaceFile } = useAppStore.getState();
     replaceFile(createEmptyTeamFile('Nouvelle équipe'), null);
     clearHistory();
+    void discardOwnBackup();
   }, []);
 
   const openFile = useCallback(async () => {
@@ -87,7 +91,7 @@ export function useFileActions() {
     if (outcome.mode === 'cancelled') return;
     setFileName(outcome.name);
     markSaved();
-    void clearBackup();
+    void clearBackupAfterSave();
   }, []);
 
   const openRecent = useCallback(async (entry: RecentFile) => {

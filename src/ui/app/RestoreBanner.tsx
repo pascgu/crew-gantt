@@ -2,6 +2,7 @@ import { useAppStore } from '@/state/store';
 import { getPendingHandle, requestAndRestoreHandle, setPendingHandle } from '@/io/fileAccess';
 import { t } from '@/i18n/fr';
 import { IconClose } from '@/ui/common/icons';
+import { offerBackupForCurrent } from './BackupPrompt';
 
 let restoreInProgress = false;
 
@@ -28,6 +29,7 @@ export function RestoreBanner() {
         replaceFile(opened.file, opened.name);
         setPendingHandle(null);
         setPendingRestoreName(null);
+        void offerBackupForCurrent(); // un secours plus récent de ce fichier ?
       }
       // Si refusé : on garde la bannière (l'utilisateur peut réessayer)
     } finally {

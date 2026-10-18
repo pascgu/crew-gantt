@@ -12,7 +12,9 @@ export const COLS = {
   start: 60,
   end: 60,
   status: 96,
+  priority: 92,
   group: 120,
 } as const;
 
-export const TABLE_WIDTH = Object.values(COLS).reduce((a, b) => a + b, 0);
+/** Largeur par défaut du volet liste — inchangée par la colonne Priorité (v1.3) pour ne pas rogner le Gantt. */
+export const TABLE_WIDTH = Object.values(COLS).reduce((a, b) => a + b, 0) - COLS.priority;

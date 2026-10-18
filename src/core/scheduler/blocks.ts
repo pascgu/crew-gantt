@@ -206,6 +206,17 @@ export function remainingForEndDate(
   return Math.round((futureClosed + openCapacity) * 100) / 100;
 }
 
+/**
+ * Tâche « 0 jour » (note, micro-rappel, étape instantanée) : elle ne consomme aucune capacité —
+ * effort nul en mode effort, dates posées sans capacité en mode fixed (bloc `zero`, jour chômé).
+ * Même critère que le petit marqueur du Gantt.
+ */
+export function consumesNothing(ctx: CalcContext, task: Task, resolved: ResolvedBlock[]): boolean {
+  if (task.type !== 'task' || resolved.length === 0) return false;
+  const effort = task.scheduling === 'effort' ? task.effort : scheduledEffort(ctx, task, resolved);
+  return effort <= EPS;
+}
+
 export interface TaskSpan {
   start: IsoDate;
   end: IsoDate;

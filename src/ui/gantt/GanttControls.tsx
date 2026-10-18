@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import type { ZoomLevel } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
-import { setZoom } from '@/state/taskActions';
 import { createBaseline, deleteBaseline, setActiveBaseline } from '@/state/baselineActions';
 import { ContextMenu, type MenuEntry } from '@/ui/common/ContextMenu';
 import { usePersistedState } from '@/ui/common/persist';
@@ -14,6 +13,8 @@ const NEW_BASELINE = '__new__';
 
 interface GanttControlsProps {
   zoom: ZoomLevel;
+  /** Change d'échelle en gardant la date au centre de la vue (comme Ctrl+molette garde celle sous le curseur). */
+  onZoom: (zoom: ZoomLevel) => void;
   todayVisible: boolean;
   onToday: () => void;
   friezeOpen: boolean;
@@ -25,7 +26,7 @@ interface GanttControlsProps {
  * ⚙ seul par défaut ; au clic : popover avec échelle, baseline, "…".
  * 🎯 s'affiche sous ⚙ uniquement si la ligne "aujourd'hui" est hors viewport.
  */
-export function GanttControls({ zoom, todayVisible, onToday, friezeOpen, onToggleFrieze }: GanttControlsProps) {
+export function GanttControls({ zoom, onZoom, todayVisible, onToday, friezeOpen, onToggleFrieze }: GanttControlsProps) {
   const baselines = useAppStore((s) => s.file.baselines);
   const activeBl = baselines.find((b) => b.active) ?? null;
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -107,7 +108,7 @@ export function GanttControls({ zoom, todayVisible, onToday, friezeOpen, onToggl
             className={selectCls}
             value={zoom}
             title={t('gantt.scale')}
-            onChange={(e) => setZoom(e.target.value as ZoomLevel)}
+            onChange={(e) => onZoom(e.target.value as ZoomLevel)}
           >
             {ZOOMS.map((z) => (
               <option key={z} value={z}>

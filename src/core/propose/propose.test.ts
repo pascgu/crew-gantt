@@ -77,7 +77,8 @@ describe('proposePlan — découpe autour des absences', () => {
           effort: 14,
           blocks: [
             block('b0', '2026-05-18', '2026-05-20', [assign('alice')]), // passé
-            block('b1', '2026-05-28', null, [assign('alice')]), // à cheval sur today
+            // à cheval sur today, fermé sur l'absence → conflit « travail sans capacité »
+            block('b1', '2026-05-28', '2026-06-12', [assign('alice')]),
           ],
         }),
       ],
@@ -92,6 +93,64 @@ describe('proposePlan — découpe autour des absences', () => {
     // 2e run après l'absence des 11-12/06
     expect(blocks[2]).toMatchObject({ from: '2026-06-15', to: null });
     expect(blocks).toHaveLength(3);
+  });
+
+  // R3 (v1.3) — on ne propose que ce que la détection signale.
+  it('bloc ouvert traversant une absence : absorbée par la capacité, aucune proposition', () => {
+    const alice = person('alice', { exceptions: [{ from: '2026-06-03', to: '2026-06-04', percent: 0 }] });
+    const f = file(
+      [task('t', { remaining: 5, effort: 5, blocks: [block('b', '2026-06-01', null, [assign('alice')])] })],
+      [alice],
+    );
+    expect(proposePlan(f, TODAY)).toBeNull();
+  });
+
+  it('motif hebdo (mercredi chômé) : ni proposition, ni découpe autour', () => {
+    const alice = person('alice', { workingDays: [1, 2, 4, 5] });
+    const f = file(
+      [task('t', { remaining: 6, effort: 6, blocks: [block('b', '2026-06-01', null, [assign('alice')])] })],
+      [alice],
+    );
+    expect(proposePlan(f, TODAY)).toBeNull();
+  });
+
+  it('découpe due à un lien : les mercredis chômés restent dans le bloc', () => {
+    const alice = person('alice', { workingDays: [1, 2, 4, 5] });
+    const f = file(
+      [
+        task('pred', { remaining: 1, effort: 1, blocks: [block('bp', '2026-06-01', null, [assign('bob')])] }),
+        task('t', {
+          remaining: 6,
+          effort: 6,
+          links: [{ on: 'pred', type: 'after-end', lag: 0 }],
+          blocks: [block('b', '2026-06-01', null, [assign('alice')])],
+        }),
+      ],
+      [alice, person('bob')],
+    );
+    const change = proposePlan(f, TODAY)!.changes.find((c) => c.taskId === 't')!;
+    expect(change.reason?.type).toBe('link-violated');
+    expect(change.blocks).toHaveLength(1); // pas 1 bloc par semaine
+    expect(change.newStart).toBe('2026-06-02');
+  });
+
+  it('raison « travail sans capacité » quand seule une absence datée motive la proposition', () => {
+    const alice = person('alice', { exceptions: [{ from: '2026-06-03', percent: 0 }] });
+    const f = file(
+      [task('t', { remaining: 2, effort: 2, blocks: [block('b', '2026-06-02', '2026-06-04', [assign('alice')])] })],
+      [alice],
+    );
+    const change = proposePlan(f, TODAY)!.changes[0]!;
+    expect(change.reason?.type).toBe('no-capacity');
+  });
+
+  it('tâche annulée ou d’un projet archivé : jamais proposée', () => {
+    const alice = person('alice', { exceptions: [{ from: '2026-06-03', percent: 0 }] });
+    const dead = (id: string, extra: object) =>
+      task(id, { remaining: 2, effort: 2, blocks: [block(`b-${id}`, '2026-06-02', '2026-06-04', [assign('alice')])], ...extra });
+    const f = file([dead('c', { status: 'cancelled' }), dead('arch', { projectId: 'pB' })], [alice]);
+    f.projects[1]!.archived = true;
+    expect(proposePlan(f, TODAY)).toBeNull();
   });
 });
 
@@ -131,10 +190,10 @@ describe('proposePlan — liens violés et cascade', () => {
       [alice, person('bob')],
     );
     const proposal = proposePlan(f, TODAY)!;
-    // a est découpée (01 puis 09) → fin 09/06
-    const a = proposal.changes.find((c) => c.taskId === 'a')!;
-    expect(a.newEnd).toBe('2026-06-09');
-    // b poussée après la fin proposée de a → 10/06, finit 11/06
+    // a n'est pas en conflit (son bloc ouvert absorbe l'absence, fin 09/06) : rien n'est proposé
+    // pour elle — elle n'est plus redécoupée « pour faire joli » (R3).
+    expect(proposal.changes.find((c) => c.taskId === 'a')).toBeUndefined();
+    // b poussée après la fin de a → 10/06, finit 11/06
     const b = proposal.changes.find((c) => c.taskId === 'b')!;
     expect(b.newStart).toBe('2026-06-10');
     expect(b.newEnd).toBe('2026-06-11');

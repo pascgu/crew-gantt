@@ -8,25 +8,44 @@ export function taskColor(task: Pick<Task, 'color' | 'projectId'>, projects: Pro
   return task.color ?? projects.find((p) => p.id === task.projectId)?.color ?? '#888888';
 }
 
+export type DateFormat = 'DD/MM/YYYY' | 'YYYY-MM-DD';
+
+/**
+ * Format des dates choisi dans Paramètres (préférence locale), appliqué à tous les affichages de
+ * dates de l'interface. Posé par le store des préférences ; l'app remonte l'onglet courant quand il
+ * change (cf. App) pour que tout se redessine.
+ */
+let currentDateFormat: DateFormat = 'DD/MM/YYYY';
+
+export function setCurrentDateFormat(fmt: DateFormat): void {
+  currentDateFormat = fmt;
+}
+
+/** Date courte : « 21/10 » ou « 10-21 » (AAAA-MM-JJ sans l'année). */
 export function fmtDay(iso: IsoDate | null | undefined): string {
   if (!iso) return '—';
-  return format(toDate(iso), 'dd/MM');
+  return format(toDate(iso), currentDateFormat === 'DD/MM/YYYY' ? 'dd/MM' : 'MM-dd');
 }
 
+/** Date complète : « 21/10/2026 » ou « 2026-10-21 ». */
 export function fmtDayFull(iso: IsoDate | null | undefined): string {
-  if (!iso) return '—';
-  return format(toDate(iso), 'dd/MM/yyyy');
+  return fmtDate(iso, currentDateFormat);
 }
-
-export type DateFormat = 'DD/MM/YYYY' | 'YYYY-MM-DD';
 
 export function fmtDate(iso: IsoDate | null | undefined, fmt: DateFormat): string {
   if (!iso) return '—';
   return format(toDate(iso), fmt === 'DD/MM/YYYY' ? 'dd/MM/yyyy' : 'yyyy-MM-dd');
 }
 
+/** j-h affichés : une décimale, virgule française (« 10,4 »). */
 export function fmtDays(value: number): string {
-  return `${Math.round(value * 10) / 10}`.replace('.', ',');
+  return fmtNum(value, 1);
+}
+
+/** Nombre à la française : au plus `decimals` décimales, sans zéros inutiles, virgule (« 6,56 »). */
+export function fmtNum(value: number, decimals = 2): string {
+  const f = 10 ** decimals;
+  return `${Math.round(value * f) / f}`.replace('.', ',');
 }
 
 /**

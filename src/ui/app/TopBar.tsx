@@ -1,10 +1,10 @@
-import { useRef, useState, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { redo, undo, useAppStore, type TabId } from '@/state/store';
 import { clearHistory } from '@/state/store';
 import { useStore } from 'zustand';
 import { t } from '@/i18n/fr';
-import { useConflicts, useSchedule } from '@/state/schedule';
+import { useActiveConflictsByVisibility, useSchedule } from '@/state/schedule';
 import { proposalKey, useProposal } from '@/state/proposalActions';
 import { useUiStore } from '@/state/uiStore';
 import { useNotifications } from '@/state/notifications';
@@ -108,7 +108,19 @@ export function TopBar() {
   const pastStates = useStore(useAppStore.temporal, (s) => s.pastStates.length);
   const futureStates = useStore(useAppStore.temporal, (s) => s.futureStates.length);
 
-  const { active: activeConflicts } = useConflicts();
+  const { visible: activeConflicts, masked: maskedConflicts } = useActiveConflictsByVisibility();
+
+  // Échap ferme les menus Import / Export et Fichiers récents (leur voile bloquait sinon tout clic, E2).
+  useEffect(() => {
+    if (!ioMenuOpen && !recentMenuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setIoMenuOpen(false);
+      setRecentMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ioMenuOpen, recentMenuOpen]);
   const proposal = useProposal();
   const dismissedProposal = useUiStore((s) => s.dismissedProposal);
   const proposalVisible = proposal !== null && proposalKey(proposal) !== dismissedProposal;
@@ -164,10 +176,20 @@ export function TopBar() {
               : 'text-ink-soft hover:bg-paper-deep hover:text-ink'
           }`}
           title={t('conflicts.title')}
+          aria-label={
+            maskedConflicts.length > 0
+              ? t('conflicts.badgeTitle', { count: activeConflicts.length, masked: maskedConflicts.length })
+              : undefined
+          }
           onClick={() => togglePanel('conflicts')}
         >
           <IconWarning size={12} />
           <span>{activeConflicts.length}</span>
+          {maskedConflicts.length > 0 && (
+            <span className="font-normal text-ink-faint">
+              ({t('conflicts.maskedCount', { count: maskedConflicts.length })})
+            </span>
+          )}
         </button>
 
         {proposalVisible && proposal && (

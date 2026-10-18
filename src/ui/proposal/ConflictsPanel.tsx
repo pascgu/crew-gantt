@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { Conflict } from '@/core/conflicts/detect';
 import { useAppStore } from '@/state/store';
-import { useConflicts, useSchedule } from '@/state/schedule';
+import { useActiveConflictsByVisibility, useConflicts, useSchedule } from '@/state/schedule';
 import { toggleIgnoredConflict } from '@/state/taskActions';
 import { useUiStore } from '@/state/uiStore';
 import { IconClose, IconWarning } from '@/ui/common/icons';
@@ -29,7 +29,9 @@ interface ConflictsPanelProps {
 
 /** Panneau Conflits : actifs + ignorés (gris, consultables, réactivables). */
 export function ConflictsPanel({ onClose, onSelectTask }: ConflictsPanelProps) {
-  const { active, ignored } = useConflicts();
+  const { ignored } = useConflicts();
+  // Conflits des tâches masquées : listés à part, jamais escamotés en silence.
+  const { visible: active, masked } = useActiveConflictsByVisibility();
   const schedule = useSchedule();
   const tasks = useAppStore((s) => s.file.tasks);
   const resources = useAppStore((s) => s.file.resources);
@@ -42,7 +44,7 @@ export function ConflictsPanel({ onClose, onSelectTask }: ConflictsPanelProps) {
   }, [focusTaskId]);
 
   // Tâches distinctes qui ont au moins un conflit actif
-  const taskIds = [...new Set(active.map((c) => c.taskId).filter(Boolean))] as string[];
+  const taskIds = [...new Set([...active, ...masked].map((c) => c.taskId).filter(Boolean))] as string[];
 
   const filterFn = (c: Conflict) => !taskFilter || c.taskId === taskFilter;
 
@@ -108,10 +110,19 @@ export function ConflictsPanel({ onClose, onSelectTask }: ConflictsPanelProps) {
             </p>
           </div>
         )}
-        {active.filter(filterFn).length === 0 && active.length === 0 && !schedule.cycle && (
+        {active.length === 0 && masked.length === 0 && !schedule.cycle && (
           <p className="p-3 text-[12px] text-ok">{t('conflicts.none')}</p>
         )}
         {active.filter(filterFn).map((c) => renderConflict(c, false))}
+
+        {masked.filter(filterFn).length > 0 && (
+          <>
+            <p className="mb-1 mt-3 px-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+              {t('conflicts.masked')} ({masked.filter(filterFn).length})
+            </p>
+            {masked.filter(filterFn).map((c) => renderConflict(c, false))}
+          </>
+        )}
 
         {/* Sur-engagement : avertissement doux, jamais un conflit rouge */}
         {schedule.overEngagements.map((o) => (

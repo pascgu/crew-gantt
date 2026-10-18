@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { fmtNum } from '@/ui/gantt/format';
 
 interface EditableTextProps {
   value: string;
@@ -96,9 +97,12 @@ export function EditableNumber({
   const [draft, setDraft] = useState('');
   const ref = useRef<HTMLInputElement>(null);
 
+  // Affichage et saisie à la française (virgule), au centième : « 10,4 », « 6,56 ».
+  const shown = value === null ? '' : fmtNum(value);
+
   useEffect(() => {
     if (editing) {
-      setDraft(value === null ? '' : String(value));
+      setDraft(shown);
       ref.current?.focus();
       ref.current?.select();
     }
@@ -110,6 +114,7 @@ export function EditableNumber({
       if (nullable && value !== null) onCommit(null);
       return;
     }
+    if (draft === shown) return; // rien de saisi : ne pas réécrire une valeur arrondie
     const parsed = Number(draft.replace(',', '.'));
     if (Number.isNaN(parsed)) return;
     let v = parsed;
@@ -124,7 +129,7 @@ export function EditableNumber({
         className={`block cursor-text truncate rounded px-1 py-px text-right font-mono tabular-nums hover:bg-paper-deep ${value === null ? 'text-ink-faint' : ''} ${className ?? ''}`}
         onClick={() => setEditing(true)}
       >
-        {value === null ? '—' : `${value}${suffix ?? ''}`}
+        {value === null ? '—' : `${shown}${suffix ?? ''}`}
       </span>
     );
   }

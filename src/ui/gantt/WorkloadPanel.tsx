@@ -38,12 +38,12 @@ export function WorkloadNamesOverlay({
           key={r.id}
           className="pointer-events-auto flex cursor-pointer items-center gap-1 overflow-hidden rounded-r px-1.5"
           style={{ height: rowH }}
-          title={r.name}
+          title={r.hidden ? `${r.name} — ${t('team.hiddenStillAssigned')}` : r.name}
           onDoubleClick={() => focusResource(r.id)}
         >
           <Avatar resource={r} size="xs" />
           <span
-            className="truncate rounded bg-surface/80 px-1 text-[9.5px] font-medium text-ink-soft"
+            className={`truncate rounded bg-surface/80 px-1 text-[9.5px] font-medium ${r.hidden ? 'italic text-warn' : 'text-ink-soft'}`}
             style={{ maxWidth: 100 }}
           >
             {r.name}

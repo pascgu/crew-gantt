@@ -1,17 +1,18 @@
 import { useMemo, useState } from 'react';
 import { addDays } from '@/core/calendar/dates';
-import { freeCapacity } from '@/core/scheduler/workload';
+import { freeCapacity, hasUpcomingLoad } from '@/core/scheduler/workload';
 import type { Schedule } from '@/core/scheduler/schedule';
 import type { Block, IsoDate, Task } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
-import { setBlockAssignments } from '@/state/taskActions';
+import { assignTeam, setBlockAssignments } from '@/state/taskActions';
 import { IconPlus, IconWarning } from '@/ui/common/icons';
 import { t } from '@/i18n/fr';
-import { fmtDay } from '@/ui/gantt/format';
+import { fmtDay, fmtNum } from '@/ui/gantt/format';
 
 interface AssignmentAssistantProps {
   task: Task;
-  block: Block;
+  /** Bloc à affecter ; null = tâche pas encore placée → on compose son équipe prévue. */
+  block: Block | null;
   /** Fin résolue du bloc (fenêtre d'analyse). */
   resolvedTo: IsoDate | null;
   schedule: Schedule;
@@ -20,24 +21,28 @@ interface AssignmentAssistantProps {
 /**
  * Aide à l'affectation : ressources triées par capacité libre sur la fenêtre
  * du bloc, prérequis affichés bien en vue. Tri et chiffres exacts, décision humaine.
+ * Sans bloc (T9), la fenêtre part du premier jour ouvré à venir et l'on choisit l'équipe prévue.
  */
 export function AssignmentAssistant({ task, block, resolvedTo, schedule }: AssignmentAssistantProps) {
   const resources = useAppStore((s) => s.file.resources);
   const [open, setOpen] = useState(false);
 
-  const from = block.from;
+  const from = block?.from ?? schedule.ctx.nextWorkingDay(schedule.ctx.today);
   const to = resolvedTo && resolvedTo > from ? resolvedTo : addDays(from, 13);
+  const team = block?.assignments ?? task.plannedAssignments ?? [];
 
   const ranked = useMemo(() => {
     if (!open) return [];
     return resources
+      // ressource masquée : proposée seulement si elle est déjà dans l'équipe ou encore chargée
+      .filter((r) => !r.hidden || team.some((a) => a.resourceId === r.id) || hasUpcomingLoad(schedule.loadIndex, r.id, from))
       .map((resource) => ({
         resource,
         ...freeCapacity(schedule.ctx, schedule.loadIndex, resource.id, from, to),
-        assigned: block.assignments.some((a) => a.resourceId === resource.id),
+        assigned: team.some((a) => a.resourceId === resource.id),
       }))
       .sort((a, b) => b.free - a.free);
-  }, [open, resources, schedule, from, to, block.assignments]);
+  }, [open, resources, schedule, from, to, team]);
 
   if (!open) {
     return (
@@ -71,10 +76,9 @@ export function AssignmentAssistant({ task, block, resolvedTo, schedule }: Assig
             disabled={assigned}
             className="flex items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] transition enabled:hover:bg-accent-wash disabled:opacity-45"
             onClick={() => {
-              setBlockAssignments(task.id, block.id, [
-                ...block.assignments,
-                { resourceId: resource.id, units: 100 },
-              ]);
+              const next = [...team, { resourceId: resource.id, units: 100 }];
+              if (block) setBlockAssignments(task.id, block.id, next);
+              else assignTeam([task.id], next);
               setOpen(false);
             }}
           >
@@ -88,9 +92,7 @@ export function AssignmentAssistant({ task, block, resolvedTo, schedule }: Assig
               />
             </span>
             <span className="w-16 shrink-0 text-right font-mono text-[11px] text-ink-soft">
-              {assigned
-                ? t('assist.alreadyAssigned')
-                : t('assist.freeDays', { days: String(free).replace('.', ',') })}
+              {assigned ? t('assist.alreadyAssigned') : t('assist.freeDays', { days: fmtNum(free) })}
             </span>
           </button>
         ))}

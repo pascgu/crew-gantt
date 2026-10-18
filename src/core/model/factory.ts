@@ -61,6 +61,7 @@ export function createTask(
     date: null,
     blocks: [],
     notes: [],
+    priority: 'normal',
     ...partial,
   };
 }

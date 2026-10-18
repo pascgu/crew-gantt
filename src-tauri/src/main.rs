@@ -1,7 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::sync::Mutex;
-use tauri::{Emitter, Manager};
 
 struct StartupFile(Mutex<Option<String>>);
 
@@ -19,18 +18,11 @@ fn take_startup_file(state: tauri::State<StartupFile>) -> Option<String> {
     state.0.lock().unwrap().take()
 }
 
+/// Un programme par fichier (décision T6, v1.3) : chaque double-clic sur un .cgan lance sa propre
+/// instance, avec sa fenêtre. La sauvegarde de secours est rangée par fichier côté web (IndexedDB),
+/// et une instance prévient si le même fichier est déjà ouvert ailleurs.
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            // Une deuxième instance a été lancée (ex. double-clic sur un autre .cgan) :
-            // on transmet le fichier à la fenêtre existante au lieu d'ouvrir une nouvelle instance.
-            if let Some(path) = extract_cgan_path(&argv) {
-                let _ = app.emit("open-file", path);
-            }
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_focus();
-            }
-        }))
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(StartupFile(Mutex::new(extract_cgan_path(

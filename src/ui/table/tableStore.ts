@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { COLS } from './columns';
-import type { DateFormat } from '@/ui/gantt/format';
+import { setCurrentDateFormat, type DateFormat } from '@/ui/gantt/format';
+import type { TaskPriority } from '@/core/model/types';
 
 export type ColKey = keyof typeof COLS;
 
@@ -23,6 +24,7 @@ export const DEFAULT_COLUMN_ORDER: ColKey[] = [
   'start',
   'end',
   'status',
+  'priority',
 ];
 
 /**
@@ -56,6 +58,13 @@ interface TableState {
   assigneeFilter: string[] | null;
   /** Filtre nom : sous-chaîne (insensible à la casse). */
   nameQuery: string;
+  /**
+   * Filtre priorité : niveaux affichés, ou null = défaut (tout sauf « masquée »).
+   * Cocher « Masquée » dans ce filtre = « Afficher les masquées ».
+   */
+  priorityFilter: TaskPriority[] | null;
+  /** Afficher les tâches des projets archivés (masquées par défaut). */
+  showArchived: boolean;
   /** Taille de police de la liste des tâches (px). */
   fontSize: number;
   /** Format d'affichage des dates dans l'interface. */
@@ -70,6 +79,8 @@ interface TableState {
   setStatusFilter: (v: string[] | null) => void;
   setAssigneeFilter: (v: string[] | null) => void;
   setNameQuery: (q: string) => void;
+  setPriorityFilter: (v: TaskPriority[] | null) => void;
+  setShowArchived: (v: boolean) => void;
   resetWidths: () => void;
   setFontSize: (size: number) => void;
   setDateFormat: (fmt: DateFormat) => void;
@@ -84,6 +95,8 @@ export const useTableStore = create<TableState>()(
       statusFilter: null,
       assigneeFilter: null,
       nameQuery: '',
+      priorityFilter: null,
+      showArchived: false,
       fontSize: 11,
       dateFormat: 'DD/MM/YYYY' as DateFormat,
 
@@ -113,14 +126,20 @@ export const useTableStore = create<TableState>()(
       setStatusFilter: (v) => set({ statusFilter: v }),
       setAssigneeFilter: (v) => set({ assigneeFilter: v }),
       setNameQuery: (q) => set({ nameQuery: q }),
+      setPriorityFilter: (v) => set({ priorityFilter: v }),
+      setShowArchived: (v) => set({ showArchived: v }),
       resetWidths: () => set({ widths: DEFAULT_WIDTHS, order: DEFAULT_COLUMN_ORDER }),
       setFontSize: (size) => set({ fontSize: Math.max(9, Math.min(13, size)) }),
-      setDateFormat: (fmt) => set({ dateFormat: fmt }),
+      setDateFormat: (fmt) => {
+        setCurrentDateFormat(fmt);
+        set({ dateFormat: fmt });
+      },
     }),
     {
       name: 'crewgantt.ui.columns',
       merge: (persisted, current) => {
         const p = persisted as Partial<TableState>;
+        if (p.dateFormat) setCurrentDateFormat(p.dateFormat);
         return {
           ...current,
           ...p,

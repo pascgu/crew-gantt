@@ -1,5 +1,6 @@
 import type { IsoDate, TeamFile } from '../model/types';
 import { createCalcContext, type CalcContext } from './context';
+import { fileAsOf } from './asOf';
 import { resolveBlocks, taskSpan, type ResolvedBlock, type TaskSpan } from './blocks';
 import { buildHierarchy, type Hierarchy } from './hierarchy';
 import { aggregateGroup, type GroupAggregate } from './groups';
@@ -32,7 +33,18 @@ export interface Schedule {
   planSpan: TaskSpan | null;
 }
 
-export function computeSchedule(file: TeamFile, today: IsoDate): Schedule {
+/**
+ * `today` = le présent du calcul (trait de revue : la date de réunion si elle est posée).
+ * `remainingRef` = la date à laquelle valent les restes stockés (le vrai aujourd'hui) ; si elle
+ * diffère, le calcul travaille sur la vue « à la date de réunion » ({@link fileAsOf}) — `ctx.file`
+ * porte alors les restes vus à cette date, le fichier stocké n'est jamais touché.
+ */
+export function computeSchedule(
+  storedFile: TeamFile,
+  today: IsoDate,
+  remainingRef: IsoDate = today,
+): Schedule {
+  const file = fileAsOf(storedFile, remainingRef, today);
   const ctx = createCalcContext(file, today);
   const hierarchy = buildHierarchy(file.tasks);
 

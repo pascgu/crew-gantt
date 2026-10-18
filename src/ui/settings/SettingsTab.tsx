@@ -10,6 +10,7 @@ import { fmtDayFull } from '@/ui/gantt/format';
 import { useTableStore, type ColKey } from '@/ui/table/tableStore';
 import type { DateFormat } from '@/ui/gantt/format';
 import { useGanttColumnsStore, type CenterOverflow } from '@/ui/gantt/ganttColumnsStore';
+import { ZoneChips } from '@/ui/gantt/GanttLabelsPopover';
 import { readMaxRecent, setMaxRecent, supportsRecentFiles } from '@/io/handleStore';
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
@@ -21,10 +22,6 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
-const ALL_COL_KEYS: ColKey[] = [
-  'name', 'group', 'project', 'estimate', 'effort', 'remaining', 'progress',
-  'assignees', 'start', 'end', 'status',
-];
 
 export function SettingsTab() {
   return (
@@ -101,6 +98,7 @@ function GanttColumnsCard() {
 
   return (
     <Card title={t('settings.ganttColumns')}>
+      <p className="-mt-2 mb-3 text-[11.5px] text-ink-faint">{t('settings.ganttColumnsHint')}</p>
       <div className="flex flex-col gap-4">
         {/* Font size */}
         <div className="flex items-center gap-3">
@@ -125,24 +123,7 @@ function GanttColumnsCard() {
         ).map(([zone, label, selected]) => (
           <div key={zone}>
             <p className="mb-1.5 text-[12px] font-medium text-ink-soft">{label}</p>
-            <div className="flex flex-wrap gap-1.5">
-              {(zone === 'center' ? ALL_COL_KEYS.filter((k) => k !== 'assignees') : ALL_COL_KEYS).map((key) => {
-                const active = selected.includes(key);
-                return (
-                  <button
-                    key={key}
-                    onClick={() => toggle(zone, key)}
-                    className={`rounded border px-2 py-0.5 text-[11.5px] transition ${
-                      active
-                        ? 'border-accent bg-accent-wash text-accent-deep'
-                        : 'border-line text-ink-soft hover:border-accent hover:text-ink'
-                    }`}
-                  >
-                    {t(`tasks.columns.${key}`)}
-                  </button>
-                );
-              })}
-            </div>
+            <ZoneChips zone={zone} selected={selected} onToggle={(key) => toggle(zone, key)} />
             {zone === 'center' && center.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 {(['unique', 'perBlock'] as const).map((mode) => (

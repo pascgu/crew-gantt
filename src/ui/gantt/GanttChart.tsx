@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import { addDays, diffDays, eachDay, maxIso, minIso, todayIso } from '@/core/calendar/dates';
 import { progressBarDays, taskProgress } from '@/core/scheduler/groups';
 import { workedDaysReachedOn, workedDaysUpTo } from '@/core/scheduler/links';
-import { realizedOf, remainingForEndDate, remainingOf, scheduledEffort } from '@/core/scheduler/blocks';
+import { consumesNothing, realizedOf, remainingForEndDate, remainingOf, scheduledEffort } from '@/core/scheduler/blocks';
 import type { Schedule } from '@/core/scheduler/schedule';
 import type { IsoDate, Task } from '@/core/model/types';
 import { useAppStore } from '@/state/store';
@@ -25,6 +25,7 @@ import {
   setBlockDates,
   setTaskProgress,
   setTaskRemaining,
+  setTasksPriority,
   shiftTasksDates,
   splitBlock,
   updateTask,
@@ -40,7 +41,9 @@ import { ROW_HEIGHT, type TimeScale } from './timescale';
 import type { GanttRow } from './rows';
 import { useGanttColumnsStore } from './ganttColumnsStore';
 import { useTableStore, type ColKey } from '@/ui/table/tableStore';
-import { fmtDate } from '@/ui/gantt/format';
+import { fmtDate, fmtDay, fmtDayFull, fmtDays } from '@/ui/gantt/format';
+import { PRIORITY_COLOR, PriorityPicker, priorityLabel } from '@/ui/common/PriorityDot';
+import { GanttLabelsPopover } from './GanttLabelsPopover';
 import { linkCode } from '@/ui/gantt/linkCode';
 import { resourceAvatar } from '@/ui/common/Avatar';
 import { BlockAssignPopover } from '@/ui/common/BlockAssignPopover';
@@ -111,8 +114,10 @@ interface MenuState {
 interface AssignPopoverState {
   x: number;
   y: number;
-  taskId: string;
-  blockId: string;
+  /** Tâches visées (la cliquée d'abord) — toute la sélection si la ligne en fait partie. */
+  taskIds: string[];
+  /** Bloc précis visé (affectation d'une seule tâche). */
+  blockId?: string;
 }
 
 interface GanttChartProps {
@@ -147,6 +152,8 @@ interface GanttChartProps {
   minHeight?: number;
   /** Défilement horizontal courant : épingle le marqueur « non planifiée » au bord gauche visible. */
   scrollLeft?: number;
+  /** Largeur visible du Gantt : garde le ✓ d'une proposition longue dans la vue. */
+  viewportWidth?: number;
 }
 
 export function GanttChart({
@@ -170,11 +177,13 @@ export function GanttChart({
   onHoverTask,
   minHeight,
   scrollLeft = 0,
+  viewportWidth = 1200,
 }: GanttChartProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [assignPopover, setAssignPopover] = useState<AssignPopoverState | null>(null);
+  const [labelsPopover, setLabelsPopover] = useState<{ x: number; y: number; taskIds: string[] } | null>(null);
   const [panning, setPanning] = useState(false);
   const [ctrlHeld, setCtrlHeld] = useState(false);
 
@@ -194,6 +203,13 @@ export function GanttChart({
   const setSelectedRange = useAppStore((s) => s.setSelectedRange);
   /** La ligne `id` fait-elle partie d'une sélection multiple (≥2) ? */
   const isMultiSel = (id: string) => selectedTaskIds.length > 1 && selectedTaskIds.includes(id);
+  /** Cible d'une action de ligne : toute la sélection si la ligne en fait partie (elle d'abord). */
+  const targetsOf = (id: string) =>
+    isMultiSel(id) ? [id, ...selectedTaskIds.filter((s) => s !== id)] : [id];
+  const openAssign = (e: React.MouseEvent | ReactPointerEvent, taskId: string, blockId: string) => {
+    const taskIds = targetsOf(taskId);
+    setAssignPopover({ x: e.clientX, y: e.clientY, taskIds, blockId: taskIds.length === 1 ? blockId : undefined });
+  };
 
   // Validation groupée : propositions des lignes sélectionnées (survol d'un ✓ → valider tout le groupe).
   const [groupGhostHover, setGroupGhostHover] = useState(false);
@@ -675,7 +691,7 @@ export function GanttChart({
           label: t('gantt.changeAssign'),
           onClick: () => {
             setMenu(null);
-            setAssignPopover({ x: e.clientX, y: e.clientY, taskId: task.id, blockId });
+            openAssign(e, task.id, blockId);
           },
         },
         {
@@ -720,6 +736,28 @@ export function GanttChart({
       selectedTaskIds.includes(task.id) && selectedTaskIds.length > 0 ? selectedTaskIds : [task.id];
     const canGroup = canEncloseInGroup(schedule.ctx.file, groupIds);
     const entries: MenuEntry[] = [
+      {
+        label:
+          groupIds.length > 1 ? t('tasks.priorityMenuMany', { count: groupIds.length }) : t('tasks.priorityMenu'),
+        onClick: () => {},
+        render: (close) => (
+          <PriorityPicker
+            value={groupIds.length > 1 ? null : task.priority}
+            onPick={(p) => {
+              setTasksPriority(groupIds, p);
+              close();
+            }}
+          />
+        ),
+      },
+      ...(task.type !== 'milestone'
+        ? [
+            {
+              label: t('tasks.ganttLabels'),
+              onClick: () => setLabelsPopover({ x: e.clientX, y: e.clientY, taskIds: groupIds }),
+            },
+          ]
+        : []),
       {
         label: t('tasks.createEnclosingGroup'),
         disabled: !canGroup,
@@ -825,8 +863,17 @@ export function GanttChart({
           const y = (windowStart + i + 1) * ROW_HEIGHT;
           return <line key={i} x1={0} x2={scale.width} y1={y} y2={y} stroke="rgb(33 31 26 / 0.05)" />;
         })}
-        {/* Lignes verticales (aujourd'hui / revue) : rendues plus bas, par-dessus les barres,
-            avec une bande de survol assez large pour afficher l'infobulle. */}
+        {/* Lignes verticales (aujourd'hui / revue) : le trait est peint plus bas, par-dessus les barres
+            mais transparent au pointeur ; sa bande d'infobulle est ici, SOUS les barres, pour ne jamais
+            capter un geste sur une barre ou une poignée (T5). L'infobulle reste aussi dans l'en-tête. */}
+        <rect x={scale.x(today) - 3} y={0} width={6} height={height} fill="transparent">
+          <title>{t('gantt.today')}</title>
+        </rect>
+        {schedule.ctx.today !== today && (
+          <rect x={scale.x(schedule.ctx.today) - 3} y={0} width={6} height={height} fill="transparent">
+            <title>{t('gantt.reviewDateLine')}</title>
+          </rect>
+        )}
         {/* Chaîne contraignante du jalon sélectionné */}
         {chainTaskIds &&
           visible.map((row, i) =>
@@ -874,6 +921,7 @@ export function GanttChart({
         {visible.map((row, i) => (
           <g
             key={row.task.id}
+            data-task-id={row.task.id}
             transform={`translate(0, ${(windowStart + i) * ROW_HEIGHT})`}
             onContextMenu={(e) => rowMenu(e, row.task)}
             onMouseEnter={() => onHoverTask(row.task.id)}
@@ -898,9 +946,7 @@ export function GanttChart({
               onProgressPointerDown={startProgress}
               onMilestonePointerDown={startMilestoneDrag}
               onGroupPointerDown={startGroupDrag}
-              onAssignPopover={(e, taskId, blockId) =>
-                setAssignPopover({ x: e.clientX, y: e.clientY, taskId, blockId })
-              }
+              onAssignPopover={openAssign}
             />
           </g>
         ))}
@@ -917,6 +963,8 @@ export function GanttChart({
                 change={change}
                 y={(windowStart + i) * ROW_HEIGHT}
                 scale={scale}
+                viewLeft={scrollLeft}
+                viewRight={scrollLeft + viewportWidth}
                 color={projectColor.get(row.task.projectId) ?? '#888888'}
                 onApply={applyProposalChange}
                 inGroup={inGroup}
@@ -1019,9 +1067,8 @@ export function GanttChart({
               schedule={schedule}
             />
           ))}
-        {/* Ligne aujourd'hui (bleue) — au début de la journée, par-dessus les barres.
-            Bande transparente plus large pour capter le survol (l'infobulle SVG ne s'affiche
-            que sur l'élément réellement survolé) ; les gestes (pan, double-clic) remontent au SVG. */}
+        {/* Ligne aujourd'hui (bleue) — au début de la journée, par-dessus les barres, sans capter le
+            pointeur (la bande d'infobulle est peinte sous les barres, cf. plus haut). */}
         <line
           x1={scale.x(today)}
           x2={scale.x(today)}
@@ -1033,9 +1080,6 @@ export function GanttChart({
           opacity={0.65}
           pointerEvents="none"
         />
-        <rect x={scale.x(today) - 3} y={0} width={6} height={height} fill="transparent">
-          <title>{t('gantt.today')}</title>
-        </rect>
         {/* Ligne date de réunion (rouge) — visible seulement si différente d'aujourd'hui */}
         {schedule.ctx.today !== today && (
           <>
@@ -1050,9 +1094,6 @@ export function GanttChart({
               opacity={0.7}
               pointerEvents="none"
             />
-            <rect x={scale.x(schedule.ctx.today) - 3} y={0} width={6} height={height} fill="transparent">
-              <title>{t('gantt.reviewDateLine')}</title>
-            </rect>
           </>
         )}
         {/* Tooltip Reste pendant resize (effort ET dates fixées, resize-start et resize-end) */}
@@ -1101,10 +1142,18 @@ export function GanttChart({
         <BlockAssignPopover
           x={assignPopover.x}
           y={assignPopover.y}
-          taskId={assignPopover.taskId}
+          taskIds={assignPopover.taskIds}
           blockId={assignPopover.blockId}
           schedule={schedule}
           onClose={() => setAssignPopover(null)}
+        />
+      )}
+      {labelsPopover && (
+        <GanttLabelsPopover
+          x={labelsPopover.x}
+          y={labelsPopover.y}
+          taskIds={labelsPopover.taskIds}
+          onClose={() => setLabelsPopover(null)}
         />
       )}
     </>
@@ -1167,8 +1216,13 @@ function RowBars({
   const barY = mid - 5.5;
   const barH = 11;
   const [barHovered, setBarHovered] = useState(false);
-  const { before: colsBefore, after: colsAfter, center: colsCenter, centerMode, centerOverflow, fontSize: ganttFontSize } =
-    useGanttColumnsStore();
+  const globalCols = useGanttColumnsStore();
+  const { centerMode, centerOverflow, fontSize: ganttFontSize } = globalCols;
+  // Affichage propre à la tâche (enregistré dans le fichier), sinon réglage global (T10).
+  const colsBefore = (task.ganttLabels?.before ?? globalCols.before) as ColKey[];
+  const colsAfter = (task.ganttLabels?.after ?? globalCols.after) as ColKey[];
+  const colsCenter = (task.ganttLabels?.center ?? globalCols.center) as ColKey[];
+  const priorityColor = PRIORITY_COLOR[task.priority];
 
   if (task.type === 'milestone') {
     if (!task.date) return null;
@@ -1187,7 +1241,8 @@ function RowBars({
         onPointerDown={(e) => onMilestonePointerDown(e, task)}
       >
         <Diamond cx={cx} cy={mid} size={6} color={msColor} conflict={hasConflict} />
-        <text x={cx + 10} y={mid + 3.5} fontSize={10.5} fill="var(--color-ink-soft)">
+        {priorityColor && <PriorityPastille x={cx + 13} y={mid} color={priorityColor} label={priorityLabel(task.priority)} />}
+        <text x={cx + (priorityColor ? 19 : 10)} y={mid + 3.5} fontSize={10.5} fill="var(--color-ink-soft)">
           {task.name}
         </text>
       </g>
@@ -1226,8 +1281,16 @@ function RowBars({
                 />
               ),
           )}
+          {priorityColor && (
+            <PriorityPastille
+              x={nameBefore ? firstX - 7 : lastX + 7}
+              y={mid}
+              color={priorityColor}
+              label={priorityLabel(task.priority)}
+            />
+          )}
           <text
-            x={nameBefore ? firstX - 4 : lastX + 4}
+            x={nameBefore ? firstX - (priorityColor ? 14 : 4) : lastX + (priorityColor ? 14 : 4)}
             y={mid + ganttFontSize / 2 - 1}
             fontSize={ganttFontSize}
             fontWeight="bold"
@@ -1322,8 +1385,11 @@ function RowBars({
                   {groupBeforeParts.join(' · ')}
                 </text>
               )}
+              {priorityColor && (
+                <PriorityPastille x={gx1 + 7} y={mid} color={priorityColor} label={priorityLabel(task.priority)} />
+              )}
               {groupAfterParts.length > 0 && (
-                <text x={gx1 + 4} y={txtY} fontSize={ganttFontSize} fontWeight={groupFontWeight} textAnchor="start" fill="var(--color-ink-soft)" pointerEvents="none">
+                <text x={gx1 + (priorityColor ? 14 : 4)} y={txtY} fontSize={ganttFontSize} fontWeight={groupFontWeight} textAnchor="start" fill="var(--color-ink-soft)" pointerEvents="none">
                   {groupAfterParts.join(' · ')}
                 </text>
               )}
@@ -1444,6 +1510,7 @@ function RowBars({
         return (
           <g key={r.block.id}>
             <rect
+              data-block-id={r.block.id}
               x={x}
               y={barY}
               width={w}
@@ -1461,10 +1528,10 @@ function RowBars({
               onContextMenu={(e) => onBlockContextMenu(e, task, r.block.id)}
             >
               <title>
-                {t('gantt.blockOf', { name: task.name })} — {from} → {to}
+                {t('gantt.blockOf', { name: task.name })} — {fmtDayFull(from)} → {fmtDayFull(to)}
                 {who ? `\n${who}` : ''}
-                {`\n${t('panel.realized')} : ${Math.round(realized * 10) / 10} ${t('common.days')}`}
-                {`\n${t('panel.remaining')} : ${Math.round(remainingOf(schedule.ctx, task, resolved) * 10) / 10} ${t('common.days')}`}
+                {`\n${t('panel.realized')} : ${fmtDays(realized)} ${t('common.days')}`}
+                {`\n${t('panel.remaining')} : ${fmtDays(remainingOf(schedule.ctx, task, resolved))} ${t('common.days')}`}
                 {`\n${t('gantt.progressTooltipIndep', { pct: Math.round(task.progress * 100) })}`}
               </title>
             </rect>
@@ -1626,8 +1693,9 @@ function RowBars({
             </rect>
           ) : null;
 
-        // Décalage du texte after pour laisser la place aux avatars
-        const afterTextX = xEnd + 4 + (assigneesInAfter && avatarGroupW > 0 ? avatarGroupW + 4 : 0);
+        // Décalage du texte after pour laisser la place aux avatars, puis à la pastille de priorité
+        const afterBaseX = xEnd + 4 + (assigneesInAfter && avatarGroupW > 0 ? avatarGroupW + 4 : 0);
+        const afterTextX = afterBaseX + (priorityColor ? 10 : 0);
         // Position des avatars before : à gauche du texte before estimé
         const beforeTxtW = beforeParts.join(' · ').length * (ganttFontSize * 0.55);
 
@@ -1643,15 +1711,22 @@ function RowBars({
                 {beforeParts.join(' · ')}
               </text>
             )}
-            {/* avatars after — avant le texte after */}
-            {assigneesInAfter && avatarGroupW > 0 && (
-              <g key="av-after">{renderAvatarGroup(xEnd + 4)}{avatarHitRect(xEnd + 4)}</g>
-            )}
-            {afterParts.length > 0 && (
-              <text x={afterTextX} y={txtY} fontSize={ganttFontSize} textAnchor="start" fill="var(--color-ink-soft)" pointerEvents="none">
-                {afterParts.join(' · ')}
-              </text>
-            )}
+            {/* Après la barre (avatars, pastille, texte) : glisse de 13 px au survol de la ligne pour
+                dégager la poignée de lien, qui sinon recouvrait le début du libellé (E4). */}
+            <g className="transition-transform duration-150 group-hover:translate-x-[13px]">
+              {/* avatars after — avant le texte after */}
+              {assigneesInAfter && avatarGroupW > 0 && (
+                <g key="av-after">{renderAvatarGroup(xEnd + 4)}{avatarHitRect(xEnd + 4)}</g>
+              )}
+              {priorityColor && (
+                <PriorityPastille x={afterBaseX + 3} y={mid} color={priorityColor} label={priorityLabel(task.priority)} />
+              )}
+              {afterParts.length > 0 && (
+                <text x={afterTextX} y={txtY} fontSize={ganttFontSize} textAnchor="start" fill="var(--color-ink-soft)" pointerEvents="none">
+                  {afterParts.join(' · ')}
+                </text>
+              )}
+            </g>
             {colsCenter.length > 0 && centerMode === 'unique' && fitsInBar && centerTxt && (
               <text x={(xStart + xEnd) / 2} y={txtY} fontSize={ganttFontSize} textAnchor="middle" fill="var(--color-surface)" pointerEvents="none">
                 {centerTxt}
@@ -1673,6 +1748,7 @@ function RowBars({
       {/* poignée de création de lien (décalée à +11 pour ne pas chevaucher la poignée de fin) */}
       {/* Tâche à 0 j : le marqueur ne fait que 5px, on se cale sur son bord droit visuel et non sur xEnd (un jour plus loin). */}
       <circle
+        data-link-handle=""
         cx={(zeroEffort ? xStart + 5 : xEnd) + 11}
         cy={mid}
         r={4}
@@ -1736,24 +1812,24 @@ function cellText(task: Task, key: ColKey, schedule: Schedule): string {
     }
     case 'scheduling':
       return task.type === 'task' ? (task.scheduling === 'effort' ? t('tasks.schedulingShort.effort') : t('tasks.schedulingShort.fixed')) : '';
-    case 'estimate': return task.estimate != null ? `${task.estimate}j` : '';
+    case 'estimate': return task.estimate != null ? `${fmtDays(task.estimate)}j` : '';
     case 'effort':
       return task.scheduling === 'effort'
-        ? `${task.effort}j`
-        : `${Math.round(scheduledEffort(schedule.ctx, task, schedule.resolvedByTask.get(task.id) ?? []) * 10) / 10}j`;
-    case 'realized': return `${Math.round(realizedOf(schedule.ctx, task) * 10) / 10}j`;
-    case 'remaining': return `${Math.round(remainingOf(schedule.ctx, task, schedule.resolvedByTask.get(task.id) ?? []) * 10) / 10}j`;
+        ? `${fmtDays(task.effort)}j`
+        : `${fmtDays(scheduledEffort(schedule.ctx, task, schedule.resolvedByTask.get(task.id) ?? []))}j`;
+    case 'realized': return `${fmtDays(realizedOf(schedule.ctx, task))}j`;
+    case 'remaining': return `${fmtDays(remainingOf(schedule.ctx, task, schedule.resolvedByTask.get(task.id) ?? []))}j`;
     case 'progress': return `${Math.round(taskProgress(task) * 100)}%`;
     case 'assignees': return '';
     case 'start': {
-      const resolved = schedule.resolvedByTask.get(task.id);
-      return resolved?.[0]?.from ?? '';
+      const span = schedule.spanByTask.get(task.id);
+      return span ? fmtDay(span.start) : '';
     }
     case 'end': {
-      const resolved = schedule.resolvedByTask.get(task.id);
-      return resolved?.[resolved.length - 1]?.to ?? '';
+      const span = schedule.spanByTask.get(task.id);
+      return span ? fmtDay(span.end) : '';
     }
-    case 'status': return task.status ?? '';
+    case 'status': return task.type === 'group' ? '' : t(`tasks.status.${task.status}`);
     default: return '';
   }
 }
@@ -1778,6 +1854,15 @@ function Diamond({
       stroke={conflict ? 'var(--color-danger)' : darken(color, 0.45)}
       strokeWidth={conflict ? 1.8 : 1}
     />
+  );
+}
+
+/** Pastille de priorité près du libellé (décision T2 : la couleur est sur la pastille, pas le texte). */
+function PriorityPastille({ x, y, color, label }: { x: number; y: number; color: string; label: string }) {
+  return (
+    <circle cx={x} cy={y} r={3.2} fill={color} stroke="var(--color-surface)" strokeWidth={0.8}>
+      <title>{label}</title>
+    </circle>
   );
 }
 
@@ -2030,12 +2115,15 @@ function BaselineGhost({
       ...(curDate ? [`${t('baseline.tooltipCurDate')} : ${fmt(curDate)}`] : []),
       ...(drift !== null ? [t('baseline.drift', { days: fmtDrift(drift) })] : []),
     ];
+    // Contour seul (pointerEvents « stroke ») : un remplissage transparent compte comme peint et
+    // captait le pointeur au centre du losange réel → Ctrl+glisser le jalon devenait impossible (T1).
     return (
       <path
         d={`M ${cx} ${cy - 5} L ${cx + 5} ${cy} L ${cx} ${cy + 5} L ${cx - 5} ${cy} Z`}
-        fill="transparent"
+        fill="none"
         stroke="var(--color-line-strong)"
         strokeWidth={1.5}
+        pointerEvents="stroke"
       >
         <title>{titleLines.join('\n')}</title>
       </path>
@@ -2089,6 +2177,8 @@ function ProposalGhost({
   change,
   y,
   scale,
+  viewLeft,
+  viewRight,
   color,
   onApply,
   inGroup,
@@ -2100,6 +2190,9 @@ function ProposalGhost({
   change: TaskChange;
   y: number;
   scale: TimeScale;
+  /** Fenêtre visible (x) : le ✓ d'une proposition longue reste dans la vue. */
+  viewLeft: number;
+  viewRight: number;
   color: string;
   onApply: (change: TaskChange) => void;
   /** La ligne fait partie d'une sélection multiple dont ≥2 lignes ont une proposition. */
@@ -2141,6 +2234,7 @@ function ProposalGhost({
   // Bouton ✓ : déclenché sur pointerdown (fiable, l'élément n'existe qu'au survol).
   const applyBtn = (cx: number, cy: number) => (
     <g
+      data-proposal-apply=""
       style={{ cursor: 'pointer' }}
       onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); applyAction(); }}
     >
@@ -2179,15 +2273,13 @@ function ProposalGhost({
           strokeDasharray="3 2"
           pointerEvents="none"
         />
-        {showCheck && (
-          <>
-            {/* « +X j » (ou « Valider N propositions » en groupe), au-dessus, seulement sous le pointeur */}
-            {hovered && hoverLabel && (
-              <text x={cx} y={cy - 9} textAnchor="middle" fontSize={9} fill="var(--color-accent)" pointerEvents="none">{hoverLabel}</text>
-            )}
-            {applyBtn(btnCx, cy)}
-          </>
+        {/* « +X j » toujours visible (A4) ; au survol en groupe : « Valider N propositions » */}
+        {(hovered && inGroup ? hoverLabel : deltaLabel) && (
+          <text x={cx} y={cy - 9} textAnchor="middle" fontSize={9} fill="var(--color-accent)" pointerEvents="none">
+            {hovered && inGroup ? hoverLabel : deltaLabel}
+          </text>
         )}
+        {showCheck && applyBtn(btnCx, cy)}
       </g>
     );
   }
@@ -2201,8 +2293,14 @@ function ProposalGhost({
   const firstX = scale.x(firstFrom);
   // Bloc « 0 jour » (note/micro-rappel) : marqueur étroit, jamais une journée pleine.
   const lastEndX = lastBlock?.zero ? scale.x(lastBlock.from) + 5 : scale.xEnd(lastTo);
-  const btnCx = lastEndX + 11; // centre du bouton ✓, collé au bord droit de la dernière bande
-  const labelX = (firstX + lastEndX) / 2;
+  // Bouton ✓ collé au bord droit de la dernière bande… ou au bord droit de la vue quand la bande
+  // déborde (A4 : sur une tâche longue il fallait faire défiler pour l'atteindre).
+  const inView = lastEndX > viewLeft && firstX < viewRight;
+  const btnCx = inView ? Math.max(firstX + 8, Math.min(lastEndX + 11, viewRight - 14)) : lastEndX + 11;
+  // « +X j » centré sur la partie visible de la proposition.
+  const labelX = inView
+    ? (Math.max(firstX, viewLeft) + Math.min(lastEndX, viewRight - 30)) / 2
+    : (firstX + lastEndX) / 2;
 
   return (
     <g
@@ -2234,15 +2332,14 @@ function ProposalGhost({
           />
         );
       })}
-      {showCheck && (
-        <>
-          {/* « +X j » (ou « Valider N propositions » en groupe) au-dessus, seulement sous le pointeur */}
-          {hovered && hoverLabel && (
-            <text x={labelX + 3} y={y} textAnchor="middle" fontSize={9} fill="var(--color-accent)" pointerEvents="none">{hoverLabel}</text>
-          )}
-          {applyBtn(btnCx, ghostCy)}
-        </>
+      {/* « +X j » toujours visible (A4) — rien pour un simple découpage, visuellement évident ;
+          au survol en groupe : « Valider N propositions ». */}
+      {(hovered && inGroup ? hoverLabel : deltaLabel) && (
+        <text x={labelX + 3} y={y} textAnchor="middle" fontSize={9} fill="var(--color-accent)" pointerEvents="none">
+          {hovered && inGroup ? hoverLabel : deltaLabel}
+        </text>
       )}
+      {showCheck && applyBtn(btnCx, ghostCy)}
     </g>
   );
 }
@@ -2332,6 +2429,17 @@ function LinksLayer({
       } else {
         sx = scale.xEnd(sourceSpan.end);
       }
+      // Prédécesseur « 0 jour » : son marqueur ne fait que 5 px — le lien part de son bord visuel
+      // (et non d'un jour plus loin), cohérent avec le successeur autorisé le même jour (T7).
+      const sourceTask = schedule.hierarchy.tasksById.get(link.on);
+      if (
+        link.type !== 'with-start' &&
+        sourceTask &&
+        consumesNothing(schedule.ctx, sourceTask, schedule.resolvedByTask.get(link.on) ?? [])
+      ) {
+        sx = scale.x(sourceSpan.end) + 5;
+        anchorDate = null;
+      }
       const sy = sourceIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
 
       // Ancre cible : point interne « N jours » (targetDays) si défini, sinon le début de la tâche.
@@ -2418,6 +2526,7 @@ function LinksLayer({
           <g key={p.key}>
             {/* Zone de hit fine (≈ épaisseur du trait, sans marge), vertical + horizontal tronqué */}
             <path
+              data-link-key={p.key}
               d={p.hitD}
               fill="none"
               stroke="transparent"

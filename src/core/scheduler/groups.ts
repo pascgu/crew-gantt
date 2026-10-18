@@ -54,7 +54,7 @@ export function aggregateGroup(
   let avancementWeighted = 0;
   for (const task of descendants) {
     if (task.type === 'group') continue; // leurs efforts sont déjà portés par leurs feuilles
-    if (task.status === 'cancelled') continue; // exclus des calculs
+    if (!ctx.isCounted(task)) continue; // annulée / projet archivé : exclus des calculs
     const resolved = resolvedByTask.get(task.id) ?? [];
     // Effort/réalisé **effectifs** = ceux affichés : pour une tâche fixed, dérivés des dates
     // (scheduledEffort/realizedOf) et non du champ `effort` (souvent vide en mode fixed).

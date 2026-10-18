@@ -9,6 +9,8 @@
 import { ROW_HEIGHT } from '@/ui/gantt/timescale';
 import { darken, rgba } from '@/ui/common/color';
 import { Callout, CursorGlyph, NumberBadge, type CursorKind, type Place } from './Annotated';
+import { PRIORITY_COLOR } from '@/ui/common/PriorityDot';
+import type { TaskPriority } from '@/core/model/types';
 
 const BAR_H = 11;
 const ACCENT = 'var(--color-accent)';
@@ -42,6 +44,8 @@ export interface MiniTaskRow {
   linkHandle?: boolean;
   /** Barre de proposition (réordonnancement proposé) : bande pointillée + ✓ + « +X j ». */
   proposal?: { from: number; to: number; delta?: string };
+  /** Pastille de priorité juste après la barre (comme le vrai Gantt). */
+  priority?: TaskPriority;
 }
 
 export interface MiniMilestoneRow {
@@ -309,6 +313,11 @@ function Row({ row, i, x, xEnd, barY, rowMid, dayWidth, reviewX, gutter }: RowPr
           </g>
         );
       })}
+
+      {/* Pastille de priorité, juste après la barre */}
+      {row.priority && PRIORITY_COLOR[row.priority] && blocks.length > 0 && (
+        <circle cx={xFin + 7} cy={mid} r={3.2} fill={PRIORITY_COLOR[row.priority]!} stroke="var(--color-surface)" strokeWidth={0.8} />
+      )}
 
       {/* Ghosts de placement (pointillés) — une barre par ancre */}
       {row.ghosts?.map((g, k) => (

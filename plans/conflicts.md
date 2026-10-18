@@ -4,6 +4,21 @@ Ce fichier décrit tous les types de conflits et avertissements que CrewGantt pe
 
 **Règle de maintenance :** mettre ce fichier à jour lors de toute modification impactant la détection, l'affichage ou la résolution d'un conflit (voir `src/core/conflicts/detect.ts`).
 
+## Règles transverses (v1.3)
+
+- **Hors calculs** : une tâche **annulée** ou d'un **projet archivé** ne lève aucun conflit, ne charge
+  personne et ne contraint plus ses successeurs (un lien vers elle est ignoré). Elle n'est jamais proposée.
+  (`ctx.isCounted`, `src/core/model/visibility.ts`.)
+- **Hors vue** : une tâche de priorité **« masquée »** (ou sous un groupe masqué) garde tous ses conflits ;
+  ils sont **comptés à part** dans le bandeau (« ⚠ 5 (+2 masquée(s)) ») et listés dans une section
+  « Conflits des tâches masquées » du panneau — jamais escamotés en silence.
+- **Propositions alignées sur la détection** : le moteur ne propose un re-blocage que pour un conflit
+  détecté (lien violé, effort non casé, travail sans capacité) ou par cascade. Il ne découpe qu'autour des
+  **absences datées** ; le motif hebdo et les fériés sont absorbés par la capacité. Chaque proposition porte
+  sa raison : `link-violated`, `cascade`, `effort-overflow` ou `no-capacity` (« travail sans capacité »).
+- **Date de réunion** : les conflits sont calculés sur le plan vu à cette date (restes vus à la date, rien
+  n'est écrit) ; les propositions restent calculées au jour d'aujourd'hui (données stockées).
+
 ---
 
 ## Tableau récapitulatif
@@ -28,6 +43,10 @@ Ce fichier décrit tous les types de conflits et avertissements que CrewGantt pe
 **Cause :** une tâche est planifiée à démarrer avant la date au plus tôt imposée par un lien entrant (après-fin, avec-début, après-avancement). Les liens sont faibles — ils contraignent le début au plus tôt sans jamais tirer la tâche en avant.
 
 **Détection :** `span.start < earliest.date` pour la tâche successeur. Variante ancre (`targetDays`) : le N-ième jour travaillé de la tâche est atteint avant la date requise.
+
+**Prédécesseur « 0 jour »** (tâche qui ne consomme aucune capacité : effort nul, bloc `zero`) : « après la
+fin » autorise le successeur **le même jour** (et non fin + 1 jour ouvré) ; idem pour « après N j travaillés ».
+Le trait du lien part du bord visuel du petit marqueur. Un jalon garde « date + 1 jour ouvré ».
 
 **Affichage :**
 - Trait de lien rouge et épais entre prédécesseur et successeur.
@@ -123,13 +142,13 @@ Les motifs hebdomadaires récurrents et les jours fériés globaux ne déclenche
 
 **Cause :** une tâche en mode effort avec du reste à faire n'a aucune affectation sur ses blocs à venir (blocs futurs sans assigné, ou aucun bloc).
 
-**Détection :** tâche effort, `remaining > 0`, non terminée, et au moins un bloc futur sans assigné (ou aucun bloc).
+**Détection :** tâche effort, `remaining > 0`, non terminée, et au moins un bloc futur sans assigné — ou aucun bloc **et** pas d'équipe prévue (`plannedAssignments`, reprise par le premier bloc posé).
 
 **Affichage :**
 - Badge rouge dans la colonne nom.
 - Panneau Conflits : tâche et date du premier bloc non affecté.
 
-**Résolution :** affecter une ou plusieurs personnes au bloc ouvert (onglet Tâche > Affectation).
+**Résolution :** affecter une ou plusieurs personnes au bloc ouvert (cellule « Affectés », éventuellement sur une sélection de plusieurs lignes, ou panneau de détail). Une tâche pas encore placée peut recevoir une équipe prévue. En Réunion, ces tâches sont listées dans « Sans personne (à affecter) ».
 
 ---
 
@@ -137,7 +156,7 @@ Les motifs hebdomadaires récurrents et les jours fériés globaux ne déclenche
 
 **Cause :** une tâche vient d'être créée mais n'a encore aucun bloc (invisible sur le Gantt), ou un jalon n'a pas de date. Sans ce signal, on peut oublier de la placer dans le planning. Les groupes (qui n'ont pas de blocs propres) et les tâches `cancelled`/`done` ne sont pas concernés.
 
-**Détection :** `task.type === 'task'` sans bloc, **ou** `task.type === 'milestone'` sans `date`, et statut ≠ `cancelled`/`done`.
+**Détection :** `task.type === 'task'` sans bloc, **ou** `task.type === 'milestone'` sans `date`, statut ≠ `done`, et tâche comptée (ni annulée, ni d'un projet archivé).
 
 **Affichage :**
 - **Marqueur fantôme rouge** (petite silhouette ~12 px, yeux blancs) épinglé au **bord gauche visible** de la ligne du Gantt — indépendant du défilement horizontal (la tâche n'a pas de date, donc pas de position sur l'axe temps). **Clic** → ouvre le panneau Conflits filtré sur la tâche.
