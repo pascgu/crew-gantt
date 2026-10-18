@@ -590,7 +590,7 @@ export const fr = {
         "Sous l'en-tête du Gantt, ouvrez les contrôles (bouton ⚙) puis « Figer le plan actuel » : le plan du jour devient la référence, affichée en gris fin sous les barres.\n\nLa dérive se mesure dans le Tableau de bord.",
       s6Title: '6. Suivre chaque semaine',
       s6Body:
-        "L'onglet Réunion sert au rituel hebdo : mettre à jour les restes à faire, saisir les absences, réaffecter.\n\nL'outil signale les conflits et propose un réordonnancement — vous l'appliquez, l'ajustez ou l'ignorez.",
+        "L'onglet Réunion sert au rituel hebdo : mettre à jour les restes à faire, saisir les absences, réaffecter.\n\nL'outil signale les conflits et propose un réordonnancement — vous l'appliquez, l'ajustez ou l'ignorez.\n\nChaque personne y voit aussi ce qu'elle a terminé et ce qui a glissé depuis la dernière réunion ; la clôture consigne tout ce qui a changé dans le journal.",
       s7Title: '7. Grouper',
       s7Body:
         "Clic droit sur une sélection (même une seule ligne) → « Créer un groupe englobant » ; « Dégrouper » fait l'inverse.\n\nL'effort « propre · sous-tâches · total » d'un parent s'affiche en infobulle (colonne Effort) et dans le panneau de détail.",
@@ -625,6 +625,32 @@ export const fr = {
         "Lecture visuelle : la barre porte deux teintes — clair = réalisé (passé), sombre = reste (futur), séparés par le trait de revue ; l'encoche noire = Avancement. Si l'encoche est loin derrière la séparation, on crame le budget plus vite qu'on n'avance.",
       effortLimit:
         "Limite assumée : l'outil ne mesure pas un « réel » d'heures. La seule comparaison qui fait foi est Estim (vendu) ↔ Effort (ré-estimé) — encore faut-il monter l'Effort quand ça dérape. C'est un outil de planification, pas de pointage.",
+      reviewDate:
+        "Date de réunion — choisir une autre date dans l'onglet Réunion ne modifie rien dans le fichier : les restes sont montrés tels qu'ils seront à cette date (le travail prévu d'ici là est déduit) et les fins ne bougent pas. Exemple : reste 12 j-h le mercredi ; réunion posée au vendredi → reste affiché 11,4 (Chloé, 30 % sur le projet, a 2 jours de travail prévus) ; « Revenir à aujourd'hui » → 12. Un reste saisi à cette date est converti automatiquement.",
+      visibilityTitle: 'Annulé, masqué, archivé',
+      visibilityBody:
+        "Trois façons de retirer une tâche, à ne pas confondre.\n\nAnnulé = hors calculs : la tâche ne charge plus personne, ne lève plus de conflit et ne retient plus ses successeurs (sa barre reste visible, hachurée). Masquée = hors vue : la ligne disparaît de la liste, du Gantt et de la Réunion, mais compte toujours dans la charge — sinon le plan mentirait. Projet archivé = les deux : ses tâches sortent de la vue et des calculs.",
+      visibilityEx:
+        "Exemple — Alice a une « Veille techno » de 5 j-h la semaine prochaine. Masquée : elle disparaît de la liste et de la Réunion, mais la charge d'Alice compte toujours ces 5 j-h. Annulée : la charge d'Alice redevient libre et la barre reste visible, hachurée.",
+      visibilityCols: {
+        what: 'Retirée par…',
+        view: 'Visible',
+        load: 'Compte dans la charge',
+        conflicts: 'Lève des conflits',
+      },
+      visibilityRows: {
+        cancelled: 'Statut « Annulé »',
+        hidden: 'Priorité « Masquée »',
+        archived: 'Projet archivé',
+      },
+      visibilityCells: {
+        hatched: 'Oui (hachurée)',
+        no: 'Non',
+        yes: 'Oui',
+        hiddenView: 'Non — filtre Priorité « Afficher les masquées »',
+        archivedView: 'Non — filtre Projet « Afficher les archivés »',
+        apart: 'Oui, comptés à part',
+      },
       halfBarTitle: 'Les deux moitiés d’une barre',
       halfBarBody:
         "Le bord d'un bloc réagit différemment selon la moitié où l'on clique.\n\nEn bas (les deux bords) : on redimensionne. En haut à gauche : on règle l'avancement (l'encoche). En haut à droite : on déplace la tâche.\n\nC'est subtil, mais ça évite de redimensionner quand on voulait juste déplacer. Maintenir CTRL force le déplacement de la barre, où qu'on l'attrape.",
@@ -648,7 +674,7 @@ export const fr = {
         "La capacité d'une personne un jour donné se calcule à deux étages : présence (calendrier perso) × part projet (%) × affectation (%).\n\nLe bandeau de charge en bas du Gantt montre qui est chargé ou libre ; une bande orange en haut des barres signale les jours en surcharge — surcharge projet ou sur-engagement cross-projets.\n\nUtilisez le bouton « Afficher la charge » en bas au centre (flèche vers le haut) pour le réafficher s'il a été masqué.",
       proposalTitle: 'L’outil propose, l’humain dispose',
       proposalBody:
-        "Le moteur ne déplace jamais rien tout seul : il détecte les conflits et, par-dessus le plan, dessine une proposition de réordonnancement (le « +X j » et le ✓).\n\nVous l'appliquez en entier, tâche par tâche, ou vous l'ignorez. Chaque application recalcule et propose à nouveau jusqu'à stabilité.\n\nToutes les propositions en attente sont accessibles depuis le bouton « Plan proposé » en haut de l'écran.",
+        "Le moteur ne déplace jamais rien tout seul : il détecte les conflits et, par-dessus le plan, dessine une proposition de réordonnancement (le « +X j » et le ✓).\n\nVous l'appliquez en entier, tâche par tâche, ou vous l'ignorez. Chaque application recalcule et propose à nouveau jusqu'à stabilité.\n\nToutes les propositions en attente sont accessibles depuis le bouton « Plan proposé » en haut de l'écran.\n\nUne proposition répond toujours à un conflit signalé (lien violé, effort non casé, travail sans capacité). Elle ne découpe une tâche qu'autour des absences datées — jamais autour des jours habituellement non travaillés, que le calcul absorbe déjà.",
     },
     visual: {
       intro:
@@ -688,6 +714,7 @@ export const fr = {
         overflow: 'Éclair orange = effort non casé',
         cancelled: 'Hachures = tâche annulée',
         ghost: 'Barre pointillée = ghost de placement',
+        priority: 'Pastille après la barre = priorité (basse, haute, urgente)',
       },
     },
     howto: {

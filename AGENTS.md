@@ -87,6 +87,7 @@ React 18 + Tailwind v4. The Gantt is **hand-rolled SVG** (no Gantt library) — 
 
 ## Distribution Windows (Tauri)
 App native Windows via Tauri v2 (`src-tauri/`) — prérequis, commandes et procédure de release complète dans [README.md](README.md#application-windows-native-tauri). Seule règle à retenir ici : la version vient **uniquement de `package.json`** — ne jamais toucher `src-tauri/Cargo.toml` (son `version` est figé à `0.0.0` à dessein).
+`npm run tauri:build` copie l'installeur de la version courante dans `installers/` (racine, ignoré par git) pour le joindre à une release GitHub.
 
 ## Icônes
 Source unique : [public/icon-source.svg](public/icon-source.svg) (512×512, sert à tout sauf le 16px)

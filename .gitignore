@@ -9,3 +9,4 @@ test-results/
 src-tauri/target/
 src-tauri/gen/
 tests/e2e/.shots/
+installers/

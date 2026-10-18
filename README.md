@@ -79,7 +79,7 @@ C++ »), et le WebView2 Runtime (généralement déjà présent sur Windows 11).
 
 ```bash
 npm run tauri:dev     # lance l'app native en mode développement
-npm run tauri:build   # génère l'installeur NSIS (.exe) sous src-tauri/target/release/bundle/nsis/
+npm run tauri:build   # génère l'installeur NSIS (.exe) et le copie dans installers/ (ignoré par git, pour les releases)
 ```
 
 **Association de fichier** : après installation, double-cliquer un `.cgan` dans l'explorateur ouvre
