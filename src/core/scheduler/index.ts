@@ -5,3 +5,4 @@ export * from './groups';
 export * from './links';
 export * from './workload';
 export * from './schedule';
+export * from './asOf';

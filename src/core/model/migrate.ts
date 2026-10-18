@@ -14,8 +14,12 @@ export class TeamFileError extends Error {
 
 type Migration = (raw: Record<string, unknown>) => Record<string, unknown>;
 
-/** Migration v(n) → v(n+1), indexée par version source. Vide tant que formatVersion = 1. */
-const migrations: Record<number, Migration> = {};
+/** Migration v(n) → v(n+1), indexée par version source. */
+const migrations: Record<number, Migration> = {
+  // v1 → v2 (1.3) : nouveaux champs tous optionnels ou à défaut Zod (priorité « normale ») —
+  // rien à réécrire, le saut de version sert à ce qu'une app 1.2 refuse un fichier 1.3.
+  1: (raw) => raw,
+};
 
 /**
  * Parse, migre et valide un contenu de fichier équipe.

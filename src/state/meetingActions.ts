@@ -1,69 +1,59 @@
-import { summarizeChanges, totalRemaining } from '@/core/diff/diff';
-import { addDays, todayIso } from '@/core/calendar/dates';
-import { newId } from '@/core/model/factory';
-import type { Assignment, IsoDate, TeamFile } from '@/core/model/types';
+import { buildMeetingSnapshot, summarizeSince, totalRemaining } from '@/core/diff/diff';
+import { todayIso } from '@/core/calendar/dates';
+import { computeSchedule } from '@/core/scheduler/schedule';
+import type { IsoDate, MeetingSnapshot, TeamFile } from '@/core/model/types';
 import { getSchedule } from './schedule';
 import { useAppStore } from './store';
 
+export interface MeetingReference {
+  snapshot: MeetingSnapshot;
+  /** Date de la réunion de référence (null : aucune réunion close). */
+  since: IsoDate | null;
+}
+
 /**
- * Session de réunion : snapshot du fichier à l'ouverture de l'écran Réunion.
- * Hors store (non versionné par l'undo) — la clôture le compare au présent.
+ * Base de comparaison d'une réunion : l'instantané de la dernière réunion close. À défaut (aucune
+ * réunion, ou fichier antérieur à la 1.3 sans instantané), l'état du fichier à son ouverture.
+ * Ne dépend pas de la session : ce qui a été fait avant d'ouvrir l'onglet Réunion compte.
  */
-let sessionStart: TeamFile | null = null;
-
-export function ensureMeetingSession(): void {
-  sessionStart ??= useAppStore.getState().file;
+export function meetingReference(file: TeamFile, fileAtLoad: TeamFile, meetingDate: IsoDate): MeetingReference {
+  const meetings = file.journal.filter((e) => e.type === 'meeting');
+  const withSnapshot = [...meetings].reverse().find((e) => e.snapshot);
+  if (withSnapshot?.snapshot) return { snapshot: withSnapshot.snapshot, since: withSnapshot.date };
+  return { snapshot: loadedSnapshot(fileAtLoad, meetingDate), since: meetings.at(-1)?.date ?? null };
 }
 
-export function hasMeetingChanges(): boolean {
-  return sessionStart !== null && sessionStart !== useAppStore.getState().file;
+// Instantané du fichier à l'ouverture, memoïsé (calcul hors du cache principal du planning).
+const loadedCache: { file: TeamFile | null; date: string; snapshot: MeetingSnapshot | null } = {
+  file: null,
+  date: '',
+  snapshot: null,
+};
+
+function loadedSnapshot(fileAtLoad: TeamFile, meetingDate: IsoDate): MeetingSnapshot {
+  if (loadedCache.file !== fileAtLoad || loadedCache.date !== meetingDate || !loadedCache.snapshot) {
+    loadedCache.snapshot = buildMeetingSnapshot(computeSchedule(fileAtLoad, meetingDate, todayIso()));
+    loadedCache.file = fileAtLoad;
+    loadedCache.date = meetingDate;
+  }
+  return loadedCache.snapshot;
 }
 
-/** Clôture : entrée de journal avec résumé automatique + note libre. */
-export function closeMeeting(note: string, meetingDate?: IsoDate): string[] {
-  const { file, mutate } = useAppStore.getState();
-  const summary = sessionStart ? summarizeChanges(sessionStart, file) : [];
+/**
+ * Clôture : entrée de journal avec résumé automatique (tout ce qui a changé depuis la réunion
+ * précédente), note libre, point de burndown et instantané du plan (base de la réunion suivante).
+ * Le plan est vu à la date de la réunion.
+ */
+export function closeMeeting(note: string, meetingDate: IsoDate = todayIso()): string[] {
+  const { file, fileAtLoad, mutate } = useAppStore.getState();
+  const schedule = getSchedule(file, meetingDate, todayIso());
+  const summary = summarizeSince(meetingReference(file, fileAtLoad, meetingDate).snapshot, schedule);
+  const snapshot = buildMeetingSnapshot(schedule);
+  const remainingTotal = totalRemaining(schedule.ctx.file);
   mutate((f) => {
-    f.journal.push({
-      date: meetingDate ?? todayIso(),
-      type: 'meeting',
-      summary,
-      note,
-      remainingTotal: totalRemaining(f),
-    });
+    f.journal.push({ date: meetingDate, type: 'meeting', summary, note, remainingTotal, snapshot });
   });
-  sessionStart = useAppStore.getState().file;
   return summary;
-}
-
-/**
- * Réaffectation rapide — l'action n°1 des réunions : clôt le bloc courant à
- * `date` et crée le bloc suivant avec la nouvelle équipe. L'historique reste.
- */
-export function reassignTask(taskId: string, newAssignments: Assignment[], date: IsoDate): void {
-  const { file, mutate } = useAppStore.getState();
-  const schedule = getSchedule(file);
-  const nextStart = schedule.ctx.nextWorkingDay(addDays(date, 1));
-  mutate((f) => {
-    const task = f.tasks.find((t) => t.id === taskId);
-    if (!task) return;
-    const sorted = [...task.blocks].sort((a, b) => a.from.localeCompare(b.from));
-    const current = sorted[sorted.length - 1];
-    if (current) {
-      if (current.from > date) {
-        // bloc entièrement à venir : on remplace simplement son équipe
-        current.assignments = newAssignments;
-        return;
-      }
-      if (current.to === null || current.to > date) current.to = date;
-    }
-    task.blocks.push({
-      id: newId('b'),
-      from: nextStart,
-      to: null,
-      assignments: newAssignments,
-    });
-  });
 }
 
 /** Saisie rapide d'absence depuis l'écran Réunion. */

@@ -4,33 +4,51 @@ import { todayIso } from '@/core/calendar/dates';
 import type { Assignment } from '@/core/model/types';
 import type { Schedule } from '@/core/scheduler/schedule';
 import { useAppStore } from '@/state/store';
-import { reassignTask } from '@/state/meetingActions';
-import { resyncRemaining, setBlockAssignments } from '@/state/taskActions';
+import { assignTeam } from '@/state/taskActions';
 import { resourceAvatar } from '@/ui/common/Avatar';
 import { t } from '@/i18n/fr';
 
+/**
+ * Affectation d'une ou plusieurs tâches. Sur une multi-sélection, l'équipe choisie **remplace**
+ * celle de chaque tâche (une seule action annulable). Une tâche pas encore placée reçoit une
+ * équipe prévue, reprise par son premier bloc.
+ */
 export function BlockAssignPopover({
   x,
   y,
-  taskId,
+  taskIds,
   blockId,
   schedule,
   onClose,
 }: {
   x: number;
   y: number;
-  taskId: string;
-  blockId: string;
+  /** Tâches visées ; la première est celle sur laquelle on a cliqué (équipe proposée au départ). */
+  taskIds: string[];
+  /** Bloc précis visé (clic sur un bloc du Gantt) ; défaut : le dernier bloc. */
+  blockId?: string;
   schedule: Schedule;
   onClose: () => void;
 }) {
   const file = schedule.ctx.file;
   const reviewDate = useAppStore((s) => s.reviewDate);
-  const block = file.tasks.find((t) => t.id === taskId)?.blocks.find((b) => b.id === blockId);
-  const [assignments, setAssignmentsState] = useState<Assignment[]>(
-    block?.assignments.map((a) => ({ ...a })) ?? [],
-  );
+  const targets = taskIds
+    .map((id) => file.tasks.find((tk) => tk.id === id))
+    .filter((tk): tk is NonNullable<typeof tk> => tk?.type === 'task');
+  const anchor = targets[0];
+  const sortedBlocks = [...(anchor?.blocks ?? [])].sort((a, b) => a.from.localeCompare(b.from));
+  const initialTeam =
+    (blockId ? anchor?.blocks.find((b) => b.id === blockId) : sortedBlocks.at(-1))?.assignments ??
+    anchor?.plannedAssignments ??
+    [];
+  const [assignments, setAssignmentsState] = useState<Assignment[]>(initialTeam.map((a) => ({ ...a })));
   const [splitHisto, setSplitHisto] = useState(false);
+  const many = targets.length > 1;
+  const anyPlaced = targets.some((tk) => tk.blocks.length > 0);
+  // Ressources masquées : seulement si elles font déjà partie de l'équipe proposée.
+  const shownResources = file.resources.filter(
+    (r) => !r.hidden || initialTeam.some((a) => a.resourceId === r.id),
+  );
 
   const setUnits = (resourceId: string, units: number) => {
     const u = Math.max(0, Math.min(1000, units));
@@ -49,12 +67,11 @@ export function BlockAssignPopover({
   };
 
   const handleSave = () => {
-    if (splitHisto) {
-      reassignTask(taskId, assignments, reviewDate ?? todayIso());
-    } else {
-      setBlockAssignments(taskId, blockId, assignments);
-    }
-    resyncRemaining(taskId);
+    assignTeam(
+      targets.map((tk) => tk.id),
+      assignments,
+      { blockId, split: splitHisto, date: reviewDate ?? todayIso() },
+    );
     onClose();
   };
 
@@ -65,12 +82,24 @@ export function BlockAssignPopover({
     const handler = (e: MouseEvent) => {
       if (popRef.current && !popRef.current.contains(e.target as Node)) onCloseRef.current();
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCloseRef.current();
+    };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('keydown', onKey);
+    };
   }, []);
 
   const left = Math.min(x, window.innerWidth - 280);
-  const top = Math.min(y, window.innerHeight - 360);
+  const top = Math.min(y, window.innerHeight - 380);
+  const title = many
+    ? t('gantt.assignManyTitle', { count: targets.length })
+    : anyPlaced
+      ? t('gantt.assignPopoverTitle')
+      : t('gantt.assignPlannedTitle');
 
   return createPortal(
     <div
@@ -80,10 +109,20 @@ export function BlockAssignPopover({
       onClick={(e) => e.stopPropagation()}
     >
       <div className="border-b border-[var(--color-line)] px-3 py-2 text-[11px] font-semibold text-[var(--color-ink-soft)] uppercase tracking-wide">
-        {t('gantt.assignPopoverTitle')}
+        {title}
+        {many && (
+          <p className="mt-0.5 text-[10.5px] font-normal normal-case tracking-normal text-[var(--color-ink-faint)]">
+            {t('gantt.assignReplaceHint')}
+          </p>
+        )}
+        {!anyPlaced && (
+          <p className="mt-0.5 text-[10.5px] font-normal normal-case tracking-normal text-[var(--color-ink-faint)]">
+            {t('gantt.assignPlannedHint')}
+          </p>
+        )}
       </div>
       <div className="max-h-60 overflow-y-auto p-2 space-y-2">
-        {file.resources.map((r) => {
+        {shownResources.map((r) => {
           const units = assignments.find((a) => a.resourceId === r.id)?.units ?? 0;
           const active = units > 0;
           const { color, label } = resourceAvatar(r);
@@ -92,7 +131,7 @@ export function BlockAssignPopover({
               <button
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white transition hover:scale-110 cursor-pointer"
                 style={{ background: color }}
-                title={active ? `${r.name} — cliquer pour retirer` : `Ajouter ${r.name}`}
+                title={active ? t('gantt.removePerson', { name: r.name }) : t('gantt.addPerson', { name: r.name })}
                 onClick={() => toggle(r.id)}
               >
                 {label}
@@ -114,21 +153,23 @@ export function BlockAssignPopover({
           );
         })}
       </div>
-      <label className="flex items-center gap-2 border-t border-[var(--color-line)] px-3 py-2 text-[11.5px] text-[var(--color-ink-soft)]">
-        <input
-          type="checkbox"
-          checked={splitHisto}
-          onChange={(e) => setSplitHisto(e.target.checked)}
-          className="accent-[var(--color-accent)]"
-        />
-        {t('gantt.newBlockHisto')}
-      </label>
+      {anyPlaced && (
+        <label className="flex items-center gap-2 border-t border-[var(--color-line)] px-3 py-2 text-[11.5px] text-[var(--color-ink-soft)]">
+          <input
+            type="checkbox"
+            checked={splitHisto}
+            onChange={(e) => setSplitHisto(e.target.checked)}
+            className="accent-[var(--color-accent)]"
+          />
+          {t('gantt.newBlockHisto')}
+        </label>
+      )}
       <div className="flex gap-2 border-t border-[var(--color-line)] px-3 py-2">
         <button
           className="flex-1 rounded bg-[var(--color-accent)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90"
           onClick={handleSave}
         >
-          {t('common.apply')}
+          {many ? t('gantt.applyToMany', { count: targets.length }) : t('common.apply')}
         </button>
         <button
           className="flex-1 rounded border border-[var(--color-line)] px-2 py-1 text-[11px] hover:bg-[var(--color-wash)]"

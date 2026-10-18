@@ -8,51 +8,53 @@ import {
   taskSpan,
 } from '@/core/scheduler/blocks';
 import { addDays, diffDays, todayIso } from '@/core/calendar/dates';
+import { remainingShift } from '@/core/scheduler/asOf';
 import { t } from '@/i18n/fr';
-import type { Assignment, Block, IsoDate, Task, TaskLink, TaskType, TeamFile } from '@/core/model/types';
+import type {
+  Assignment,
+  Block,
+  GanttLabels,
+  IsoDate,
+  Task,
+  TaskLink,
+  TaskPriority,
+  TaskType,
+  TeamFile,
+} from '@/core/model/types';
 import { useAppStore } from './store';
 
 const mutate = (fn: (file: TeamFile) => void) => useAppStore.getState().mutate(fn);
+
+/** Les j-h stockés sont arrondis au centième (pas de 1,0999999999999996 dans le fichier). */
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 function taskById(file: TeamFile, id: string): Task | undefined {
   return file.tasks.find((t) => t.id === id);
 }
 
 /**
+ * Les restes stockés valent **à la date du jour** ; la date de réunion n'est qu'une vue (cf.
+ * core/scheduler/asOf). Toute écriture dans le fichier se calcule donc avec le vrai aujourd'hui.
+ */
+const storedToday = () => todayIso();
+
+/**
  * Recale le reste sur le réalisé géométrique (passé figé) en gardant l'effort comme ancre :
  * `remaining = max(0, effort − réaliséGéo)`. À appeler depuis un `mutate` après un geste qui change
- * le passé (déplacement, bord gauche). Sans effet sur les tâches fixed.
+ * le passé (déplacement, bord gauche, équipe du bloc). Sans effet sur les tâches fixed.
  */
 function resyncRemainingDraft(file: TeamFile, task: Task): void {
   if (task.scheduling !== 'effort') return;
-  const reviewDate = useAppStore.getState().reviewDate ?? todayIso();
-  const ctx = createCalcContext(file, reviewDate);
+  const ctx = createCalcContext(file, storedToday());
   const realized = realizedBeforeReview(ctx, task);
-  task.remaining = Math.max(0, task.effort - realized);
+  task.remaining = round2(Math.max(0, task.effort - realized));
 }
 
-/** Resync explicite (changement du trait de revue, réaffectation). */
+/** Resync explicite (réaffectation). */
 export function resyncRemaining(id: string): void {
   mutate((file) => {
     const task = taskById(file, id);
     if (task) resyncRemainingDraft(file, task);
-  });
-}
-
-/**
- * Recale le reste de toutes les tâches effort sur le trait de revue courant (un seul contexte de
- * calcul). Appelé quand la date de réunion change : le réalisé monte, le reste diminue, l'effort
- * reste stable.
- */
-export function resyncAllRemaining(): void {
-  const reviewDate = useAppStore.getState().reviewDate ?? todayIso();
-  mutate((file) => {
-    const ctx = createCalcContext(file, reviewDate);
-    for (const task of file.tasks) {
-      if (task.type === 'task' && task.scheduling === 'effort') {
-        task.remaining = Math.max(0, task.effort - realizedBeforeReview(ctx, task));
-      }
-    }
   });
 }
 
@@ -104,9 +106,9 @@ export function setTaskEffort(id: string, effort: number): void {
   mutate((file) => {
     const task = taskById(file, id);
     if (!task) return;
-    const next = Math.max(0, effort);
+    const next = round2(Math.max(0, effort));
     if (task.scheduling === 'effort') {
-      task.remaining = Math.max(0, task.remaining + (next - task.effort));
+      task.remaining = round2(Math.max(0, task.remaining + (next - task.effort)));
     }
     task.effort = next;
   });
@@ -115,16 +117,21 @@ export function setTaskEffort(id: string, effort: number): void {
 /**
  * Reste à faire = futur, pilote la barre et la date de fin. Préserve le réalisé en reportant la
  * variation sur l'effort (effort = réalisé + reste). Tâche fixed : champ seul.
+ * La valeur saisie est celle **vue à la date de réunion** (si elle est posée) : elle est convertie
+ * en reste au jour d'aujourd'hui avant d'être stockée.
  */
 export function setTaskRemaining(id: string, remaining: number): void {
+  const at = useAppStore.getState().reviewDate ?? storedToday();
   mutate((file) => {
     const task = taskById(file, id);
     if (!task) return;
-    const next = Math.max(0, remaining);
+    const seen = round2(Math.max(0, remaining));
+    const shift = remainingShift(createCalcContext(file, at), task, storedToday(), at);
     if (task.scheduling === 'effort') {
-      task.effort = Math.max(0, task.effort + (next - task.remaining));
+      const seenBefore = Math.max(0, task.remaining - shift);
+      task.effort = round2(Math.max(0, task.effort + (seen - seenBefore)));
     }
-    task.remaining = next;
+    task.remaining = round2(Math.max(0, seen + shift));
   });
 }
 
@@ -506,8 +513,6 @@ export function dissolveGroup(groupId: string): boolean {
   return ok;
 }
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
-
 /**
  * Découpe interne (niveau draft) : transforme `task` (type 'task' datée) en **groupe** et crée deux
  * feuilles `« <nom> (1) »` (avant `at`) et `« <nom> (2) »` (à partir de `at`). L'effort propre est
@@ -522,8 +527,7 @@ function splitTaskIntoHeadTail(
   at: IsoDate,
 ): { head: Task; tail: Task } | null {
   if (task.type !== 'task' || task.blocks.length === 0) return null;
-  const reviewDate = useAppStore.getState().reviewDate ?? todayIso();
-  const ctx = createCalcContext(file, reviewDate);
+  const ctx = createCalcContext(file, storedToday());
   const resolved = resolveBlocks(ctx, task);
   const span = taskSpan(resolved);
   if (!span || at <= span.start || at > span.end) return null;
@@ -633,8 +637,7 @@ export function createSubtaskFromPoint(
     if (!split) return;
     const { head, tail } = split;
 
-    const reviewDate = useAppStore.getState().reviewDate ?? todayIso();
-    const ctx = createCalcContext(file, reviewDate);
+    const ctx = createCalcContext(file, storedToday());
     const insEffort = Math.max(0, opts.effort ?? 1);
     const insDays = Math.max(1, Math.ceil(insEffort));
 
@@ -713,8 +716,7 @@ export function resolveCycleBySplit(
   mutate((file) => {
     const task = taskById(file, successorId);
     if (!task || task.type !== 'task') return;
-    const reviewDate = useAppStore.getState().reviewDate ?? todayIso();
-    const ctx = createCalcContext(file, reviewDate);
+    const ctx = createCalcContext(file, storedToday());
     const span = taskSpan(resolveBlocks(ctx, task));
     const cut = at ?? (span ? midSplitDay(span) : null);
     if (!cut) return;
@@ -775,10 +777,22 @@ export function setTaskProject(id: string, projectId: string): void {
 
 // ——— Blocs ———
 
-export function addBlockToTask(taskId: string, from: IsoDate): void {
+/** Le premier bloc posé reprend l'équipe prévue (qui n'a plus lieu d'être ensuite). */
+function takePlannedTeam(task: Task): Assignment[] {
+  const team = (task.plannedAssignments ?? []).map((a) => ({ ...a }));
+  delete task.plannedAssignments;
+  return team;
+}
+
+/**
+ * « Ajouter un bloc ici » / double-clic dans la ligne. Un jour non ouvré (week-end, férié) est recalé
+ * sur le jour ouvré suivant : un bloc posé un samedi n'aurait aucune capacité.
+ */
+export function addBlockToTask(taskId: string, day: IsoDate): void {
   mutate((file) => {
     const task = taskById(file, taskId);
     if (!task) return;
+    const from = createCalcContext(file, storedToday()).nextWorkingDay(day);
     // S'il existe déjà un bloc ouvert, le nouveau bloc devient le bloc ouvert.
     const open = task.blocks.find((b) => b.to === null);
     if (open && task.scheduling === 'effort') {
@@ -786,6 +800,7 @@ export function addBlockToTask(taskId: string, from: IsoDate): void {
     }
     const block = createBlock({ from });
     if (open) block.assignments = open.assignments.map((a) => ({ ...a }));
+    else if (task.blocks.length === 0) block.assignments = takePlannedTeam(task);
     task.blocks.push(block);
     task.blocks.sort((a, b) => a.from.localeCompare(b.from));
     // Tâche effort encore vide (0 j-h) : un bloc sans affectation donne une barre nulle.
@@ -803,6 +818,7 @@ export function addBlockToTask(taskId: string, from: IsoDate): void {
  * - **fixed** → bloc fermé d'1 jour (`{from, to: from}`) : « les dates, c'est moi qui les pose » ;
  * - **effort** → bloc ouvert `{from}` piloté par le reste, avec 1 j-h par défaut s'il est vide ;
  * - **jalon** → date posée.
+ * Le bloc reprend l'équipe prévue de la tâche s'il y en a une.
  * No-op si la cible est déjà planifiée (a un bloc, ou un jalon déjà daté).
  * Retourne l'id du bloc créé (pour enchaîner un geste de drag), ou `null` (jalon / no-op).
  */
@@ -817,6 +833,7 @@ export function materializeTaskAt(taskId: string, from: IsoDate): string | null 
     }
     if (task.type !== 'task' || task.blocks.length > 0) return;
     const block = task.scheduling === 'fixed' ? createBlock({ from, to: from }) : createBlock({ from });
+    block.assignments = takePlannedTeam(task);
     task.blocks = [block];
     blockId = block.id;
     if (task.scheduling === 'effort' && task.effort <= 0) {
@@ -977,6 +994,95 @@ export function setBlockAssignments(
   mutate((file) => {
     const block = taskById(file, taskId)?.blocks.find((b) => b.id === blockId);
     if (block) block.assignments = assignments;
+  });
+}
+
+/**
+ * Réaffectation « en scindant » (niveau draft) : clôt le bloc courant à `date` et ouvre le suivant
+ * avec la nouvelle équipe — l'historique reste. Bloc entièrement à venir : on remplace son équipe.
+ */
+function reassignDraft(file: TeamFile, task: Task, team: Assignment[], date: IsoDate): void {
+  const sorted = [...task.blocks].sort((a, b) => a.from.localeCompare(b.from));
+  const current = sorted[sorted.length - 1];
+  if (!current) return;
+  if (current.from > date) {
+    current.assignments = team.map((a) => ({ ...a }));
+    return;
+  }
+  if (current.to === null || current.to > date) current.to = date;
+  const nextStart = createCalcContext(file, storedToday()).nextWorkingDay(addDays(date, 1));
+  task.blocks.push({ id: newId('b'), from: nextStart, to: null, assignments: team.map((a) => ({ ...a })) });
+}
+
+export interface AssignTeamOptions {
+  /** Bloc visé (popover ouvert sur un bloc précis du Gantt) ; défaut : le dernier bloc. */
+  blockId?: string;
+  /** Scinder en 2 blocs à `date` pour garder l'historique (case « Scinder », décochée par défaut). */
+  split?: boolean;
+  date?: IsoDate;
+}
+
+/**
+ * **Remplace l'équipe** de toutes les tâches données, en une seule action annulable :
+ * - tâche placée → l'équipe de son dernier bloc (ou du bloc visé) ;
+ * - tâche pas encore placée → son équipe prévue, reprise par le premier bloc posé ;
+ * - groupes et jalons ignorés.
+ * Le reste est recalé sur le passé (le réalisé géométrique dépend de l'équipe des blocs passés).
+ */
+export function assignTeam(taskIds: string[], team: Assignment[], options: AssignTeamOptions = {}): void {
+  if (taskIds.length === 0) return;
+  mutate((file) => {
+    for (const id of taskIds) {
+      const task = taskById(file, id);
+      if (!task || task.type !== 'task') continue;
+      if (task.blocks.length === 0) {
+        if (team.length > 0) task.plannedAssignments = team.map((a) => ({ ...a }));
+        else delete task.plannedAssignments;
+        continue;
+      }
+      if (options.split) {
+        reassignDraft(file, task, team, options.date ?? storedToday());
+      } else {
+        const sorted = [...task.blocks].sort((a, b) => a.from.localeCompare(b.from));
+        const target =
+          (taskIds.length === 1 && options.blockId
+            ? task.blocks.find((b) => b.id === options.blockId)
+            : undefined) ?? sorted[sorted.length - 1]!;
+        target.assignments = team.map((a) => ({ ...a }));
+      }
+      resyncRemainingDraft(file, task);
+    }
+  });
+}
+
+/** Réaffectation rapide d'une tâche depuis la Réunion (scinde à la date de réunion). */
+export function reassignTask(taskId: string, team: Assignment[], date: IsoDate): void {
+  assignTeam([taskId], team, { split: true, date });
+}
+
+// ——— Priorité & mise en forme (sélection) ———
+
+/** Priorité de toute la sélection (« masquée » = hors vue, la tâche compte toujours). */
+export function setTasksPriority(ids: string[], priority: TaskPriority): void {
+  if (ids.length === 0) return;
+  mutate((file) => {
+    for (const id of ids) {
+      const task = taskById(file, id);
+      if (task) task.priority = priority;
+    }
+  });
+}
+
+/** Colonnes affichées autour des barres de la sélection ; `null` = revenir au réglage global. */
+export function setTasksGanttLabels(ids: string[], labels: GanttLabels | null): void {
+  if (ids.length === 0) return;
+  mutate((file) => {
+    for (const id of ids) {
+      const task = taskById(file, id);
+      if (!task) continue;
+      if (labels) task.ganttLabels = { before: [...labels.before], after: [...labels.after], center: [...labels.center] };
+      else delete task.ganttLabels;
+    }
   });
 }
 

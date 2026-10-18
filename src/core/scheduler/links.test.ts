@@ -205,3 +205,32 @@ describe('chaîne contraignante d’un jalon', () => {
     ]);
   });
 });
+
+describe('T7 — prédécesseur « 0 jour »', () => {
+  const zero = (id: string, links: TeamFile['tasks'][number]['links'] = []) =>
+    task(id, { effort: 0, remaining: 0, links, blocks: [block(`b-${id}`, '2026-06-03', null, [assign('alice')])] });
+
+  it('après la fin d’une tâche à 0 j : le successeur peut démarrer le même jour', () => {
+    const f = file([zero('a'), zero('b', [{ on: 'a', type: 'after-end', lag: 0 }])]);
+    expect(computeSchedule(f).earliestByTask.get('b')?.date).toBe('2026-06-03');
+  });
+
+  it('cohérent avec « après N j travaillés » et avec un délai', () => {
+    const f = file([
+      zero('a'),
+      zero('b', [{ on: 'a', type: 'after-progress', progressDays: 2, lag: 0 }]),
+      zero('c', [{ on: 'a', type: 'after-end', lag: 1 }]),
+    ]);
+    const s = computeSchedule(f);
+    expect(s.earliestByTask.get('b')?.date).toBe('2026-06-03');
+    expect(s.earliestByTask.get('c')?.date).toBe('2026-06-04');
+  });
+
+  it('une vraie tâche (1 j) garde « fin + 1 jour ouvré »', () => {
+    const f = file([
+      task('a', { effort: 1, remaining: 1, blocks: [block('ba', '2026-06-03', null, [assign('alice')])] }),
+      zero('b', [{ on: 'a', type: 'after-end', lag: 0 }]),
+    ]);
+    expect(computeSchedule(f).earliestByTask.get('b')?.date).toBe('2026-06-04');
+  });
+});

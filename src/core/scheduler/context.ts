@@ -1,5 +1,6 @@
-import type { IsoDate, Resource, TeamFile, Weekday } from '../model/types';
+import type { IsoDate, Resource, Task, TeamFile, Weekday } from '../model/types';
 import { addDays, isBetween, weekdayOf } from '../calendar/dates';
+import { archivedProjectIds, isCountedTask } from '../model/visibility';
 
 /**
  * Contexte de calcul : index et caches construits une fois par recalcul.
@@ -10,6 +11,13 @@ export interface CalcContext {
   /** Le « présent » du calcul : sépare l'historique (déjà déduit du reste) du planifié. */
   readonly today: IsoDate;
   readonly resourcesById: ReadonlyMap<string, Resource>;
+  /** Projets archivés : leurs tâches sont hors vue et hors calculs. */
+  readonly archivedProjects: ReadonlySet<string>;
+  /**
+   * La tâche compte-t-elle dans le plan (charge, conflits, propositions, contraintes de liens) ?
+   * Non si elle est annulée ou si son projet est archivé.
+   */
+  isCounted(task: Pick<Task, 'status' | 'projectId'>): boolean;
   /** Jour ouvré du calendrier global (motif hebdo + fériés). */
   isGlobalWorkingDay(day: IsoDate): boolean;
   /** Présence d'une ressource un jour donné, 0..1. L'exception datée prime sur tout. */
@@ -28,6 +36,7 @@ export function createCalcContext(file: TeamFile, today: IsoDate): CalcContext {
   const holidays = new Set(file.team.calendar.holidays);
   const globalDays = new Set<Weekday>(file.team.calendar.workingDays);
   const resourcesById = new Map(file.resources.map((r) => [r.id, r]));
+  const archivedProjects = archivedProjectIds(file);
 
   const presenceCache = new Map<string, number>();
   const shareCache = new Map<string, number>();
@@ -122,6 +131,8 @@ export function createCalcContext(file: TeamFile, today: IsoDate): CalcContext {
     file,
     today,
     resourcesById,
+    archivedProjects,
+    isCounted: (task) => isCountedTask(task, archivedProjects),
     isGlobalWorkingDay,
     presence,
     projectShare,

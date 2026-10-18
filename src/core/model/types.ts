@@ -66,6 +66,11 @@ export interface Resource {
   avatarColor?: string;
   /** Initiales affichées dans l'avatar (1-2 caractères). */
   avatarInitials?: string;
+  /**
+   * Ressource masquée (personne partie…) : retirée de la Réunion, du bandeau de charge et des
+   * listes d'affectation — sauf si elle porte encore du travail à venir. Reste dans l'historique.
+   */
+  hidden?: boolean;
 }
 
 /** Trois types de liens, tous « au plus tôt » (liens faibles, jamais un aimant). */
@@ -110,6 +115,21 @@ export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked' | 'cancelle
 export const TASK_STATUSES: TaskStatus[] = ['todo', 'in_progress', 'done', 'blocked', 'cancelled'];
 export type SchedulingMode = 'effort' | 'fixed';
 
+/**
+ * Priorité, du plus discret au plus pressant. « masquée » (`hidden`) agit sur l'affichage
+ * seulement : la tâche sort de la liste/du Gantt/de la Réunion mais compte toujours dans la
+ * charge et l'ordonnancement (pour sortir des calculs : statut Annulé).
+ */
+export type TaskPriority = 'hidden' | 'low' | 'normal' | 'high' | 'urgent';
+export const TASK_PRIORITIES: TaskPriority[] = ['hidden', 'low', 'normal', 'high', 'urgent'];
+
+/** Colonnes affichées autour d'une barre du Gantt (clés de colonnes de la liste). */
+export interface GanttLabels {
+  before: string[];
+  after: string[];
+  center: string[];
+}
+
 export interface TaskNote {
   date: IsoDate;
   text: string;
@@ -145,6 +165,14 @@ export interface Task {
   frieze?: boolean;
   blocks: Block[];
   notes: TaskNote[];
+  priority: TaskPriority;
+  /**
+   * Équipe prévue d'une tâche pas encore placée : reprise par le premier bloc posé
+   * (les affectations vivent sur les blocs, c'est l'historique « qui a fait quoi »).
+   */
+  plannedAssignments?: Assignment[];
+  /** Surcharge des colonnes affichées autour de la barre ; absent = réglage global. */
+  ganttLabels?: GanttLabels;
 }
 
 export interface BaselineBlock {
@@ -168,6 +196,34 @@ export interface Baseline {
 
 export type JournalEntryType = 'meeting' | 'note';
 
+/** État compact d'une tâche/jalon à la clôture d'une réunion (base de comparaison de la suivante). */
+export interface MeetingTaskSnapshot {
+  name: string;
+  type: 'task' | 'milestone';
+  status: TaskStatus;
+  /** Effort et reste à faire (j-h) à la date de la réunion — tâches seulement. */
+  effort: number;
+  remaining: number;
+  start: IsoDate | null;
+  end: IsoDate | null;
+  /** Équipe du dernier bloc (tâches) ; vide pour un jalon. */
+  team: Assignment[];
+  /** Nombre de notes datées (les suivantes sont « nouvelles »). */
+  notes: number;
+}
+
+/** Disponibilités d'une ressource à la clôture : clés des absences et des parts projet. */
+export interface MeetingResourceSnapshot {
+  name: string;
+  exceptions: string[];
+  shares: string[];
+}
+
+export interface MeetingSnapshot {
+  tasks: Record<string, MeetingTaskSnapshot>;
+  resources: Record<string, MeetingResourceSnapshot>;
+}
+
 export interface JournalEntry {
   date: IsoDate;
   type: JournalEntryType;
@@ -175,6 +231,8 @@ export interface JournalEntry {
   note: string;
   /** Σ reste à faire au moment de la clôture — alimente le burndown. */
   remainingTotal?: number;
+  /** Instantané du plan à la clôture (réunions) : la réunion suivante se compare à lui. */
+  snapshot?: MeetingSnapshot;
 }
 
 export interface UiFileState {
@@ -187,7 +245,12 @@ export interface UiFileState {
   ignoredConflicts: string[];
 }
 
-export const FORMAT_VERSION = 1;
+/**
+ * v2 (CrewGantt 1.3) : priorité, équipe prévue, libellés Gantt par tâche, ressource masquée,
+ * instantané de réunion. Une version antérieure de l'app refuse un fichier v2 au lieu d'en
+ * perdre silencieusement les nouveaux champs.
+ */
+export const FORMAT_VERSION = 2;
 
 export interface TeamFile {
   formatVersion: number;

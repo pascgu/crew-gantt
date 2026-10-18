@@ -8,6 +8,8 @@ export interface MenuEntry {
   danger?: boolean;
   /** Infobulle (ex. explication d'une entrée grisée). */
   title?: string;
+  /** Ligne libre (ex. sélecteur de priorité) au lieu d'un bouton ; `close` ferme le menu. */
+  render?: (close: () => void) => ReactNode;
 }
 
 interface ContextMenuProps {
@@ -48,7 +50,13 @@ export function ContextMenu({ x, y, entries, onClose }: ContextMenuProps) {
       className="fixed z-50 min-w-52 rounded-lg border border-line bg-surface py-1 shadow-float"
       style={{ left, top }}
     >
-      {entries.map((entry, i) => (
+      {entries.map((entry, i) =>
+        entry.render ? (
+          <div key={i} className="px-3 py-1.5 text-[13px] text-ink" title={entry.title}>
+            {entry.label && <p className="mb-1 text-[11px] text-ink-faint">{entry.label}</p>}
+            {entry.render(onClose)}
+          </div>
+        ) : (
         <button
           key={i}
           disabled={entry.disabled}
@@ -63,7 +71,8 @@ export function ContextMenu({ x, y, entries, onClose }: ContextMenuProps) {
         >
           {entry.label}
         </button>
-      ))}
+        ),
+      )}
     </div>,
     document.body,
   );

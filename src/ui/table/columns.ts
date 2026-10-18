@@ -12,6 +12,7 @@ export const COLS = {
   start: 60,
   end: 60,
   status: 96,
+  priority: 78,
   group: 120,
 } as const;
 

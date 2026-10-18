@@ -59,6 +59,7 @@ export function task(id: string, partial: Partial<Task> = {}): Task {
     date: null,
     blocks: [],
     notes: [],
+    priority: 'normal',
     ...partial,
   };
 }

@@ -301,3 +301,55 @@ describe('ignorer explicitement', () => {
     expect(a).toBe(b);
   });
 });
+
+describe('v1.3 — hors calculs (annulée, projet archivé) et équipe prévue', () => {
+  it('R2 — une tâche annulée ne lève aucun conflit (même avec un reste et un bloc passé)', () => {
+    const f = file([
+      task('proto', {
+        status: 'cancelled',
+        remaining: 10,
+        effort: 15,
+        deadline: '2026-05-01',
+        blocks: [block('b', '2026-05-04', '2026-05-22', [assign('alice')])],
+      }),
+    ]);
+    expect(conflictsOf(f)).toEqual([]);
+  });
+
+  it('projet archivé : ses tâches sont hors calculs (ni conflit, ni charge)', () => {
+    const f = file([
+      task('a', { projectId: 'pB', blocks: [] }),
+      task('b', { projectId: 'pB', remaining: 3, effort: 3, blocks: [block('b', '2026-06-01', null, [assign('alice', 200)])] }),
+    ]);
+    f.projects[1]!.archived = true;
+    expect(conflictsOf(f)).toEqual([]);
+    expect(computeSchedule(f, TODAY).loadIndex.get('alice')).toBeUndefined();
+  });
+
+  it('un prédécesseur annulé ne contraint plus son successeur', () => {
+    const f = file([
+      task('pred', { status: 'cancelled', remaining: 5, effort: 5, blocks: [block('b1', '2026-06-01', null, [assign('alice')])] }),
+      task('succ', {
+        remaining: 3,
+        effort: 3,
+        links: [{ on: 'pred', type: 'after-end', lag: 0 }],
+        blocks: [block('b2', '2026-06-02', null, [assign('bob')])],
+      }),
+    ]);
+    expect(conflictsOf(f).filter((c) => c.type === 'link-violated')).toEqual([]);
+  });
+
+  it('T9 — sans bloc mais avec une équipe prévue : pas « non affectée » (seulement non planifiée)', () => {
+    const f = file([
+      task('t', { remaining: 2, effort: 2, plannedAssignments: [assign('alice')] }),
+      task('u', { remaining: 2, effort: 2 }),
+    ]);
+    const types = (id: string) =>
+      conflictsOf(f)
+        .filter((c) => c.taskId === id)
+        .map((c) => c.type)
+        .sort();
+    expect(types('t')).toEqual(['unplanned']);
+    expect(types('u')).toEqual(['unassigned', 'unplanned']);
+  });
+});

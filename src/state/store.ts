@@ -9,6 +9,11 @@ export type TabId = 'gantt' | 'meeting' | 'dashboard' | 'team' | 'settings' | 'h
 
 export interface AppState {
   file: TeamFile;
+  /**
+   * Le fichier tel qu'ouvert (hors undo) : base de comparaison de la Réunion tant qu'aucune
+   * réunion close ne porte d'instantané (fichiers antérieurs à la 1.3).
+   */
+  fileAtLoad: TeamFile;
   /** Nom du fichier lié (ex. `monequipe.cgan`), null si jamais enregistré. */
   fileName: string | null;
   dirty: boolean;
@@ -55,10 +60,13 @@ export interface AppActions {
 
 export type AppStore = AppState & AppActions;
 
+const initialFile = createDemoTeamFile(todayIso());
+
 export const useAppStore = create<AppStore>()(
   temporal(
     immer((set) => ({
-      file: createDemoTeamFile(todayIso()),
+      file: initialFile,
+      fileAtLoad: initialFile,
       fileName: null,
       dirty: false,
       lastSavedAt: null,
@@ -72,6 +80,7 @@ export const useAppStore = create<AppStore>()(
       replaceFile: (file, fileName) =>
         set((s) => {
           s.file = file;
+          s.fileAtLoad = file;
           s.fileName = fileName;
           s.dirty = false;
           s.lastSavedAt = null;

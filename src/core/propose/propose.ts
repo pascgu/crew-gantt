@@ -1,4 +1,5 @@
-import { addDays, diffDays, maxIso } from '../calendar/dates';
+import { addDays, diffDays, isBetween, maxIso } from '../calendar/dates';
+import { noCapacityIssues } from '../conflicts/detect';
 import { newId } from '../model/factory';
 import type { Assignment, Block, IsoDate, Task, TeamFile } from '../model/types';
 import { createCalcContext, type CalcContext } from '../scheduler/context';
@@ -21,7 +22,8 @@ const HORIZON_DAYS = 1200;
 const EPS = 1e-9;
 
 export interface ChangeReason {
-  type: 'effort-overflow' | 'link-violated' | 'cascade';
+  /** Toujours le reflet d'un conflit détecté (ou d'une cascade) : jamais de proposition « gratuite ». */
+  type: 'effort-overflow' | 'link-violated' | 'cascade' | 'no-capacity';
   /** Tâche source (pour link-violated / cascade). */
   taskId?: string;
 }
@@ -51,9 +53,12 @@ export interface Proposal {
 
 /**
  * Plan proposé : placement au plus tôt respectant liens et capacités, en
- * découpant les blocs autour des périodes sans capacité (absences datées).
+ * découpant les blocs autour des absences datées.
  *
  * Principes :
+ * - on ne propose que pour résoudre un conflit détecté (lien violé, effort non casé, travail
+ *   sans capacité) ou par cascade : une tâche saine n'est jamais redécoupée ;
+ * - le motif hebdo et les fériés sont absorbés par la capacité (pas de découpe autour) ;
  * - on ne tire jamais une tâche en avant (la marge libre est normale) ;
  * - les blocs passés (et la part passée d'un bloc à cheval) restent intacts ;
  * - les tâches terminées ne bougent pas ; les tâches fixed ne bougent que pour
@@ -137,7 +142,7 @@ export function proposePlan(file: TeamFile, today: IsoDate): Proposal | null {
 
   for (const taskId of order) {
     const task = taskFor(taskId);
-    if (!task) continue;
+    if (!task || !ctx.isCounted(task)) continue; // annulée / projet archivé : hors calculs
 
     if (task.type === 'milestone') {
       if (!task.date) continue;
@@ -166,7 +171,7 @@ export function proposePlan(file: TeamFile, today: IsoDate): Proposal | null {
       continue;
     }
 
-    if (task.type !== 'task' || task.status === 'done' || task.status === 'cancelled') continue;
+    if (task.type !== 'task' || task.status === 'done') continue;
     if (task.blocks.length === 0) continue;
 
     const resolved = resolvedByTask.get(taskId) ?? [];
@@ -191,18 +196,12 @@ export function proposePlan(file: TeamFile, today: IsoDate): Proposal | null {
 
     if (task.remaining <= EPS) continue;
 
-    // Détermine la raison avant d'appeler placeTask (qui recalcule la même info en interne).
-    const effortEarliest = earliestStart(inputs, task);
-    const effortEarliestDate = effortEarliest.date;
-    const firstFuture = resolved.filter((r) => r.to >= today)[0];
-    const effortViolated = Boolean(effortEarliestDate && firstFuture && firstFuture.from < effortEarliestDate);
-    const effortReason: ChangeReason = effortViolated
-      ? linkReason(task)
-      : { type: 'effort-overflow' };
-
+    // La raison est calculée avant le re-blocage (linkReason lit l'état courant de la cascade).
     const proposed = placeTask(ctx, inputs, task, resolved, today);
     if (!proposed) continue;
-    pushReblock(taskId, resolved, proposed, effortReason);
+    const effortReason: ChangeReason =
+      proposed.cause === 'link' ? linkReason(task) : { type: proposed.cause };
+    pushReblock(taskId, resolved, proposed.blocks, effortReason);
   }
 
   if (changes.length === 0) return null;
@@ -227,10 +226,27 @@ function hierarchyPatch(tasksById: ReadonlyMap<string, Task>, id: string, task: 
   (tasksById as Map<string, Task>).set(id, task);
 }
 
+/** Conflit qui motive un re-blocage effort (lien = violé directement ou par cascade). */
+type PlaceCause = 'link' | 'effort-overflow' | 'no-capacity';
+
+/**
+ * Jour d'absence datée : jour ouvré global où l'équipe n'a aucune capacité ET où au moins un
+ * affecté a une exception datée à 0 %. Seuls ces jours découpent un placement ; un jour chômé du
+ * motif hebdo (le mercredi d'Alice) est simplement absorbé par le calcul de capacité.
+ */
+function isDatedAbsenceDay(ctx: CalcContext, assignments: Assignment[], day: IsoDate): boolean {
+  if (!ctx.isGlobalWorkingDay(day)) return false;
+  return assignments.some((a) =>
+    (ctx.resourcesById.get(a.resourceId)?.exceptions ?? []).some(
+      (ex) => ex.percent === 0 && isBetween(day, ex.from, ex.to ?? ex.from),
+    ),
+  );
+}
+
 /**
  * Re-blocage d'une tâche : conserve le passé, place le reste à faire au plus
- * tôt autorisé (jamais avant sa position actuelle), découpé autour des jours
- * sans capacité. Retourne null si rien ne change.
+ * tôt autorisé (jamais avant sa position actuelle), découpé autour des absences
+ * datées. Retourne null si rien ne change ou si la tâche n'est en conflit sur rien.
  */
 function placeTask(
   ctx: CalcContext,
@@ -238,7 +254,7 @@ function placeTask(
   task: Task,
   resolved: ResolvedBlock[],
   today: IsoDate,
-): Block[] | null {
+): { blocks: Block[]; cause: PlaceCause } | null {
   const sorted = [...resolved].sort((a, b) => a.from.localeCompare(b.from));
   const lastBlock = sorted[sorted.length - 1]?.block;
   const assignments: Assignment[] = (lastBlock?.assignments ?? []).map((a) => ({ ...a }));
@@ -258,8 +274,8 @@ function placeTask(
     }
   }
 
-  // 2. la proposition ne touche qu'aux tâches qui en ont besoin : lien violé,
-  //    jour ouvré sans capacité dans un bloc à venir, ou effort non casé.
+  // 2. la proposition ne touche qu'aux tâches en conflit — mêmes critères que la détection :
+  //    lien violé, effort non casé, travail sans capacité (absence datée dans un bloc fermé).
   //    (Sinon on écraserait des découpages volontaires parfaitement sains.)
   const earliestResult = earliestStart(inputs, task);
   const earliest = earliestResult.date;
@@ -287,21 +303,10 @@ function placeTask(
     for (const r of sorted) capacity += plannedFutureCapacity(ctx, task, r.block);
     overflow = capacity < task.remaining - EPS;
   }
-  let deadDay = false;
-  outer: for (const r of future) {
-    for (let d = maxIso(r.from, today); d <= r.to; d = addDays(d, 1)) {
-      if (!ctx.isGlobalWorkingDay(d)) continue;
-      let cap = 0;
-      for (const a of r.block.assignments) {
-        cap += ctx.assignmentCapacity(a.resourceId, task.projectId, a.units, d);
-      }
-      if (cap === 0) {
-        deadDay = true;
-        break outer;
-      }
-    }
-  }
-  if (!violated && !overflow && !deadDay && !anchorViolated) return null;
+  const noCapacity = future.some((r) => noCapacityIssues(ctx, task, r).length > 0);
+  if (!violated && !overflow && !noCapacity && !anchorViolated) return null;
+  const cause: PlaceCause =
+    violated || anchorViolated ? 'link' : overflow ? 'effort-overflow' : 'no-capacity';
 
   let start = maxIso(today, firstPlannedFuture ?? today);
   if (earliest) start = maxIso(start, earliest);
@@ -336,8 +341,8 @@ function placeTask(
       if (current) current.to = day;
       else current = { from: day, to: day };
       cumulative += cap;
-    } else if (ctx.isGlobalWorkingDay(day) && current) {
-      // jour ouvré sans capacité (absence datée…) : on découpe
+    } else if (current && isDatedAbsenceDay(ctx, assignments, day)) {
+      // absence datée : on découpe (un jour chômé du motif hebdo reste dans le bloc)
       runs.push(current);
       current = null;
     }
@@ -385,7 +390,7 @@ function placeTask(
       merged.push({ ...b, assignments: b.assignments.map((a) => ({ ...a })) });
     }
   }
-  return merged;
+  return { blocks: merged, cause };
 }
 
 /**

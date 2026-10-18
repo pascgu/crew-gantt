@@ -7,27 +7,39 @@ import { useAppStore } from './store';
 interface Cache {
   file: TeamFile | null;
   today: string;
+  ref: string;
   schedule: Schedule | null;
   conflicts: Conflict[] | null;
 }
 
-const cache: Cache = { file: null, today: '', schedule: null, conflicts: null };
+const cache: Cache = { file: null, today: '', ref: '', schedule: null, conflicts: null };
 
-/** Recalcul memoïsé par référence de fichier (les mutations Immer changent la référence). */
-export function getSchedule(file: TeamFile, today = todayIso()): Schedule {
-  if (file !== cache.file || today !== cache.today) {
-    cache.schedule = computeSchedule(file, today);
+/**
+ * Recalcul memoïsé par référence de fichier (les mutations Immer changent la référence).
+ * `today` = présent du calcul (date de réunion si posée) ; `ref` = date à laquelle valent les restes
+ * stockés (le vrai aujourd'hui) — s'ils diffèrent, les restes sont vus à la date de réunion (R1).
+ */
+export function getSchedule(file: TeamFile, today = todayIso(), ref = todayIso()): Schedule {
+  if (file !== cache.file || today !== cache.today || ref !== cache.ref) {
+    cache.schedule = computeSchedule(file, today, ref);
     cache.conflicts = null;
     cache.file = file;
     cache.today = today;
+    cache.ref = ref;
   }
   return cache.schedule!;
 }
 
-export function getConflicts(file: TeamFile, today = todayIso()): Conflict[] {
-  const schedule = getSchedule(file, today);
+export function getConflicts(file: TeamFile, today = todayIso(), ref = todayIso()): Conflict[] {
+  const schedule = getSchedule(file, today, ref);
   cache.conflicts ??= detectConflicts(schedule);
   return cache.conflicts;
+}
+
+/** Planning courant de l'app (vu à la date de réunion si elle est posée). */
+export function currentSchedule(): Schedule {
+  const { file, reviewDate } = useAppStore.getState();
+  return getSchedule(file, reviewDate ?? todayIso());
 }
 
 export function useSchedule(): Schedule {
