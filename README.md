@@ -99,32 +99,18 @@ La version livrée (nom de l'installeur, numéro affiché par Windows) vient **u
 pas pour l'app livrée (vérifié y compris sur la ressource de version Windows embarquée dans l'exe),
 donc **ne jamais le modifier**.
 
-Les tags de release se posent sur `main` (jamais `develop`) :
+Les releases se publient depuis `main` (jamais `develop`), installeur construit en local :
 
 1. Merger `develop` → `main`.
-2. Bumper la version dans `package.json` uniquement, commit sur `main`.
-3. Tag + push :
-   ```bash
-   git tag vX.Y.Z
-   git push origin vX.Y.Z
-   ```
-4. [.github/workflows/release.yml](.github/workflows/release.yml) se déclenche sur ce tag (runner
-   Windows fourni par GitHub, aucun outillage local requis) : `npm test` → build → bundle NSIS →
-   release GitHub créée en **brouillon** avec l'installeur `.exe` en pièce jointe.
-5. Relire/ajuster les notes sur GitHub → *Releases*, puis **Publish** manuellement — rien n'est
-   public tant que ce n'est pas fait.
+2. Bumper la version dans `package.json` uniquement (`npm version X.Y.Z --no-git-tag-version`), commit.
+3. `npm run tauri:build` → l'installeur `CrewGantt_X.Y.Z_x64-setup.exe` est copié dans `installers/`
+   (racine du dépôt, ignoré par git).
+4. GitHub → *Releases* → **Draft a new release** : tag `vX.Y.Z` sur `main`, notes, joindre l'installeur
+   depuis `installers/`, puis **Publish**.
 
-**Déclenchement 100% depuis l'UI GitHub, sans terminal** : onglet *Actions* → workflow *"Release
-Windows"* → **Run workflow**. Pas de tag à créer à la main — le workflow lit lui-même la version
-dans `package.json` de la branche choisie et tague/publie en conséquence (`vX.Y.Z`), donc bien
-penser à bumper `package.json` et merger sur `main` **avant** de lancer le workflow ainsi. Sur un
-déclenchement par tag poussé (`git push origin vX.Y.Z`), c'est ce tag qui fait foi à la place.
-
-L'UI Releases de GitHub (*Draft a new release* → taper un nouveau nom de tag) fonctionne aussi pour
-créer un tag sans terminal, mais **le tag n'est créé qu'au moment de cliquer Publish** (pas à
-l'enregistrement du brouillon) — ça ne déclenche donc le workflow qu'après coup, et ça revient à
-publier une release avant même que l'exe soit construit. Préférer `workflow_dispatch` pour un
-déclenchement purement depuis le web.
+> Mise à jour de l'app bureau : à chaque nouvelle version, l'app purge au premier lancement le cache
+> du service worker hérité des versions ≤ 1.3.0 (qui figeait l'ancienne version) — sauvegardes de
+> secours et préférences intactes.
 
 ## Déploiement
 
