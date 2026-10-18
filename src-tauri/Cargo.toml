@@ -16,3 +16,9 @@ tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# Accès direct à WebView2 : vider le cache du service worker après une mise à jour (cf. main.rs).
+# Versions alignées sur celles qu'embarque Tauri (wry).
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"

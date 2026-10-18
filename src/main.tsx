@@ -22,6 +22,18 @@ import { t } from './i18n/fr';
 
 startAutosave();
 
+// Service worker (hors-ligne de la version navigateur / Docker) : jamais dans l'app bureau, où il
+// figeait une ancienne version en cache (Tauri ne le met pas à jour). S'il en reste un d'une version
+// antérieure, on le désinscrit et on vide son cache (main.rs le purge aussi à chaque mise à jour).
+if (!import.meta.env.DEV) {
+  if (isTauriRuntime()) {
+    void navigator.serviceWorker?.getRegistrations().then((regs) => regs.forEach((r) => void r.unregister()));
+    void globalThis.caches?.keys().then((keys) => keys.forEach((k) => void caches.delete(k)));
+  } else {
+    void import('virtual:pwa-register').then(({ registerSW }) => registerSW({ immediate: true }));
+  }
+}
+
 // Hook de test (window.__crew) pour les scénarios Playwright — jamais embarqué en prod.
 if (import.meta.env.DEV) void import('./devHook');
 

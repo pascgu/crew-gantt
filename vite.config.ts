@@ -14,6 +14,9 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Enregistrement fait à la main dans main.tsx, et seulement dans le navigateur : dans l'app
+      // bureau (Tauri), le service worker mettait l'app en cache et figeait une ancienne version.
+      injectRegister: null,
       manifest: {
         name: 'CrewGantt',
         short_name: 'CrewGantt',
