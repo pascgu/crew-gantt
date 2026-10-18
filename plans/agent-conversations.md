@@ -514,7 +514,7 @@ posée, le conflit disparaît.
   total, peu de captures) plutôt qu'un test par geste ; état lu via un hook dev `window.__crew`
   (vérifier le modèle, pas les pixels) ; horloge figée pour une démo reproductible ; écarts en
   `expect.soft` pour dérouler tout le scénario. Consigne : **noter les bugs dans
-  [20261018-recette-e2e.md](20261018-recette-e2e.md) sans les corriger**, sauf blocage. Premier passage : ~20 constats,
+  [20261018-plan-v1-3.md](20261018-plan-v1-3.md) sans les corriger**, sauf blocage. Premier passage : ~20 constats,
   dont un sérieux (R1 : un aller-retour de date en Réunion modifie les restes).
 
 ---
@@ -551,6 +551,24 @@ Format : décision retenue ↔ option(s) écartée(s) ↔ raison.
   création* / *bloc 0 j* / *statu quo (invisible)* ↔ pas de date prématurée mais plus d'oubli ;
   2 ancres « Maintenant »/« Continuité » (ancre « après la précédente » abandonnée car redondante avec
   le lien). Type de la tâche **conservé** (pas muté par le geste de resize). Voir §1.14.
+- **Tickets v1.3 (2026-10-18)** — détail et conséquences dans
+  [20261018-plan-v1-3.md](20261018-plan-v1-3.md), Partie B « Décisions de Pascal » :
+  - **Priorité = pastille seule** ↔ *texte orange/rouge* / *texte + pictogramme* ↔ le rouge et l'orange
+    sont déjà ceux des conflits et de la surcharge.
+  - **Masquer une ligne = niveau de priorité « masquée »** (+ archivage des projets réparé) ↔ *champ
+    `hidden` dédié* / *archives seules* ↔ un seul champ, une seule colonne, et le filtre de colonne existant
+    fait office de « Afficher les masquées ». Règle clé : *Annulé = hors calculs ; Masquée = hors vue*
+    (une tâche masquée compte toujours dans la charge ; ses conflits restent comptés à part).
+  - **Un programme par fichier (app bureau)** ↔ *une fenêtre par fichier* / *reporter* ↔ le plus simple
+    et isolé ; impose une sauvegarde de secours par fichier (zéro perte).
+  - **Affectation multi-sélection = remplacer l'équipe** ↔ *ajouter/ajuster* ↔ choix de Pascal
+    (puissant ; garde-fous : libellé « Appliquer à N tâches », un seul Ctrl+Z).
+  - **Équipe prévue sur une tâche non placée** ↔ *affecter crée le bloc* ↔ rien ne se place tout seul.
+  - **Affichage Gantt par tâche stocké dans le .cgan** ↔ *préférence locale* ↔ c'est de la mise en
+    forme du plan, elle doit suivre le fichier.
+  - **Réunion : instantané du plan mémorisé dans l'entrée de journal** ↔ *baseline automatique à chaque
+    clôture* ↔ ne pas polluer les baselines (références volontaires) ; l'instantané garde aussi statuts,
+    restes et équipes.
 
 ---
 

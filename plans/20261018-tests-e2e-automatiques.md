@@ -1,6 +1,6 @@
 # Tests E2E automatiques pilotés par l'agent
 
-> Créé le 2026-10-18. Constats issus des scénarios : [20261018-recette-e2e.md](20261018-recette-e2e.md).
+> Créé le 2026-10-18. Constats issus des scénarios : [20261018-plan-v1-3.md](20261018-plan-v1-3.md).
 
 ## Demande
 
@@ -59,7 +59,7 @@ des `expect.soft` : le scénario continue et liste tous les écarts d'un coup.
 suite complète (9 tests historiques + 7 scénarios) ≈ 30 s en parallèle, reproductible.
 
 ### Retours
-~20 constats triés par sévérité dans [20261018-recette-e2e.md](20261018-recette-e2e.md) — le plus
+~20 constats triés par sévérité dans [20261018-plan-v1-3.md](20261018-plan-v1-3.md) — le plus
 sérieux : un aller-retour de date en Réunion modifie définitivement les restes (R1).
 **Aucune correction du code applicatif** (consigne respectée : rien n'a bloqué les scénarios).
 
@@ -102,6 +102,19 @@ sérieux : un aller-retour de date en Réunion modifie définitivement les reste
   constat visuel. Correction : `animations: 'disabled'` à la capture.
 - Délai Playwright de 30 s insuffisant pour un scénario long (autosave 2 s, `expect.soft` qui
   attendent 5 s en cas d'écart) → 2 min dans la fixture.
+
+### Complément — qualification des tickets de Pascal (même jour)
+- 12 tickets testés ; résultats dans la **Partie B** de [20261018-plan-v1-3.md](20261018-plan-v1-3.md),
+  bien séparée des constats de l'agent (Partie A). Cible de livraison du plan : **v1.3.0**.
+- Nouveau scénario `08-tickets.spec.ts` : un test court par ticket testable (`T1`, `T3 (piste)`, `T4`,
+  `T5`, `T7`, `T8`, `T9`, `T11`). Contrairement aux scénarios 01-07, ce sont des tests isolés : un ticket
+  = un test, pour suivre chaque correction indépendamment.
+- Hook dev enrichi : `__crew.load(fichier)` injecte un fichier précis (validé et migré) — utilisé pour T7
+  (deux tâches à 0 j liées), cas impossible à monter rapidement à la souris.
+- Découvertes : T4 ne se reproduit pas dans le navigateur → cause probable propre à Tauri
+  (`dragDropEnabled`) ; en creusant T3, l'archivage d'un projet s'est révélé sans effet visible (tâches
+  toujours affichées, et plus filtrables) ; T6 se heurte à l'emplacement **unique** de la sauvegarde de
+  secours IndexedDB (clé `latest`), partagé entre instances.
 
 ### Pistes pour la suite
 - Une fois les constats corrigés, les `expect.soft` correspondants passent au vert : le fichier de

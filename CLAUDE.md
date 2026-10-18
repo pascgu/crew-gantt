@@ -35,7 +35,7 @@ fixture `app` (horloge figée au mercredi 2026-10-21, dialogues natifs auto-rép
 `bar()` / `drag()` / `dragTo()` / `hoverLink()` / `contextMenu()` qui s'appuient sur les attributs
 `data-task-id`, `data-block-id`, `data-link-handle`, `data-link-key`, et `shot()` (captures dans
 `tests/e2e/.shots/`, ignoré par git). Les écarts au comportement documenté sont des `expect.soft` :
-ils échouent tant que le point listé dans [plans/20261018-recette-e2e.md](plans/20261018-recette-e2e.md) n'est pas
+ils échouent tant que le point listé dans [plans/20261018-plan-v1-3.md](plans/20261018-plan-v1-3.md) n'est pas
 réglé — **tenir ce fichier à jour** (constats, puis cocher quand corrigé).
 
 ### Captures d'écran / vérification visuelle (Playwright)
@@ -64,7 +64,7 @@ Le catalogue complet des conflits (types, affichage, résolution) est dans [plan
 
 ### Nommage des plans (`plans/`)
 Tout **nouveau** fichier de plan créé dans `plans/` se nomme `AAAAMMJJ-nom-du-plan.md`, avec la
-date du jour de sa création (ex. `20261018-recette-e2e.md`). Les documents de référence existants
+date du jour de sa création (ex. `20261018-plan-v1-3.md`). Les documents de référence existants
 (`GDD.md`, `conflicts.md`, `TODO.md`, `agent-conversations.md`) gardent leur nom. Quand une demande
 donne lieu à un travail notable, créer un plan qui reprend **la demande**, **ce qui a été fait**
 et une section **« Implémentation »** (découvertes, corrections en cours de route), en référençant

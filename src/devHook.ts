@@ -8,6 +8,7 @@
  */
 import { todayIso } from '@/core/calendar/dates';
 import { splitIgnored } from '@/core/conflicts/detect';
+import { parseTeamFile } from '@/core/model/migrate';
 import type { Task } from '@/core/model/types';
 import { getConflicts, getSchedule } from '@/state/schedule';
 import { redo, undo, useAppStore } from '@/state/store';
@@ -81,6 +82,11 @@ const api = {
   },
   cycle: () => currentSchedule().schedule.cycle,
   canUndo: () => useAppStore.temporal.getState().pastStates.length > 0,
+  /** Remplace le fichier courant (validé + migré) — pour monter un cas précis sans le saisir à la main. */
+  load: (json: unknown) => {
+    useAppStore.getState().replaceFile(parseTeamFile(JSON.stringify(json)), null);
+    useAppStore.temporal.getState().clear();
+  },
   undo,
   redo,
 };

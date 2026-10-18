@@ -23,7 +23,7 @@ npm run dev        # http://localhost:5173 (démo embarquée au premier lancemen
 npm test           # Vitest — moteur de calcul couvert à ~99 %
 npm run coverage   # couverture du core
 npm run e2e        # Playwright (chromium) — parcours clés
-npm run e2e:scenarios  # scénarios de recette des fonctions décrites dans l'Aide (constats : plans/20261018-recette-e2e.md)
+npm run e2e:scenarios  # scénarios de recette des fonctions décrites dans l'Aide (constats : plans/20261018-plan-v1-3.md)
 npm run lint       # ESLint (core/ sans import React/DOM, vérifié)
 npm run build      # tsc + vite → dist/
 npm run gen-icons  # régénère les icônes PNG dans public/ depuis les SVG sources
